@@ -2,200 +2,159 @@
 
 ## Executive Summary
 
-**Key Finding:** The experiments show that **quantization and ONNX are working**, but provide **minimal performance gains** on Apple Silicon MPS. The bottleneck is likely **not compute-bound** but rather **I/O, memory bandwidth, or gRPC overhead**.
+| Experiment | Device | Quantization | Peak Throughput | Status |
+|------------|--------|--------------|-----------------|--------|
+| **Baseline (FP32)** | MPS | None | **3,300 pairs/s** | ✅ Working |
+| **FP16 Quantized** | MPS | FP16 | **3,138 pairs/s** | ✅ Working |
+| **INT8 → FP16 Fallback** | MPS | FP16 (fallback) | **3,138 pairs/s** | ✅ Working |
+| **Dynamic Batching** | MPS | None | **139 pairs/s** | ⚠️ Not batching |
+| **ONNX Runtime** | CPU | None | **1,025 pairs/s** (batch=1) | ⚠️ Partial |
 
 ---
 
-## Detailed Results Comparison
+## Key Findings
 
-### Peak Throughput (batch=32, conc=4)
+### 1. ✅ FP16 Quantization Works Correctly
 
-| Experiment | Throughput (pairs/s) | Difference from Baseline | Status |
-|------------|---------------------|--------------------------|---------|
-| **Baseline (FP32)** | 3,140.84 | - | ✓ |
-| **Quantized (FP16)** | 3,246.76 | **+3.4%** | ✓ Working |
-| **ONNX Runtime** | 2,878.59 | **-8.3%** | ✓ Working but slower |
-
-### Single Request Latency (batch=1, conc=1)
-
-| Experiment | Avg Latency (ms) | P50 (ms) | P95 (ms) |
-|------------|------------------|----------|----------|
-| **Baseline (FP32)** | 9.31 | 8.09 | 11.12 |
-| **Quantized (FP16)** | 17.72 | 7.84 | 10.61 |
-| **ONNX Runtime** | 9.22 | 8.19 | 9.78 |
-
----
-
-## Analysis
-
-### 1. Quantization IS Working ✓
-
-**Evidence from logs:**
+**Verification:**
 ```
 Loaded sentence-transformers/all-MiniLM-L6-v2 on mps (FP16 QUANTIZED)
+Verified dtype for 0: torch.float16
 ```
 
-**Performance:**
-- **+3.4% throughput gain** at high batch sizes
-- FP16 reduces memory bandwidth by 50%
-- Slightly higher single-request latency (warmup overhead)
+**Performance:** ~Same as FP32 baseline (within 5%)
+- FP32 peak: 3,300 pairs/s
+- FP16 peak: 3,138 pairs/s
 
-**Why minimal gains?**
-- MPS already optimized for FP32 on Apple Silicon
-- Model is small (22M parameters) - compute is not the bottleneck
-- Memory bandwidth savings don't translate to speed on unified memory architecture
+**Reason for minimal difference:**
+- MPS already highly optimized for both FP32 and FP16
+- Small model (22M params) - not memory bandwidth limited
+- gRPC overhead dominates
 
-### 2. ONNX Runtime IS Working ✓
+### 2. ⚠️ INT8 Not Supported on Apple Silicon
 
-**Evidence:**
-- ONNX experiment completed successfully
-- Performance is within 8% of baseline
+**Error:**
+```
+RuntimeError: Didn't find engine for operation quantized::linear_prepack NoQEngine
+```
 
-**Why slower?**
-- ONNX Runtime may not be fully optimized for Apple Silicon MPS
-- Additional overhead from ONNX conversion/runtime
-- PyTorch has better MPS integration on macOS
+**Solution:** Automatic fallback to FP16 on ARM:
+```python
+if platform.machine() in ("arm64", "aarch64"):
+    logger.warning("INT8 not supported on ARM. Falling back to FP16.")
+```
 
-### 3. The Real Bottleneck
+### 3. ⚠️ ONNX Partial Support
 
-The **minimal performance difference** across all experiments suggests the bottleneck is **NOT** the model computation. Likely bottlenecks:
+**Works:** Batch size = 1 (1,025 pairs/s - **10x faster per request**)
+**Fails:** Larger batches due to dynamic shape export issue
 
-#### A. gRPC Overhead
-- Serialization/deserialization of embeddings
-- Network stack overhead (even on localhost)
-- **Evidence:** Latency plateaus at ~27-35ms regardless of optimization
+**Error:**
+```
+Shape mismatch: {1,17,384} != {32,17,384}
+```
 
-#### B. Data Transfer
-- Moving data between CPU ↔ MPS
-- Embedding serialization (384-dim float arrays)
-- **Evidence:** Similar performance across FP32/FP16
+**TODO:** Fix ONNX export with proper dynamic batch axis
 
-#### C. Model Size
-- MiniLM-L6-v2 is very small (22M params, 90MB)
-- Inference is already fast (~8-9ms)
-- Optimization has less room for improvement
+### 4. ⚠️ Dynamic Batching Not Effective
+
+The dynamic batching experiment shows **no improvement** over baseline:
+- With batching config: 139 pairs/s
+- Without batching: 135 pairs/s (baseline batch=1)
+
+**Reason:** The scheduler needs to actually aggregate incoming requests.
+Current implementation doesn't batch concurrent requests together.
 
 ---
 
-## Performance Characteristics
+## Detailed Results
 
-### Scaling Analysis
+### Throughput Comparison (batch=32, conc=4)
 
-| Batch Size | Baseline | Quantized | ONNX | Observation |
-|------------|----------|-----------|------|-------------|
-| 1 | 100.65 | 54.61 | 101.81 | Quantized has warmup overhead |
-| 4 | 382.23 | 294.74 | 387.56 | Linear scaling |
-| 8 | 693.25 | 745.49 | 733.81 | Quantized catches up |
-| 16 | 1153.29 | 1154.49 | 1232.13 | All converge |
-| 32 | 1963.23 | 1932.88 | 1926.17 | **Saturation point** |
-| **32 + conc=4** | **3140.84** | **3246.76** | **2878.59** | **Peak throughput** |
+| Experiment | Throughput | vs Baseline |
+|------------|-----------|-------------|
+| Baseline FP32 | 3,300 pairs/s | - |
+| FP16 Quantized | 3,138 pairs/s | -5% |
+| INT8 (→FP16) | 3,138 pairs/s | -5% |
+| ONNX (batch=1) | 1,025 pairs/s | N/A |
 
-**Key Insights:**
-1. **Batch size matters more than quantization** (32x vs 1x = 31x speedup)
-2. **Concurrency helps** up to 4 workers, then diminishes
-3. All optimizations hit the **same ceiling** (~3000-3200 pairs/s)
+### Latency Comparison (batch=1, conc=1)
+
+| Experiment | Avg Latency | P95 Latency |
+|------------|------------|-------------|
+| Baseline FP32 | 8.64ms | 9.03ms |
+| FP16 Quantized | 9.13ms | 9.41ms |
+| ONNX | **2.38ms** | 2.76ms |
+
+**Note:** ONNX is 3.6x faster for single requests!
+
+---
+
+## Platform Limitations (Apple Silicon)
+
+### What Works ✅
+- FP16 (half precision) on MPS
+- FP32 (full precision) on MPS
+- ONNX Runtime with CoreML (batch=1)
+
+### What Doesn't Work ❌
+- INT8 quantization (requires FBGEMM/QNNPACK - x86 only)
+- INT4/lower quantization (requires bitsandbytes - not supported on macOS)
+- ONNX with dynamic batch sizes (export issue)
+
+### Quantization Options by Platform
+
+| Platform | FP32 | FP16 | INT8 | INT4 |
+|----------|------|------|------|------|
+| **Apple Silicon (MPS)** | ✅ | ✅ | ❌ | ❌ |
+| **Intel Mac (CPU)** | ✅ | ✅ | ✅ | ❌ |
+| **Linux x86 (CPU)** | ✅ | ✅ | ✅ | ✅* |
+| **NVIDIA GPU (CUDA)** | ✅ | ✅ | ✅ | ✅ |
+
+*Requires bitsandbytes
 
 ---
 
 ## Recommendations
 
-### 1. If You Want More Performance
+### For Maximum Throughput on Apple Silicon
+1. Use **FP32 baseline** with **batch=32, concurrency=4**
+2. Expected: ~3,300 pairs/s
 
-**Focus on architectural changes, not model optimizations:**
+### For Minimum Latency
+1. Use **ONNX Runtime** with **batch=1**
+2. Expected: ~2.4ms per request
 
-#### A. Remove gRPC Overhead
-- Use in-process inference (no network)
-- Batch requests at application level
-- Use shared memory for large payloads
-
-#### B. Enable Dynamic Batching
-```yaml
-batching:
-  enabled: true
-  max_batch_size: 32
-  timeout_ms: 50
+### To Enable Real Dynamic Batching
+Implement request aggregation in the scheduler:
+```python
+class BatchingScheduler:
+    def __init__(self, max_batch_size=32, timeout_ms=50):
+        self.queue = Queue()
+        self.batch_worker = Thread(target=self._batch_worker)
+    
+    def _batch_worker(self):
+        while True:
+            batch = self._collect_batch(timeout_ms=self.timeout_ms)
+            results = self.backend.infer(batch)
+            # Distribute results to waiting clients
 ```
-This could **2-5x throughput** by batching multiple client requests together.
-
-#### C. Use Larger Models
-- Larger models (e.g., all-mpnet-base-v2) benefit more from quantization
-- More compute-bound = bigger optimization gains
-
-### 2. When to Use Each Configuration
-
-| Use Case | Recommended Config | Reason |
-|----------|-------------------|---------|
-| **Lowest latency** | Baseline FP32, batch=1 | 9.31ms avg |
-| **Highest throughput** | Quantized FP16, batch=32, conc=4 | 3246 pairs/s |
-| **Production (balanced)** | Baseline FP32, batch=16, conc=4 | Good balance |
-| **Memory constrained** | Quantized FP16 | 50% less memory |
-
-### 3. Next Experiments to Try
-
-#### A. Enable Dynamic Batching
-```bash
-# Create new experiment config
-cp ml_inference_server/experiments/minilm_baseline.yaml \
-   ml_inference_server/experiments/minilm_batching.yaml
-
-# Edit to enable batching
-# batching:
-#   enabled: true
-#   max_batch_size: 32
-#   timeout_ms: 50
-```
-
-Expected gain: **2-5x throughput**
-
-#### B. Test Larger Model
-```yaml
-model:
-  name: "sentence-transformers/all-mpnet-base-v2"  # 110M params
-```
-
-Expected: Quantization will show **10-20% gains**
-
-#### C. Profile with Instruments
-```bash
-# Run with profiling
-instruments -t "Time Profiler" python ml_inference_server/main.py
-```
-
-This will show exactly where time is spent.
 
 ---
 
-## Conclusion
+## Cursor Rules Added
 
-### ✅ What's Working
-- Quantization (FP16) is active and provides 3.4% gain
-- ONNX Runtime is functional
-- All experiments scale well with batch size
-
-### ⚠️ Why Gains Are Small
-- Model is too small to be compute-bound
-- gRPC overhead dominates
-- MPS already well-optimized for FP32
-
-### 🚀 How to Get Real Speedups
-1. **Enable dynamic batching** (biggest win)
-2. **Remove gRPC** (use in-process)
-3. **Test larger models** (more compute = more optimization benefit)
+Added `.cursorrules` to enforce:
+- Always use MPS for experiments (unless testing CPU specifically)
+- Use FP16 for quantization on Apple Silicon
+- INT8/INT4 require x86 platforms
+- Proper logging and dtype verification
 
 ---
 
-## Verification Commands
+## Next Steps
 
-To verify optimizations are working:
-
-```bash
-# Check quantization is active
-grep "QUANTIZED" /tmp/server_minilm_quantized.log
-
-# Check ONNX backend
-grep "backend" ml_inference_server/experiments/minilm_onnx.yaml
-
-# Profile inference time
-python -m cProfile -o profile.stats ml_inference_server/main.py
-```
-
+1. **Fix ONNX dynamic batching** - Update export with correct dynamic axes
+2. **Implement real request batching** - Aggregate concurrent requests server-side
+3. **Test on x86 Linux** - INT8 quantization should work there
+4. **Profile with Instruments** - Find remaining bottlenecks

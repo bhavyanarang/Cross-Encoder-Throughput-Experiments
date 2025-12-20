@@ -6,4 +6,7 @@ grpcio-tools>=1.50.0
 pyyaml>=6.0
 numpy>=1.24.0
 ruff>=0.1.0
+onnxruntime>=1.16.0
+onnxscript>=0.1.0
+optimum[onnxruntime]>=1.14.0
 

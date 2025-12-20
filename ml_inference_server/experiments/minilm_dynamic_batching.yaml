@@ -1,0 +1,22 @@
+# Experiment: MiniLM with Dynamic Batching
+name: "minilm_dynamic_batching"
+description: "MiniLM-L6-v2 with dynamic batching enabled on MPS"
+
+model:
+  name: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "mps"
+  quantized: false
+  backend: "pytorch"
+
+# Enable dynamic batching
+batching:
+  enabled: true
+  max_batch_size: 32
+  timeout_ms: 50
+
+# Override experiment parameters for batching test
+experiment:
+  batch_sizes: [1]  # Client sends batch_size=1, server batches dynamically
+  concurrency_levels: [1, 4, 8, 16, 32]
+  benchmark_requests: 500
+

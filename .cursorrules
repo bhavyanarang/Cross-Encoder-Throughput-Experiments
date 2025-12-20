@@ -1,0 +1,33 @@
+# Cursor Rules for ML Inference Server
+
+## Device Configuration
+- **Always use MPS** (Apple Silicon GPU) for all experiments unless explicitly testing CPU performance
+- Device fallback order: `mps` -> `cpu` (never use CUDA in this repo)
+- Verify MPS availability with `torch.backends.mps.is_available()` before use
+
+## Quantization Guidelines
+- **FP16**: Use `model.half()` - works on MPS
+- **INT8**: Requires CPU - use `torch.quantization.quantize_dynamic()`
+- **INT4**: Requires specialized libraries (bitsandbytes) - CPU only on macOS
+
+## Experiment Conventions
+- All experiment configs go in `ml_inference_server/experiments/`
+- Experiment configs inherit from `base_config.yaml`
+- Name format: `{model}_{variant}.yaml` (e.g., `minilm_fp16.yaml`)
+- Always include `name` and `description` fields
+
+## Backend Implementation
+- Backend classes must implement: `load_model()`, `infer()`, `warmup()`
+- Return numpy arrays from `infer()` for gRPC serialization
+- Log model loading details including quantization status
+
+## Code Style
+- Use type hints for all function parameters
+- Use logging module, not print statements
+- Format: `%(asctime)s | %(levelname)s | %(message)s`
+
+## Testing
+- Run linter before committing: `./lint.sh`
+- Verify quantization by checking model dtype after loading
+- Log actual precision being used (FP32, FP16, INT8)
+

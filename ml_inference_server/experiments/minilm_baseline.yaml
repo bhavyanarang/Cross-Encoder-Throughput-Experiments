@@ -1,15 +1,13 @@
-# Experiment: MiniLM Baseline (no quantization)
+# Experiment: MiniLM Baseline (FP32, no quantization)
 name: "minilm_baseline"
-description: "Baseline experiment with MiniLM-L6-v2 on MPS without quantization"
+description: "Baseline experiment with MiniLM-L6-v2 on MPS (FP32)"
 
 model:
   name: "sentence-transformers/all-MiniLM-L6-v2"
   device: "mps"
   quantized: false
-  backend: "pytorch"  # pytorch, onnx
+  quantization_mode: "none"
+  backend: "pytorch"
 
-# Override experiment parameters if needed
-# experiment:
-#   batch_sizes: [1, 4, 8]
-#   benchmark_requests: 100
+# Uses default experiment parameters from base_config.yaml
 

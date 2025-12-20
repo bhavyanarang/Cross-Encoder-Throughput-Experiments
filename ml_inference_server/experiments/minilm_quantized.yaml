@@ -1,14 +1,14 @@
-# Experiment: MiniLM Quantized (INT8)
-name: "minilm_quantized"
-description: "MiniLM-L6-v2 with INT8 quantization on MPS"
+# Experiment: MiniLM FP16 Quantization (MPS)
+name: "minilm_fp16"
+description: "MiniLM-L6-v2 with FP16 half precision on MPS"
 
 model:
   name: "sentence-transformers/all-MiniLM-L6-v2"
   device: "mps"
   quantized: true
+  quantization_mode: "fp16"
   backend: "pytorch"
 
-# Override experiment parameters if needed
-# experiment:
-#   batch_sizes: [1, 4, 8, 16]
+# Note: FP16 is the best quantization option for MPS
+# Expected: Similar or slightly better performance with lower memory
 

@@ -1,0 +1,15 @@
+# Experiment: MiniLM INT8 Quantization (x86 CPU only)
+# NOTE: On Apple Silicon, this falls back to FP16 on MPS
+name: "minilm_int8_cpu"
+description: "MiniLM-L6-v2 with INT8 quantization (x86 CPU) or FP16 fallback (ARM)"
+
+model:
+  name: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "mps"  # Will use MPS with FP16 on Apple Silicon
+  quantized: true
+  quantization_mode: "int8"  # Falls back to FP16 on ARM
+  backend: "pytorch"
+
+# Note: INT8 requires x86 CPU (FBGEMM/QNNPACK)
+# On Apple Silicon: Automatically falls back to FP16 on MPS
+

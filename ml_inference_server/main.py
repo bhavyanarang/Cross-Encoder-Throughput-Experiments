@@ -20,7 +20,7 @@ if not os.path.exists(os.path.join(proto_dir, "inference_pb2.py")):
         os.path.join(proto_dir, "inference.proto"),
     ], check=True)
 
-from backends import PyTorchBackend
+from backends import create_backend
 from metrics import MetricsCollector
 from metrics.http_server import start_metrics_server, set_metrics_collector
 from server.scheduler import Scheduler
@@ -57,20 +57,21 @@ def main():
         config["model"]["name"] = args.model_name
 
     logger.info(f"Loading model: {config['model']['name']}")
-    logger.info(f"Device: {config['model']['device']}")
+    logger.info(f"Device: {config['model'].get('device', 'mps')}")
+    logger.info(f"Backend: {config['model'].get('backend', 'pytorch')}")
     if config["model"].get("quantized", False):
-        logger.info("Quantization: ENABLED")
+        logger.info(f"Quantization: {config['model'].get('quantization_mode', 'fp16').upper()}")
     else:
         logger.info("Quantization: DISABLED")
     
-    # Initialize backend
-    backend = PyTorchBackend(
-        model_name=config["model"]["name"],
-        device=config["model"]["device"],
-        quantized=config["model"].get("quantized", False),
-    )
+    # Initialize backend using factory
+    backend = create_backend(config)
     backend.load_model()
     backend.warmup()
+    
+    # Log model info
+    model_info = backend.get_model_info()
+    logger.info(f"Model info: {model_info}")
 
     # Initialize metrics and scheduler
     metrics = MetricsCollector()
