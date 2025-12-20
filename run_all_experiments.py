@@ -39,10 +39,14 @@ def run_experiment(experiment_path: str, output_dir: str = "ml_inference_server/
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, f"{experiment_name}_results.md")
     
+    # Determine Python executable (use venv if available)
+    venv_python = os.path.join(os.path.dirname(__file__), "venv", "bin", "python")
+    python_exec = venv_python if os.path.exists(venv_python) else sys.executable
+    
     # Start server
     logger.info("Starting inference server...")
     server_cmd = [
-        sys.executable,
+        python_exec,
         "ml_inference_server/main.py",
         "--experiment", experiment_path
     ]
@@ -70,7 +74,7 @@ def run_experiment(experiment_path: str, output_dir: str = "ml_inference_server/
         # Run client benchmark
         logger.info("Running benchmark...")
         client_cmd = [
-            sys.executable,
+            python_exec,
             "ml_inference_server/client.py",
             "--experiment",
             "--config", experiment_path,
