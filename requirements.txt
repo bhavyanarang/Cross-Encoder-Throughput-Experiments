@@ -1,0 +1,9 @@
+torch>=2.0.0
+transformers>=4.30.0
+sentence-transformers>=2.2.0
+grpcio>=1.50.0
+grpcio-tools>=1.50.0
+pyyaml>=6.0
+numpy>=1.24.0
+ruff>=0.1.0
+

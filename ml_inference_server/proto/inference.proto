@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package inference;
+
+service InferenceService {
+    rpc Infer(InferRequest) returns (InferResponse);
+    rpc GetMetrics(Empty) returns (MetricsResponse);
+}
+
+message Empty {}
+
+message InferRequest {
+    repeated string texts = 1;
+}
+
+message InferResponse {
+    repeated float embeddings = 1;
+    int32 embedding_dim = 2;
+    int32 num_texts = 3;
+    float latency_ms = 4;
+}
+
+message MetricsResponse {
+    int32 count = 1;
+    float avg_ms = 2;
+    float p50_ms = 3;
+    float p95_ms = 4;
+    float p99_ms = 5;
+    float throughput_rps = 6;
+}
+
