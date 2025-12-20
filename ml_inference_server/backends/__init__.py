@@ -1,6 +1,7 @@
 from .base_backend import BaseBackend
 from .pytorch_backend import PyTorchBackend
 from .onnx_backend import ONNXBackend
+from .mlx_backend import MLXBackend
 
 
 def create_backend(config: dict) -> BaseBackend:
@@ -17,6 +18,14 @@ def create_backend(config: dict) -> BaseBackend:
             optimize=onnx_config.get("optimize", True),
             use_coreml=onnx_config.get("use_gpu", True),
         )
+    elif backend_type == "mlx":
+        mlx_config = config.get("model", {}).get("mlx", {})
+        return MLXBackend(
+            model_name=model_name,
+            device=device,
+            quantization_bits=mlx_config.get("bits", 16),
+            group_size=mlx_config.get("group_size", 64),
+        )
     else:
         # Default to PyTorch backend
         quantized = config["model"].get("quantized", False)
@@ -29,5 +38,5 @@ def create_backend(config: dict) -> BaseBackend:
         )
 
 
-__all__ = ["BaseBackend", "PyTorchBackend", "ONNXBackend", "create_backend"]
+__all__ = ["BaseBackend", "PyTorchBackend", "ONNXBackend", "MLXBackend", "create_backend"]
 

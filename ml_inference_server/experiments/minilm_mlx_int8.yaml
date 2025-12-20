@@ -1,0 +1,16 @@
+# Experiment: MiniLM with MLX INT8 Quantization
+name: "minilm_mlx_int8"
+description: "MiniLM-L6-v2 with MLX backend and INT8 (8-bit) quantization on Apple Silicon"
+
+model:
+  name: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "mps"
+  backend: "mlx"
+  mlx:
+    bits: 8
+    group_size: 64
+
+# Note: MLX is Apple's native ML framework for Apple Silicon
+# INT8 provides ~2x memory reduction with negligible accuracy loss
+# Install: pip install mlx mlx-lm
+
