@@ -1,0 +1,19 @@
+# Base experiment configuration
+# This file contains the default settings for all experiments
+
+server:
+  host: "0.0.0.0"
+  port: 50051
+
+# Common experiment parameters
+experiment:
+  batch_sizes: [1, 4, 8, 16, 32]
+  concurrency_levels: [1, 4, 8]
+  warmup_iterations: 10
+  benchmark_requests: 500
+
+batching:
+  enabled: false
+  max_batch_size: 8
+  timeout_ms: 100
+

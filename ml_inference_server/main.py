@@ -25,18 +25,28 @@ from metrics import MetricsCollector
 from metrics.http_server import start_metrics_server, set_metrics_collector
 from server.scheduler import Scheduler
 from server.grpc_server import serve
+from utils import load_experiment_config
 
 
 def main():
     parser = argparse.ArgumentParser(description="ML Inference Server")
-    parser.add_argument("--config", default="config.yaml", help="Path to config file")
+    parser.add_argument("--config", default="config.yaml", help="Path to config file (legacy)")
+    parser.add_argument("--experiment", help="Path to experiment config (e.g., experiments/minilm_baseline.yaml)")
     parser.add_argument("--quantized", action="store_true", help="Enable quantization (overrides config)")
     parser.add_argument("--device", help="Device to use (overrides config: mps, cpu)")
     parser.add_argument("--model-name", help="Model name (overrides config)")
     args = parser.parse_args()
 
-    with open(args.config) as f:
-        config = yaml.safe_load(f)
+    # Load config - either experiment or legacy config
+    if args.experiment:
+        logger.info(f"Loading experiment config: {args.experiment}")
+        config = load_experiment_config(args.experiment)
+        logger.info(f"Experiment: {config.get('_experiment_name', 'unnamed')}")
+        logger.info(f"Description: {config.get('_experiment_description', 'N/A')}")
+    else:
+        logger.info(f"Loading legacy config: {args.config}")
+        with open(args.config) as f:
+            config = yaml.safe_load(f)
 
     # Override config with CLI arguments
     if args.quantized:
@@ -47,8 +57,11 @@ def main():
         config["model"]["name"] = args.model_name
 
     logger.info(f"Loading model: {config['model']['name']}")
+    logger.info(f"Device: {config['model']['device']}")
     if config["model"].get("quantized", False):
         logger.info("Quantization: ENABLED")
+    else:
+        logger.info("Quantization: DISABLED")
     
     # Initialize backend
     backend = PyTorchBackend(

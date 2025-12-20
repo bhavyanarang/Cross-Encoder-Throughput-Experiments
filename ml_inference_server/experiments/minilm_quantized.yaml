@@ -1,0 +1,14 @@
+# Experiment: MiniLM Quantized (INT8)
+name: "minilm_quantized"
+description: "MiniLM-L6-v2 with INT8 quantization on MPS"
+
+model:
+  name: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "mps"
+  quantized: true
+  backend: "pytorch"
+
+# Override experiment parameters if needed
+# experiment:
+#   batch_sizes: [1, 4, 8, 16]
+

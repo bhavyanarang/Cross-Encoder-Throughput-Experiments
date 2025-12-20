@@ -1,0 +1,17 @@
+# Experiment: MiniLM ONNX Runtime
+name: "minilm_onnx"
+description: "MiniLM-L6-v2 with ONNX Runtime optimization on MPS"
+
+model:
+  name: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "mps"
+  quantized: false
+  backend: "onnx"
+  onnx:
+    optimize: true
+    use_gpu: true  # Will use CoreML on macOS
+
+# Override experiment parameters if needed
+# experiment:
+#   batch_sizes: [1, 4, 8, 16, 32]
+

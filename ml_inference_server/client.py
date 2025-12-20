@@ -15,6 +15,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "proto"))
 import inference_pb2
 import inference_pb2_grpc
 
+from utils import load_experiment_config
+
 
 def load_dataset(num_samples: int = 1000):
     """Load MS MARCO queries from HuggingFace datasets."""
@@ -34,14 +36,28 @@ def load_dataset(num_samples: int = 1000):
 
 
 def run_inference(stub, texts):
-    request = inference_pb2.InferRequest(texts=texts)
-    response = stub.Infer(request)
-    return response
+    try:
+        request = inference_pb2.InferRequest(texts=texts)
+        response = stub.Infer(request)
+        return response
+    except grpc.RpcError as e:
+        logger.error(f"gRPC error during inference: {e.code()} - {e.details()}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error during inference: {e}")
+        raise
 
 
 def get_metrics(stub):
-    response = stub.GetMetrics(inference_pb2.Empty())
-    return response
+    try:
+        response = stub.GetMetrics(inference_pb2.Empty())
+        return response
+    except grpc.RpcError as e:
+        logger.error(f"gRPC error getting metrics: {e.code()} - {e.details()}")
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error getting metrics: {e}")
+        raise
 
 
 def benchmark(stub, all_texts: list, batch_size: int, num_requests: int, concurrency: int = 1):
@@ -151,8 +167,27 @@ def run_experiments(stub, config, queries: list):
             logger.info(f"\n{'='*60}")
             logger.info(f"Experiment {current}/{total_experiments}: batch_size={batch_size}, concurrency={concurrency}")
             logger.info(f"{'='*60}")
-            result = benchmark(stub, queries, batch_size, num_requests, concurrency)
-            results.append(result)
+            try:
+                result = benchmark(stub, queries, batch_size, num_requests, concurrency)
+                results.append(result)
+            except Exception as e:
+                logger.error(f"Experiment {current}/{total_experiments} failed: {e}")
+                logger.error("Continuing with next experiment...")
+                # Add a failed result entry
+                results.append({
+                    "batch_size": batch_size,
+                    "concurrency": concurrency,
+                    "num_requests": num_requests,
+                    "total_pairs": num_requests * batch_size,
+                    "total_time_s": 0.0,
+                    "avg_ms": 0.0,
+                    "p50_ms": 0.0,
+                    "p95_ms": 0.0,
+                    "p99_ms": 0.0,
+                    "throughput_rps": 0.0,
+                    "pairs_per_s": 0.0,
+                    "error": str(e)
+                })
     
     return results
 
@@ -166,6 +201,7 @@ def main():
     parser.add_argument("--requests", type=int, default=50)
     parser.add_argument("--dataset-size", type=int, default=500, help="Number of queries to load from dataset")
     parser.add_argument("--experiment", action="store_true", help="Run full experiment suite from config")
+    parser.add_argument("--config", help="Path to experiment config (e.g., experiments/minilm_baseline.yaml)")
     parser.add_argument("--output", default="docs/experiment_results.md", help="Output markdown file")
     args = parser.parse_args()
 
@@ -180,28 +216,68 @@ def main():
     # Load real queries
     queries = load_dataset(args.dataset_size)
 
+    # Check if server is reachable
+    try:
+        # Try to get metrics to verify connection
+        _ = get_metrics(stub)
+        logger.info("Connected to inference server successfully")
+    except Exception as e:
+        logger.error(f"Failed to connect to inference server at {args.host}:{args.port}")
+        logger.error(f"Error: {e}")
+        logger.error("Make sure the server is running with: ./run_server.sh")
+        sys.exit(1)
+
     if args.experiment:
-        with open("config.yaml") as f:
-            config = yaml.safe_load(f)
-        
-        results = run_experiments(stub, config, queries)
-        
-        # Save to markdown
-        save_results_to_markdown(results, config, args.output)
-        
-        # Print summary
-        print("\n" + "=" * 120)
-        print("EXPERIMENT SUMMARY")
-        print("=" * 120)
-        print(f"{'Batch':<6} {'Conc':<5} {'Requests':<10} {'Pairs':<10} {'Time(s)':<10} {'Avg(ms)':<10} {'P95(ms)':<10} {'Avg Thpt':<12} {'Pairs/s':<10}")
-        print("-" * 120)
-        for r in results:
-            print(f"{r['batch_size']:<6} {r['concurrency']:<5} {r['num_requests']:<10} {r['total_pairs']:<10} "
-                  f"{r['total_time_s']:<10.2f} {r['avg_ms']:<10.2f} {r['p95_ms']:<10.2f} {r['throughput_rps']:<12.2f} {r['pairs_per_s']:<10.2f}")
-        print("=" * 120)
-        print(f"\nResults saved to: {args.output}")
+        try:
+            # Load config - either experiment or legacy config
+            if args.config:
+                logger.info(f"Loading experiment config: {args.config}")
+                config = load_experiment_config(args.config)
+                logger.info(f"Experiment: {config.get('_experiment_name', 'unnamed')}")
+                logger.info(f"Description: {config.get('_experiment_description', 'N/A')}")
+            else:
+                logger.info("Loading legacy config.yaml")
+                config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
+                with open(config_path) as f:
+                    config = yaml.safe_load(f)
+            
+            logger.info(f"Running experiments with {len(config['experiment']['batch_sizes'])} batch sizes and {len(config['experiment']['concurrency_levels'])} concurrency levels")
+            logger.info(f"Total experiments: {len(config['experiment']['batch_sizes']) * len(config['experiment']['concurrency_levels'])}")
+            
+            results = run_experiments(stub, config, queries)
+            
+            logger.info(f"\nCompleted {len(results)} experiments")
+            
+            # Save to markdown
+            save_results_to_markdown(results, config, args.output)
+            
+            # Print summary
+            print("\n" + "=" * 120)
+            print("EXPERIMENT SUMMARY")
+            print("=" * 120)
+            print(f"{'Batch':<6} {'Conc':<5} {'Requests':<10} {'Pairs':<10} {'Time(s)':<10} {'Avg(ms)':<10} {'P95(ms)':<10} {'Avg Thpt':<12} {'Pairs/s':<10}")
+            print("-" * 120)
+            for r in results:
+                if 'error' in r:
+                    print(f"{r['batch_size']:<6} {r['concurrency']:<5} {'FAILED':<10} {'N/A':<10} {'N/A':<10} {'N/A':<10} {'N/A':<10} {'N/A':<12} {'N/A':<10}")
+                else:
+                    print(f"{r['batch_size']:<6} {r['concurrency']:<5} {r['num_requests']:<10} {r['total_pairs']:<10} "
+                          f"{r['total_time_s']:<10.2f} {r['avg_ms']:<10.2f} {r['p95_ms']:<10.2f} {r['throughput_rps']:<12.2f} {r['pairs_per_s']:<10.2f}")
+            print("=" * 120)
+            print(f"\nResults saved to: {args.output}")
+        except Exception as e:
+            logger.error(f"Failed to run experiments: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
     else:
-        benchmark(stub, queries, args.batch_size, args.requests, args.concurrency)
+        try:
+            benchmark(stub, queries, args.batch_size, args.requests, args.concurrency)
+        except Exception as e:
+            logger.error(f"Benchmark failed: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
 
 
 if __name__ == "__main__":

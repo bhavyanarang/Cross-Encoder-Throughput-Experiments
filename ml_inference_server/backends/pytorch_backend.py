@@ -14,11 +14,12 @@ class PyTorchBackend:
         self.model = SentenceTransformer(self.model_name, device=self.device)
         
         if self.quantized:
-            # Apply dynamic quantization for CPU inference
+            # Apply dynamic quantization
+            # Note: PyTorch dynamic quantization works on CPU. For MPS/GPU, we use half precision (FP16)
+            quantized_any = False
+            
             if self.device == "cpu":
-                # Quantize the model's underlying transformer modules
-                # SentenceTransformer wraps modules in a Sequential container
-                quantized_any = False
+                # INT8 quantization for CPU
                 if hasattr(self.model, '_modules'):
                     for module_name, module in self.model._modules.items():
                         if hasattr(module, 'auto_model'):
@@ -29,13 +30,29 @@ class PyTorchBackend:
                             quantized_any = True
                 
                 if quantized_any:
-                    print(f"Loaded {self.model_name} on {self.device} (QUANTIZED)")
+                    print(f"Loaded {self.model_name} on {self.device} (INT8 QUANTIZED)")
                 else:
                     print(f"Warning: Could not find transformer modules to quantize. Running without quantization.")
                     self.quantized = False
             else:
-                print(f"Warning: Quantization is only supported on CPU. Running on {self.device} without quantization.")
-                self.quantized = False
+                # For MPS/CUDA, use FP16 (half precision) as a form of quantization
+                try:
+                    if hasattr(self.model, '_modules'):
+                        for module_name, module in self.model._modules.items():
+                            if hasattr(module, 'auto_model'):
+                                # Convert to half precision
+                                self.model._modules[module_name].auto_model = module.auto_model.half()
+                                quantized_any = True
+                    
+                    if quantized_any:
+                        print(f"Loaded {self.model_name} on {self.device} (FP16 QUANTIZED)")
+                    else:
+                        print(f"Warning: Could not apply FP16 quantization. Running in FP32.")
+                        self.quantized = False
+                except Exception as e:
+                    print(f"Warning: FP16 quantization failed on {self.device}: {e}")
+                    print(f"Running in FP32 mode.")
+                    self.quantized = False
         else:
             print(f"Loaded {self.model_name} on {self.device}")
 

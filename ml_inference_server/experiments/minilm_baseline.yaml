@@ -1,0 +1,15 @@
+# Experiment: MiniLM Baseline (no quantization)
+name: "minilm_baseline"
+description: "Baseline experiment with MiniLM-L6-v2 on MPS without quantization"
+
+model:
+  name: "sentence-transformers/all-MiniLM-L6-v2"
+  device: "mps"
+  quantized: false
+  backend: "pytorch"  # pytorch, onnx
+
+# Override experiment parameters if needed
+# experiment:
+#   batch_sizes: [1, 4, 8]
+#   benchmark_requests: 100
+
