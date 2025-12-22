@@ -16,9 +16,16 @@ const elements = {
     // Main metrics
     queryCount: document.getElementById('query_count'),
     latencyMs: document.getElementById('instant_latency_ms'),
+    queueWaitMs: document.getElementById('queue_wait_ms'),
     tokenizeMs: document.getElementById('tokenize_ms'),
     inferenceMs: document.getElementById('inference_ms'),
     throughputQps: document.getElementById('throughput_qps'),
+    
+    // Padding analysis
+    paddingPct: document.getElementById('padding_pct'),
+    maxSeqLen: document.getElementById('max_seq_len'),
+    avgSeqLen: document.getElementById('avg_seq_len'),
+    queueWaitP95: document.getElementById('queue_wait_p95'),
     
     // Stage percentages
     pctTokenize: document.getElementById('pct_tokenize'),
@@ -38,6 +45,7 @@ const elements = {
     // Chart live values
     latencyLive: document.getElementById('latency_live'),
     throughputLive: document.getElementById('throughput_live'),
+    queueLive: document.getElementById('queue_live'),
     tokenizeLive: document.getElementById('tokenize_live'),
     inferenceLive: document.getElementById('inference_live'),
     cpuLive: document.getElementById('cpu_live'),
@@ -86,9 +94,20 @@ function updateStatus(isRunning) {
 function updateMetrics(data) {
     elements.queryCount.textContent = data.query_count || 0;
     elements.latencyMs.textContent = fmt(data.instant_latency_ms || data.avg_ms);
+    elements.queueWaitMs.textContent = fmt(data.last_queue_wait_ms);
     elements.tokenizeMs.textContent = fmt(data.last_tokenize_ms);
     elements.inferenceMs.textContent = fmt(data.last_inference_ms);
     elements.throughputQps.textContent = fmt(data.throughput_qps);
+    
+    // Padding analysis
+    const padding = data.padding_analysis || {};
+    elements.paddingPct.textContent = fmt(padding.last_padding_pct || padding.avg_padding_pct);
+    elements.maxSeqLen.textContent = padding.last_max_seq_length || 0;
+    elements.avgSeqLen.textContent = fmt(padding.last_avg_seq_length || padding.avg_avg_seq_length);
+    
+    // Queue wait P95
+    const queueWait = data.queue_wait_analysis || {};
+    elements.queueWaitP95.textContent = fmt(queueWait.p95_ms);
 }
 
 // Update stage breakdown bar and percentages
@@ -129,6 +148,7 @@ function updateP95Stats(data) {
 function updateChartValues(data) {
     elements.latencyLive.textContent = fmt(data.instant_latency_ms || data.avg_ms) + ' ms';
     elements.throughputLive.textContent = fmt(data.throughput_qps) + ' q/s';
+    elements.queueLive.textContent = fmt(data.last_queue_wait_ms) + ' ms';
     elements.tokenizeLive.textContent = fmt(data.last_tokenize_ms) + ' ms';
     elements.inferenceLive.textContent = fmt(data.last_inference_ms) + ' ms';
     elements.cpuLive.textContent = fmt(data.cpu_percent, 0) + '%';

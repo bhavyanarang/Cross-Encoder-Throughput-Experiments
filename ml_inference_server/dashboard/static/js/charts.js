@@ -99,6 +99,10 @@ function initCharts() {
         document.getElementById('throughputChart'),
         createChartConfig(COLORS.blue)
     );
+    charts.queue = new Chart(
+        document.getElementById('queueChart'),
+        createChartConfig(COLORS.orange)
+    );
     charts.tokenize = new Chart(
         document.getElementById('tokenizeChart'),
         createChartConfig(COLORS.red)
@@ -109,7 +113,7 @@ function initCharts() {
     );
     charts.cpu = new Chart(
         document.getElementById('cpuChart'),
-        createChartConfig(COLORS.orange)
+        createChartConfig(COLORS.gray)
     );
     charts.gpu = new Chart(
         document.getElementById('gpuChart'),
@@ -137,6 +141,7 @@ function updateAllCharts(history) {
     
     updateChart(charts.latency, labels, history.latencies);
     updateChart(charts.throughput, labels, history.throughput);
+    updateChart(charts.queue, labels, history.queue_wait_ms);
     updateChart(charts.tokenize, labels, history.tokenize_ms);
     updateChart(charts.inference, labels, history.inference_ms);
     updateChart(charts.cpu, labels, history.cpu_percent);

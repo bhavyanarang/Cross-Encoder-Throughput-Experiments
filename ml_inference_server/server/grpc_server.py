@@ -15,13 +15,17 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
         self.metrics = metrics or scheduler.metrics
 
     def Infer(self, request, context):
+        # Record request arrival time for queue wait analysis
+        request_arrival_time = time.perf_counter()
+        
         # Stage: gRPC receive (deserialize request)
         grpc_recv_start = time.perf_counter()
         pairs = [(p.query, p.document) for p in request.pairs]
         t_grpc_recv = (time.perf_counter() - grpc_recv_start) * 1000
         
         # Run cross-encoder inference (includes tokenization + model stages)
-        scores, latency_ms = self.scheduler.schedule(pairs)
+        # Pass arrival time for queue wait calculation
+        scores, latency_ms = self.scheduler.schedule(pairs, request_arrival_time=request_arrival_time)
         
         # Stage: gRPC send (serialize response)
         grpc_send_start = time.perf_counter()

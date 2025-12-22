@@ -34,6 +34,11 @@
             <div class="metric-value" id="instant_latency_ms">0</div>
             <div class="metric-unit">ms</div>
         </div>
+        <div class="metric-card queue-wait">
+            <div class="metric-label">Queue Wait</div>
+            <div class="metric-value" id="queue_wait_ms">0</div>
+            <div class="metric-unit">ms</div>
+        </div>
         <div class="metric-card highlight">
             <div class="metric-label">Tokenize</div>
             <div class="metric-value" id="tokenize_ms">0</div>
@@ -48,6 +53,28 @@
             <div class="metric-label">Throughput</div>
             <div class="metric-value" id="throughput_qps">0</div>
             <div class="metric-unit">q/s</div>
+        </div>
+    </section>
+
+    <!-- Padding Analysis -->
+    <section class="metrics-row padding-analysis">
+        <div class="metric-card padding">
+            <div class="metric-label">Padding Waste</div>
+            <div class="metric-value" id="padding_pct">0</div>
+            <div class="metric-unit">%</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Max Seq Len</div>
+            <div class="metric-value" id="max_seq_len">0</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Avg Seq Len</div>
+            <div class="metric-value" id="avg_seq_len">0</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Queue Wait P95</div>
+            <div class="metric-value" id="queue_wait_p95">0</div>
+            <div class="metric-unit">ms</div>
         </div>
     </section>
 
@@ -115,7 +142,16 @@
         </div>
 
         <!-- Row 2: Stage timings -->
-        <div class="chart-grid">
+        <div class="chart-grid three-col">
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Queue Wait</span>
+                    <span class="chart-value queue" id="queue_live">0 ms</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="queueChart"></canvas>
+                </div>
+            </div>
             <div class="chart-container">
                 <div class="chart-header">
                     <span class="chart-title">Tokenization</span>

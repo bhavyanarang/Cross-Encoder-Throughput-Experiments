@@ -84,6 +84,7 @@ class MetricsCollector:
     # Recent stage timings for history charts
     recent_stage_tokenize: deque = field(default_factory=lambda: deque(maxlen=200))
     recent_stage_inference: deque = field(default_factory=lambda: deque(maxlen=200))
+    recent_queue_wait: deque = field(default_factory=lambda: deque(maxlen=200))  # Queue wait times
     
     # Frozen snapshot when experiment stops
     frozen_snapshot: Optional[dict] = None
@@ -95,6 +96,17 @@ class MetricsCollector:
     # Last stage timings for live display
     last_stage_tokenize_ms: float = 0.0
     last_stage_inference_ms: float = 0.0
+    last_queue_wait_ms: float = 0.0
+    
+    # Padding analysis metrics
+    padding_ratios: list = field(default_factory=list)      # Track padding % per batch
+    padded_tokens_total: int = 0                            # Total padding tokens across all batches
+    real_tokens_total: int = 0                              # Total real tokens
+    max_seq_lengths: list = field(default_factory=list)     # Track max seq length per batch
+    avg_seq_lengths: list = field(default_factory=list)     # Track avg seq length per batch
+    last_padding_ratio: float = 0.0                         # Last batch padding ratio
+    last_max_seq_length: int = 0                            # Last batch max sequence length
+    last_avg_seq_length: float = 0.0                        # Last batch avg sequence length
     
     # Reference to model for GPU memory
     _model = None
@@ -185,12 +197,48 @@ class MetricsCollector:
                 self.recent_stage_tokenize.append((now, t_tokenize))
             if t_queue_wait > 0:
                 self.stage_queue_wait.record(t_queue_wait)
+                self.last_queue_wait_ms = t_queue_wait
+                self.recent_queue_wait.append((now, t_queue_wait))
             if t_model_inference > 0:
                 self.stage_model_inference.record(t_model_inference)
                 self.last_stage_inference_ms = t_model_inference
                 self.recent_stage_inference.append((now, t_model_inference))
             if t_grpc_send > 0:
                 self.stage_grpc_send.record(t_grpc_send)
+    
+    def record_padding_stats(
+        self,
+        padding_ratio: float = 0.0,
+        padded_tokens: int = 0,
+        total_tokens: int = 0,
+        max_seq_length: int = 0,
+        avg_seq_length: float = 0.0,
+    ) -> None:
+        """
+        Record padding analysis statistics per batch.
+        Thread-safe: uses lock for concurrent gRPC calls.
+        
+        Args:
+            padding_ratio: Fraction of tokens that are padding (0-1)
+            padded_tokens: Number of padding tokens in batch
+            total_tokens: Total tokens in batch (including padding)
+            max_seq_length: Longest sequence in batch
+            avg_seq_length: Average sequence length before padding
+        """
+        with self._lock:
+            if padding_ratio > 0:
+                self.padding_ratios.append(padding_ratio)
+                self.last_padding_ratio = padding_ratio
+            if padded_tokens > 0:
+                self.padded_tokens_total += padded_tokens
+                real_tokens = total_tokens - padded_tokens
+                self.real_tokens_total += real_tokens
+            if max_seq_length > 0:
+                self.max_seq_lengths.append(max_seq_length)
+                self.last_max_seq_length = max_seq_length
+            if avg_seq_length > 0:
+                self.avg_seq_lengths.append(avg_seq_length)
+                self.last_avg_seq_length = avg_seq_length
 
     def _compute_instant_qps(self) -> float:
         """Compute instantaneous throughput based on last 1 second of data."""
@@ -207,6 +255,60 @@ class MetricsCollector:
         )
         
         return queries_in_window / window_sec
+
+    def _compute_queue_wait_stats(self) -> dict:
+        """Compute queue wait time statistics."""
+        stats = self.stage_queue_wait.get_stats()
+        
+        # Calculate % of total latency spent waiting in queue
+        if self.latencies:
+            total_avg = float(np.mean(self.latencies))
+            queue_pct = (stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
+        else:
+            queue_pct = 0
+        
+        return {
+            "avg_ms": round(stats["avg_ms"], 2),
+            "p50_ms": round(stats["p50_ms"], 2),
+            "p95_ms": round(stats["p95_ms"], 2),
+            "p99_ms": round(stats["p99_ms"], 2),
+            "count": stats["count"],
+            "queue_pct_of_latency": round(queue_pct, 1),
+            "last_ms": round(self.last_queue_wait_ms, 2),
+        }
+
+    def _compute_padding_stats(self) -> dict:
+        """Compute padding analysis statistics."""
+        if not self.padding_ratios:
+            return {
+                "avg_padding_pct": 0.0,
+                "p50_padding_pct": 0.0,
+                "p95_padding_pct": 0.0,
+                "total_wasted_compute_pct": 0.0,
+                "last_padding_pct": 0.0,
+                "avg_max_seq_length": 0,
+                "avg_avg_seq_length": 0.0,
+                "last_max_seq_length": 0,
+                "last_avg_seq_length": 0.0,
+            }
+        
+        arr = np.array(self.padding_ratios) * 100  # Convert to percentage
+        
+        # Calculate total wasted compute across all batches
+        total_all_tokens = self.padded_tokens_total + self.real_tokens_total
+        total_wasted_pct = (self.padded_tokens_total / total_all_tokens * 100) if total_all_tokens > 0 else 0.0
+        
+        return {
+            "avg_padding_pct": round(float(np.mean(arr)), 1),
+            "p50_padding_pct": round(float(np.percentile(arr, 50)), 1),
+            "p95_padding_pct": round(float(np.percentile(arr, 95)), 1),
+            "total_wasted_compute_pct": round(total_wasted_pct, 1),
+            "last_padding_pct": round(self.last_padding_ratio * 100, 1),
+            "avg_max_seq_length": int(np.mean(self.max_seq_lengths)) if self.max_seq_lengths else 0,
+            "avg_avg_seq_length": round(float(np.mean(self.avg_seq_lengths)), 1) if self.avg_seq_lengths else 0.0,
+            "last_max_seq_length": self.last_max_seq_length,
+            "last_avg_seq_length": round(self.last_avg_seq_length, 1),
+        }
 
     def _compute_instant_latency(self) -> float:
         """Compute instantaneous latency (average of last 1 second)."""
@@ -286,6 +388,11 @@ class MetricsCollector:
             # Last stage timings for live display
             "last_tokenize_ms": self.last_stage_tokenize_ms,
             "last_inference_ms": self.last_stage_inference_ms,
+            "last_queue_wait_ms": self.last_queue_wait_ms,
+            # Queue wait analysis (time from request arrival to GPU processing)
+            "queue_wait_analysis": self._compute_queue_wait_stats(),
+            # Padding analysis
+            "padding_analysis": self._compute_padding_stats(),
         }
 
     def summary(self) -> dict:
@@ -338,5 +445,17 @@ class MetricsCollector:
         self.stage_grpc_send.reset()
         self.recent_stage_tokenize.clear()
         self.recent_stage_inference.clear()
+        self.recent_queue_wait.clear()
         self.last_stage_tokenize_ms = 0.0
         self.last_stage_inference_ms = 0.0
+        self.last_queue_wait_ms = 0.0
+        
+        # Reset padding metrics
+        self.padding_ratios = []
+        self.padded_tokens_total = 0
+        self.real_tokens_total = 0
+        self.max_seq_lengths = []
+        self.avg_seq_lengths = []
+        self.last_padding_ratio = 0.0
+        self.last_max_seq_length = 0
+        self.last_avg_seq_length = 0.0

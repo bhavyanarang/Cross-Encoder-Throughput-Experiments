@@ -14,11 +14,20 @@ F = TypeVar('F', bound=Callable)
 
 @dataclass
 class InferenceResult:
-    """Result from inference with timing breakdown."""
+    """Result from inference with timing breakdown and padding analysis."""
     scores: np.ndarray
     t_tokenize_ms: float = 0.0
     t_model_inference_ms: float = 0.0
     total_ms: float = 0.0
+    
+    # Padding analysis metrics
+    total_tokens: int = 0           # Total tokens in the batch (including padding)
+    real_tokens: int = 0            # Actual content tokens (excluding padding)
+    padded_tokens: int = 0          # Number of padding tokens
+    padding_ratio: float = 0.0      # Fraction of tokens that are padding (0-1)
+    max_seq_length: int = 0         # Longest sequence in batch
+    avg_seq_length: float = 0.0     # Average sequence length before padding
+    batch_size: int = 0             # Number of sequences in batch
 
 
 def with_inference_mode(func: F) -> F:

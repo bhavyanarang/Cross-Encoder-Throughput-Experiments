@@ -85,12 +85,18 @@ def main():
         device=config['model'].get('device', 'mps'),
     )
     
+    # Check for length-aware batching option
+    enable_length_aware = config.get("batching", {}).get("length_aware_batching", False)
+    if enable_length_aware:
+        logger.info("Length-aware batching: ENABLED (sorting pairs by length)")
+    
     scheduler = Scheduler(
         backend=backend,
         metrics=metrics,
         batching_enabled=config["batching"]["enabled"],
         max_batch_size=config["batching"]["max_batch_size"],
         timeout_ms=config["batching"]["timeout_ms"],
+        enable_length_aware_batching=enable_length_aware,
     )
 
     # Start metrics HTTP server

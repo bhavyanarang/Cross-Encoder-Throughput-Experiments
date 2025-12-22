@@ -162,6 +162,27 @@ body {
     color: var(--accent-green);
 }
 
+.metric-card.queue-wait {
+    border-color: var(--accent-orange);
+}
+
+.metric-card.queue-wait .metric-value {
+    color: var(--accent-orange);
+}
+
+.metric-card.padding {
+    border-color: var(--accent-purple);
+}
+
+.metric-card.padding .metric-value {
+    color: var(--accent-purple);
+}
+
+.padding-analysis {
+    max-width: 600px;
+    opacity: 0.9;
+}
+
 .metric-label {
     color: var(--text-secondary);
     font-size: 0.6em;
@@ -339,7 +360,8 @@ body {
 
 .chart-value.tokenize { color: var(--accent-red); }
 .chart-value.inference { color: var(--accent-green); }
-.chart-value.cpu { color: var(--accent-orange); }
+.chart-value.queue { color: var(--accent-orange); }
+.chart-value.cpu { color: #6e7681; }
 .chart-value.gpu { color: var(--accent-purple); }
 
 .chart-wrapper {

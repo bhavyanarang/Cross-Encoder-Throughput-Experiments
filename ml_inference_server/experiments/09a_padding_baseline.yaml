@@ -1,0 +1,21 @@
+# Experiment 09a: Padding Analysis Baseline
+# Run without length-aware batching to measure padding waste
+name: "09a_padding_baseline"
+description: "Baseline padding analysis - random ordering"
+
+model:
+  backend: "mps"
+  mps:
+    fp16: true
+
+batching:
+  enabled: false
+  max_batch_size: 64
+  timeout_ms: 50
+  length_aware_batching: false  # Disabled - random ordering
+
+experiment:
+  batch_sizes: [32, 64, 96]
+  concurrency_levels: [1]
+  benchmark_requests: 150
+

@@ -117,7 +117,7 @@ class MLXBackend(BaseBackend):
             pairs: List of (query, document) tuples
             
         Returns:
-            InferenceResult with scores and timing breakdown
+            InferenceResult with scores, timing breakdown, and padding analysis
         """
         with self._inference_lock:
             total_start = time.perf_counter()
@@ -134,6 +134,19 @@ class MLXBackend(BaseBackend):
                 return_tensors="pt",
                 max_length=self._max_length
             )
+            
+            # === PADDING ANALYSIS ===
+            # Calculate padding statistics before moving to device
+            attention_mask = features['attention_mask']
+            batch_size, max_seq_length = attention_mask.shape
+            
+            # Real tokens per sequence (where attention_mask == 1)
+            real_tokens_per_seq = attention_mask.sum(dim=1)  # Shape: [batch_size]
+            total_real_tokens = int(real_tokens_per_seq.sum().item())
+            total_tokens = batch_size * max_seq_length
+            padded_tokens = total_tokens - total_real_tokens
+            padding_ratio = padded_tokens / total_tokens if total_tokens > 0 else 0.0
+            avg_seq_length = float(real_tokens_per_seq.float().mean().item())
             
             # Move to device
             features = {k: v.to(self.device) for k, v in features.items()}
@@ -170,7 +183,15 @@ class MLXBackend(BaseBackend):
                 scores=scores_np,
                 t_tokenize_ms=t_tokenize_ms,
                 t_model_inference_ms=t_model_inference_ms,
-                total_ms=total_ms
+                total_ms=total_ms,
+                # Padding analysis
+                total_tokens=total_tokens,
+                real_tokens=total_real_tokens,
+                padded_tokens=padded_tokens,
+                padding_ratio=padding_ratio,
+                max_seq_length=max_seq_length,
+                avg_seq_length=avg_seq_length,
+                batch_size=batch_size,
             )
     
     def warmup(self, iterations: int = 10) -> None:

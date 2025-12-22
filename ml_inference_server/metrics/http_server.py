@@ -34,6 +34,7 @@ _history = {
     "queries": [],
     "cpu_percent": [],
     "gpu_memory_mb": [],
+    "queue_wait_ms": [],
     "tokenize_ms": [],
     "inference_ms": [],
 }
@@ -57,6 +58,7 @@ def _reset_history():
         "queries": [],
         "cpu_percent": [],
         "gpu_memory_mb": [],
+        "queue_wait_ms": [],
         "tokenize_ms": [],
         "inference_ms": [],
     }
@@ -84,6 +86,7 @@ def update_history():
         _history["queries"].append(summary.get("query_count", 0))
         _history["cpu_percent"].append(round(summary.get("cpu_percent", 0), 1))
         _history["gpu_memory_mb"].append(round(summary.get("gpu_memory_mb", 0), 1))
+        _history["queue_wait_ms"].append(round(summary.get("last_queue_wait_ms", 0), 2))
         _history["tokenize_ms"].append(round(summary.get("last_tokenize_ms", 0), 2))
         _history["inference_ms"].append(round(summary.get("last_inference_ms", 0), 2))
         _last_request_count = current_count
