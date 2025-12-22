@@ -1,13 +1,24 @@
 from abc import ABC, abstractmethod
+import time
 import numpy as np
 import logging
 from functools import wraps
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, Optional
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
 # Type variable for decorator
 F = TypeVar('F', bound=Callable)
+
+
+@dataclass
+class InferenceResult:
+    """Result from inference with timing breakdown."""
+    scores: np.ndarray
+    t_tokenize_ms: float = 0.0
+    t_model_inference_ms: float = 0.0
+    total_ms: float = 0.0
 
 
 def with_inference_mode(func: F) -> F:
@@ -31,6 +42,7 @@ class BaseBackend(ABC):
         self.device = device
         self.model = None
         self._is_loaded = False
+        self._tokenizer = None
     
     @abstractmethod
     def load_model(self) -> None:
@@ -49,6 +61,30 @@ class BaseBackend(ABC):
             Array of relevance scores, one per pair
         """
         pass
+    
+    def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
+        """
+        Run inference with timing breakdown for tokenization and model inference.
+        
+        Default implementation wraps infer() without stage separation.
+        Subclasses should override for accurate timing breakdown.
+        
+        Args:
+            pairs: List of (query, document) tuples
+            
+        Returns:
+            InferenceResult with scores and timing breakdown
+        """
+        start = time.perf_counter()
+        scores = self.infer(pairs)
+        total_ms = (time.perf_counter() - start) * 1000
+        
+        return InferenceResult(
+            scores=scores,
+            t_tokenize_ms=0.0,  # Not measurable in default implementation
+            t_model_inference_ms=total_ms,  # All time attributed to inference
+            total_ms=total_ms
+        )
     
     @abstractmethod
     def warmup(self, iterations: int = 5) -> None:

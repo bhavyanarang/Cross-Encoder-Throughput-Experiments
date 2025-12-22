@@ -77,6 +77,14 @@ def main():
     metrics = MetricsCollector()
     set_metrics_collector(metrics)
     
+    # Set experiment info for dashboard display
+    metrics.set_experiment_info(
+        name=config.get('_experiment_name', 'Manual Run'),
+        description=config.get('_experiment_description', ''),
+        backend=config['model'].get('backend', 'pytorch'),
+        device=config['model'].get('device', 'mps'),
+    )
+    
     scheduler = Scheduler(
         backend=backend,
         metrics=metrics,

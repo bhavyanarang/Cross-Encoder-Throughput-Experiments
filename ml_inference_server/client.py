@@ -5,12 +5,31 @@ import argparse
 import yaml
 import time
 import logging
+import signal
 import numpy as np
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
+
+# Global flag for interrupt handling
+_interrupted = False
+_partial_results = []
+_current_config = None
+_output_file = None
+
+
+def handle_interrupt(signum, frame):
+    """Handle interrupt signal gracefully."""
+    global _interrupted
+    _interrupted = True
+    logger.warning("\nInterrupt received - finishing current operation and saving results...")
+
+
+# Register signal handlers
+signal.signal(signal.SIGINT, handle_interrupt)
+signal.signal(signal.SIGTERM, handle_interrupt)
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "proto"))
 import inference_pb2
@@ -102,6 +121,8 @@ def get_metrics(stub):
 
 def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurrency: int = 1):
     """Run benchmark with configurable concurrency, tracking per-request metrics."""
+    global _interrupted
+    
     logger.info(f"Starting benchmark: {num_requests} requests, concurrency={concurrency}, batch_size={batch_size}")
     
     # Prepare batches from real pairs
@@ -122,6 +143,11 @@ def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurr
     
     if concurrency == 1:
         for batch in batches:
+            # Check for interrupt
+            if _interrupted:
+                logger.warning(f"Benchmark interrupted after {completed}/{num_requests} requests")
+                break
+            
             _, latency_ms = run_inference_timed(stub, batch)
             request_latencies.append(latency_ms)
             # Throughput for this request: pairs / time_in_seconds
@@ -134,6 +160,8 @@ def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurr
         lock = Lock()
         
         def run_and_record(batch):
+            if _interrupted:
+                return None
             _, latency_ms = run_inference_timed(stub, batch)
             throughput = batch_size / (latency_ms / 1000)
             with lock:
@@ -144,26 +172,45 @@ def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurr
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = [executor.submit(run_and_record, batch) for batch in batches]
             for f in as_completed(futures):
-                f.result()
-                completed += 1
-                if completed % 100 == 0:
-                    logger.info(f"Progress: {completed}/{num_requests} requests")
+                if _interrupted:
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+                result = f.result()
+                if result is not None:
+                    completed += 1
+                    if completed % 100 == 0:
+                        logger.info(f"Progress: {completed}/{num_requests} requests")
     
     elapsed = time.perf_counter() - start
     
-    total_pairs = num_requests * batch_size
-    avg_throughput = total_pairs / elapsed
+    # Handle partial results
+    actual_requests = len(request_latencies)
+    if actual_requests == 0:
+        return {
+            "batch_size": batch_size,
+            "concurrency": concurrency,
+            "num_requests": 0,
+            "total_pairs": 0,
+            "total_time_s": elapsed,
+            "error": "No requests completed (interrupted)",
+            "interrupted": True,
+        }
+    
+    total_pairs = actual_requests * batch_size
+    avg_throughput = total_pairs / elapsed if elapsed > 0 else 0
     
     # Convert to numpy for percentile calculations
     lat_arr = np.array(request_latencies)
     tp_arr = np.array(request_throughputs)
     
-    logger.info(f"Completed: {elapsed:.2f}s | {total_pairs} pairs | {avg_throughput:.2f} pairs/s")
+    status = "interrupted" if _interrupted else "completed"
+    logger.info(f"{status.title()}: {elapsed:.2f}s | {total_pairs} pairs | {avg_throughput:.2f} pairs/s")
     
-    return {
+    result = {
         "batch_size": batch_size,
         "concurrency": concurrency,
-        "num_requests": num_requests,
+        "num_requests": actual_requests,
+        "requested_requests": num_requests,
         "total_pairs": total_pairs,
         "total_time_s": elapsed,
         # Latency metrics (ms)
@@ -185,10 +232,19 @@ def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurr
         "throughput_p95": float(np.percentile(tp_arr, 95)),
         "throughput_p99": float(np.percentile(tp_arr, 99)),
     }
+    
+    if _interrupted:
+        result["interrupted"] = True
+    
+    return result
 
 
-def save_results_to_markdown(results: list, config: dict, output_file: str = "docs/experiment_results.md"):
+def save_results_to_markdown(results: list, config: dict, output_file: str = "docs/experiment_results.md", partial: bool = False):
     """Save experiment results to markdown file with detailed sub-experiment metrics."""
+    if not results:
+        logger.warning("No results to save")
+        return
+    
     os.makedirs(os.path.dirname(output_file), exist_ok=True)
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -198,6 +254,11 @@ def save_results_to_markdown(results: list, config: dict, output_file: str = "do
     device = config['model']['device']
     batching_enabled = config.get('batching', {}).get('enabled', False)
     batching_config = config.get('batching', {})
+    
+    # Check if any results were interrupted
+    has_interrupted = any(r.get("interrupted") for r in results)
+    if partial or has_interrupted:
+        experiment_name = f"{experiment_name} (PARTIAL)"
     
     # Write to experiment-specific file (overwrite)
     with open(output_file, "w") as f:
@@ -320,6 +381,8 @@ def save_results_to_markdown(results: list, config: dict, output_file: str = "do
 
 def run_experiments(stub, config, pairs: list):
     """Run experiments with different batch sizes and concurrency levels."""
+    global _interrupted, _partial_results
+    
     results = []
     
     batch_sizes = config["experiment"]["batch_sizes"]
@@ -331,6 +394,11 @@ def run_experiments(stub, config, pairs: list):
     
     for batch_size in batch_sizes:
         for concurrency in concurrency_levels:
+            # Check for interrupt before starting new experiment
+            if _interrupted:
+                logger.warning(f"Skipping remaining experiments due to interrupt")
+                break
+            
             current += 1
             logger.info(f"\n{'='*60}")
             logger.info(f"Experiment {current}/{total_experiments}: batch_size={batch_size}, concurrency={concurrency}")
@@ -338,6 +406,13 @@ def run_experiments(stub, config, pairs: list):
             try:
                 result = benchmark(stub, pairs, batch_size, num_requests, concurrency)
                 results.append(result)
+                _partial_results = results.copy()  # Update partial results for interrupt handler
+                
+                # If this experiment was interrupted, stop
+                if result.get("interrupted"):
+                    logger.warning("Experiment was interrupted, stopping further experiments")
+                    break
+                    
             except Exception as e:
                 logger.error(f"Experiment {current}/{total_experiments} failed: {e}")
                 logger.error("Continuing with next experiment...")
@@ -349,11 +424,18 @@ def run_experiments(stub, config, pairs: list):
                     "total_time_s": 0.0,
                     "error": str(e)
                 })
+                _partial_results = results.copy()
+        
+        # Break outer loop if interrupted
+        if _interrupted:
+            break
     
     return results
 
 
 def main():
+    global _interrupted, _partial_results, _current_config, _output_file
+    
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="localhost")
     parser.add_argument("--port", type=int, default=50051)
@@ -365,6 +447,8 @@ def main():
     parser.add_argument("--config", help="Path to experiment config (e.g., experiments/minilm_baseline.yaml)")
     parser.add_argument("--output", default="docs/experiment_results.md", help="Output markdown file")
     args = parser.parse_args()
+    
+    _output_file = args.output
 
     channel = grpc.insecure_channel(f"{args.host}:{args.port}")
     stub = inference_pb2_grpc.InferenceServiceStub(channel)
@@ -372,6 +456,7 @@ def main():
     logger.info("=" * 60)
     logger.info("Cross-Encoder Benchmark Client")
     logger.info("Monitor live metrics at: http://localhost:8080")
+    logger.info("Press Ctrl+C to interrupt (partial results will be saved)")
     logger.info("=" * 60)
 
     # Load real query-passage pairs
@@ -388,10 +473,13 @@ def main():
         sys.exit(1)
 
     if args.experiment:
+        config = None
+        results = []
         try:
             if args.config:
                 logger.info(f"Loading experiment config: {args.config}")
                 config = load_experiment_config(args.config)
+                _current_config = config
                 logger.info(f"Experiment: {config.get('_experiment_name', 'unnamed')}")
                 logger.info(f"Description: {config.get('_experiment_description', 'N/A')}")
             else:
@@ -399,41 +487,71 @@ def main():
                 config_path = os.path.join(os.path.dirname(__file__), "config.yaml")
                 with open(config_path) as f:
                     config = yaml.safe_load(f)
+                _current_config = config
             
             logger.info(f"Running experiments with {len(config['experiment']['batch_sizes'])} batch sizes and {len(config['experiment']['concurrency_levels'])} concurrency levels")
             logger.info(f"Total experiments: {len(config['experiment']['batch_sizes']) * len(config['experiment']['concurrency_levels'])}")
             
             results = run_experiments(stub, config, pairs)
             
-            logger.info(f"\nCompleted {len(results)} experiments")
+        except Exception as e:
+            logger.error(f"Failed to run experiments: {e}")
+            import traceback
+            traceback.print_exc()
+            # Try to save partial results on error
+            if _partial_results and _current_config:
+                results = _partial_results
+            else:
+                sys.exit(1)
+        
+        # Always save results (even partial ones)
+        if results and config:
+            is_partial = _interrupted or any(r.get("interrupted") for r in results)
             
-            save_results_to_markdown(results, config, args.output)
+            if is_partial:
+                logger.warning(f"Saving PARTIAL results ({len(results)} experiments completed)")
+            else:
+                logger.info(f"Completed {len(results)} experiments")
+            
+            save_results_to_markdown(results, config, args.output, partial=is_partial)
             
             # Print summary
+            status = "PARTIAL " if is_partial else ""
             print("\n" + "=" * 120)
-            print("EXPERIMENT SUMMARY (Cross-Encoder)")
+            print(f"{status}EXPERIMENT SUMMARY (Cross-Encoder)")
             print("=" * 120)
             print(f"{'Batch':<6} {'Conc':<5} {'Pairs':<8} {'Time':<8} {'Lat Avg':<10} {'Lat P95':<10} {'Lat P99':<10} {'TP Avg':<12} {'TP P99':<12}")
             print("-" * 120)
             for r in results:
                 if 'error' in r:
-                    print(f"{r['batch_size']:<6} {r['concurrency']:<5} {'FAILED':<8} {'N/A':<8} {'N/A':<10} {'N/A':<10} {'N/A':<10} {'N/A':<12} {'N/A':<12}")
+                    status_str = 'FAILED'
+                    if r.get('interrupted'):
+                        status_str = 'INTRPT'
+                    print(f"{r['batch_size']:<6} {r['concurrency']:<5} {status_str:<8} {'N/A':<8} {'N/A':<10} {'N/A':<10} {'N/A':<10} {'N/A':<12} {'N/A':<12}")
                 else:
-                    print(f"{r['batch_size']:<6} {r['concurrency']:<5} {r['total_pairs']:<8} "
+                    pairs_str = f"{r['total_pairs']}"
+                    if r.get('interrupted'):
+                        pairs_str += "*"
+                    print(f"{r['batch_size']:<6} {r['concurrency']:<5} {pairs_str:<8} "
                           f"{r['total_time_s']:<8.1f} {r['latency_avg_ms']:<10.1f} {r['latency_p95_ms']:<10.1f} "
                           f"{r['latency_p99_ms']:<10.1f} {r['throughput_avg']:<12.1f} {r['throughput_p99']:<12.1f}")
             print("=" * 120)
+            if is_partial:
+                print("* = interrupted before completion")
             print(f"\nResults saved to: {args.output}")
-        except Exception as e:
-            logger.error(f"Failed to run experiments: {e}")
-            import traceback
-            traceback.print_exc()
-            sys.exit(1)
+        
+        if _interrupted:
+            sys.exit(130)  # Standard exit code for SIGINT
     else:
         try:
             result = benchmark(stub, pairs, args.batch_size, args.requests, args.concurrency)
-            print(f"\nLatency: avg={result['latency_avg_ms']:.1f}ms, p95={result['latency_p95_ms']:.1f}ms, p99={result['latency_p99_ms']:.1f}ms")
-            print(f"Throughput: avg={result['throughput_avg']:.1f} p/s, p95={result['throughput_p95']:.1f} p/s, p99={result['throughput_p99']:.1f} p/s")
+            if 'error' not in result:
+                print(f"\nLatency: avg={result['latency_avg_ms']:.1f}ms, p95={result['latency_p95_ms']:.1f}ms, p99={result['latency_p99_ms']:.1f}ms")
+                print(f"Throughput: avg={result['throughput_avg']:.1f} p/s, p95={result['throughput_p95']:.1f} p/s, p99={result['throughput_p99']:.1f} p/s")
+                if result.get('interrupted'):
+                    print(f"(Interrupted after {result['num_requests']}/{result.get('requested_requests', 'N/A')} requests)")
+            else:
+                print(f"\nBenchmark failed: {result.get('error')}")
         except Exception as e:
             logger.error(f"Benchmark failed: {e}")
             import traceback

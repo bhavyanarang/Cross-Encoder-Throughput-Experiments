@@ -1,4 +1,5 @@
 import grpc
+import time
 from concurrent import futures
 import sys
 import os
@@ -9,21 +10,35 @@ import inference_pb2_grpc
 
 
 class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
-    def __init__(self, scheduler):
+    def __init__(self, scheduler, metrics=None):
         self.scheduler = scheduler
+        self.metrics = metrics or scheduler.metrics
 
     def Infer(self, request, context):
-        # Convert proto pairs to list of tuples
+        # Stage: gRPC receive (deserialize request)
+        grpc_recv_start = time.perf_counter()
         pairs = [(p.query, p.document) for p in request.pairs]
+        t_grpc_recv = (time.perf_counter() - grpc_recv_start) * 1000
         
-        # Run cross-encoder inference
+        # Run cross-encoder inference (includes tokenization + model stages)
         scores, latency_ms = self.scheduler.schedule(pairs)
         
-        return inference_pb2.InferResponse(
+        # Stage: gRPC send (serialize response)
+        grpc_send_start = time.perf_counter()
+        response = inference_pb2.InferResponse(
             scores=scores.tolist(),
             num_pairs=len(pairs),
             latency_ms=latency_ms,
         )
+        t_grpc_send = (time.perf_counter() - grpc_send_start) * 1000
+        
+        # Record gRPC stage timings
+        self.metrics.record_stage_timings(
+            t_grpc_receive=t_grpc_recv,
+            t_grpc_send=t_grpc_send,
+        )
+        
+        return response
 
     def GetMetrics(self, request, context):
         summary = self.scheduler.metrics.summary()

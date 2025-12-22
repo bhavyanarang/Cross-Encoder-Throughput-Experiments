@@ -3,13 +3,16 @@ MPS Backend - Cross-Encoder for Query-Document Scoring on Apple Silicon GPU.
 
 Uses CrossEncoder from sentence-transformers with MPS acceleration.
 Optimized with inference_mode, memory management, and proper synchronization.
+Includes per-stage timing for tokenization vs model inference.
 """
 
+import time
+import threading
 import numpy as np
 import logging
 import torch
 from sentence_transformers import CrossEncoder
-from .base_backend import BaseBackend, with_inference_mode
+from .base_backend import BaseBackend, InferenceResult, with_inference_mode
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,11 @@ class MPSBackend(BaseBackend):
         self.sync_on_infer = sync_on_infer
         self.model = None
         self.actual_dtype = None
+        self._tokenizer = None
+        self._max_length = None
+        
+        # Thread lock for serializing inference calls (MPS is NOT thread-safe)
+        self._inference_lock = threading.Lock()
         
         # Use shared device resolution
         self.device = self.resolve_device(device)
@@ -47,6 +55,10 @@ class MPSBackend(BaseBackend):
         # Load CrossEncoder
         self.model = CrossEncoder(self.model_name, device=self.device)
         
+        # Cache tokenizer reference for timing measurements
+        self._tokenizer = self.model.tokenizer
+        self._max_length = self.model.max_length
+        
         # Apply FP16 using shared utility
         if self.use_fp16 and self.device == "mps":
             _, self.actual_dtype = self.apply_fp16(self.model, self.device, logger)
@@ -62,6 +74,7 @@ class MPSBackend(BaseBackend):
         """
         Run cross-encoder inference on query-document pairs.
         Uses torch.inference_mode for better performance.
+        Thread-safe: uses lock to serialize MPS operations.
         
         Args:
             pairs: List of (query, document) tuples
@@ -69,14 +82,84 @@ class MPSBackend(BaseBackend):
         Returns:
             Array of relevance scores
         """
-        # predict already returns numpy, no need for np.array wrapper
-        scores = self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
+        with self._inference_lock:
+            # predict already returns numpy, no need for np.array wrapper
+            scores = self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
+            
+            # Optional sync for accurate timing (off by default for throughput)
+            if self.sync_on_infer:
+                self.sync_device(self.device)
+            
+            return scores
+    
+    @with_inference_mode
+    def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
+        """
+        Run inference with separate timing for tokenization and model forward pass.
         
-        # Optional sync for accurate timing (off by default for throughput)
-        if self.sync_on_infer:
+        This method manually performs tokenization and model inference to 
+        get accurate timing breakdown for bottleneck analysis.
+        Thread-safe: uses lock to serialize MPS operations.
+        
+        Args:
+            pairs: List of (query, document) tuples
+            
+        Returns:
+            InferenceResult with scores and timing breakdown
+        """
+        with self._inference_lock:
+            total_start = time.perf_counter()
+            
+            # Stage 1: Tokenization
+            tokenize_start = time.perf_counter()
+            
+            # Use batch tokenization for better performance
+            texts = [[pair[0], pair[1]] for pair in pairs]
+            features = self._tokenizer(
+                texts,
+                padding=True,
+                truncation='longest_first',
+                return_tensors="pt",
+                max_length=self._max_length
+            )
+            
+            # Move to device
+            features = {k: v.to(self.device) for k, v in features.items()}
+            
+            t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+            
+            # Stage 2: Model inference
+            inference_start = time.perf_counter()
+            
+            # Sync before inference for accurate timing
             self.sync_device(self.device)
-        
-        return scores
+            
+            # Forward pass
+            model_predictions = self.model.model(**features, return_dict=True)
+            logits = model_predictions.logits
+            
+            # Apply activation function based on model config
+            if self.model.config.num_labels == 1:
+                scores = torch.sigmoid(logits).squeeze(-1)
+            else:
+                scores = torch.softmax(logits, dim=-1)[:, 1]
+            
+            # Sync after inference for accurate timing
+            self.sync_device(self.device)
+            
+            t_model_inference_ms = (time.perf_counter() - inference_start) * 1000
+            
+            # Convert to numpy
+            scores_np = scores.cpu().numpy()
+            
+            total_ms = (time.perf_counter() - total_start) * 1000
+            
+            return InferenceResult(
+                scores=scores_np,
+                t_tokenize_ms=t_tokenize_ms,
+                t_model_inference_ms=t_model_inference_ms,
+                total_ms=total_ms
+            )
     
     def warmup(self, iterations: int = 10) -> None:
         """Warm up the model with proper synchronization."""

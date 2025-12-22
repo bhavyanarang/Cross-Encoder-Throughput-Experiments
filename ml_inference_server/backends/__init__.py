@@ -1,4 +1,4 @@
-from .base_backend import BaseBackend, with_inference_mode
+from .base_backend import BaseBackend, InferenceResult, with_inference_mode
 from .pytorch_backend import PyTorchBackend
 from .onnx_backend import ONNXBackend
 from .mlx_backend import MLXBackend
@@ -59,6 +59,7 @@ def create_backend(config: dict) -> BaseBackend:
 
 __all__ = [
     "BaseBackend", 
+    "InferenceResult",
     "PyTorchBackend", 
     "ONNXBackend", 
     "MLXBackend", 

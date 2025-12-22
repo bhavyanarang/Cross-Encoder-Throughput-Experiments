@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML Inference Dashboard</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <h1 id="experiment_name">ML Inference Dashboard</h1>
+        <div class="subtitle" id="experiment_subtitle">Real-time Stage Breakdown</div>
+        <div class="experiment-info">
+            <span class="badge backend" id="badge_backend">Backend</span>
+            <span class="badge device" id="badge_device">Device</span>
+        </div>
+        <div class="endpoints">
+            <a href="/metrics">/metrics</a> (JSON) |
+            <a href="/reset">/reset</a>
+        </div>
+        <div class="status idle" id="status">Idle</div>
+    </header>
+
+    <!-- Main Metrics Cards -->
+    <section class="metrics-row">
+        <div class="metric-card">
+            <div class="metric-label">Queries</div>
+            <div class="metric-value" id="query_count">0</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Latency</div>
+            <div class="metric-value" id="instant_latency_ms">0</div>
+            <div class="metric-unit">ms</div>
+        </div>
+        <div class="metric-card highlight">
+            <div class="metric-label">Tokenize</div>
+            <div class="metric-value" id="tokenize_ms">0</div>
+            <div class="metric-unit">ms</div>
+        </div>
+        <div class="metric-card inference">
+            <div class="metric-label">Inference</div>
+            <div class="metric-value" id="inference_ms">0</div>
+            <div class="metric-unit">ms</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Throughput</div>
+            <div class="metric-value" id="throughput_qps">0</div>
+            <div class="metric-unit">q/s</div>
+        </div>
+    </section>
+
+    <!-- Stage Breakdown -->
+    <div class="section-title">Stage Breakdown</div>
+    <section class="stage-breakdown">
+        <div class="stage-bar">
+            <div class="stage-bar-segment tokenize" id="bar_tokenize" style="width: 0%"></div>
+            <div class="stage-bar-segment inference" id="bar_inference" style="width: 0%"></div>
+            <div class="stage-bar-segment other" id="bar_other" style="width: 100%"></div>
+        </div>
+        <div class="stage-legend">
+            <div class="legend-item">
+                <div class="legend-dot tokenize"></div>
+                <span>Tokenization (<span id="pct_tokenize">0</span>%)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot inference"></div>
+                <span>Model Inference (<span id="pct_inference">0</span>%)</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-dot other"></div>
+                <span>Other (<span id="pct_other">100</span>%)</span>
+            </div>
+        </div>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="stat-label">Tokenize P95</div>
+                <div class="stat-value" id="tokenize_p95">0 ms</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Inference P95</div>
+                <div class="stat-value" id="inference_p95">0 ms</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Total P95</div>
+                <div class="stat-value" id="total_p95">0 ms</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Charts Grid -->
+    <div class="section-title">Performance Charts</div>
+    <main class="charts-container">
+        <!-- Row 1: Main metrics -->
+        <div class="chart-grid">
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Total Latency</span>
+                    <span class="chart-value" id="latency_live">0 ms</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="latencyChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Throughput</span>
+                    <span class="chart-value" id="throughput_live">0 q/s</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="throughputChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Row 2: Stage timings -->
+        <div class="chart-grid">
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Tokenization</span>
+                    <span class="chart-value tokenize" id="tokenize_live">0 ms</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="tokenizeChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Model Inference</span>
+                    <span class="chart-value inference" id="inference_live">0 ms</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="inferenceChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Row 3: System metrics -->
+        <div class="chart-grid three-col">
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">CPU Usage</span>
+                    <span class="chart-value cpu" id="cpu_live">0%</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="cpuChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">GPU Memory</span>
+                    <span class="chart-value gpu" id="gpu_live">0 MB</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="gpuChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Queries Processed</span>
+                    <span class="chart-value" id="queries_live">0</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="queriesChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        ML Inference Server - Stage Timing Dashboard
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/static/js/charts.js"></script>
+    <script src="/static/js/main.js"></script>
+</body>
+</html>
+
