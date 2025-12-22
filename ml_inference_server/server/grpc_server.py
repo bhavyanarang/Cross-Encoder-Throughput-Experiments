@@ -13,14 +13,15 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
         self.scheduler = scheduler
 
     def Infer(self, request, context):
-        texts = list(request.texts)
-        embeddings, latency_ms = self.scheduler.schedule(texts)
+        # Convert proto pairs to list of tuples
+        pairs = [(p.query, p.document) for p in request.pairs]
         
-        flat_embeddings = embeddings.flatten().tolist()
+        # Run cross-encoder inference
+        scores, latency_ms = self.scheduler.schedule(pairs)
+        
         return inference_pb2.InferResponse(
-            embeddings=flat_embeddings,
-            embedding_dim=embeddings.shape[1],
-            num_texts=embeddings.shape[0],
+            scores=scores.tolist(),
+            num_pairs=len(pairs),
             latency_ms=latency_ms,
         )
 
@@ -32,7 +33,8 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
             p50_ms=summary.get("p50_ms", 0),
             p95_ms=summary.get("p95_ms", 0),
             p99_ms=summary.get("p99_ms", 0),
-            throughput_rps=summary.get("throughput_rps", 0),
+            throughput_qps=summary.get("throughput_qps", 0),
+            query_count=summary.get("query_count", 0),
         )
 
 
@@ -43,6 +45,5 @@ def serve(scheduler, host: str, port: int):
     )
     server.add_insecure_port(f"{host}:{port}")
     server.start()
-    print(f"Server started on {host}:{port}")
+    print(f"Cross-encoder server started on {host}:{port}")
     server.wait_for_termination()
-

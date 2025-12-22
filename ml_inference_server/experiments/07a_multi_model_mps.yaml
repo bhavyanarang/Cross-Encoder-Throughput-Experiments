@@ -1,0 +1,14 @@
+# Experiment 07a: Multi-Model Simulation - MPS Backend
+name: "07a_multi_model_mps"
+description: "High concurrency stress test on MPS backend"
+
+model:
+  backend: "mps"
+  mps:
+    fp16: true
+
+experiment:
+  batch_sizes: [32, 64]
+  concurrency_levels: [4, 8, 16, 24]
+  benchmark_requests: 100
+

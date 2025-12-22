@@ -1,28 +1,33 @@
 """
-MLX Backend for Apple Silicon with native INT4/INT8 quantization support.
+MLX-style Backend - Cross-Encoder for Query-Document Scoring on Apple Silicon.
 
-MLX is Apple's machine learning framework optimized for Apple Silicon.
-It supports:
-- Native INT4 quantization (4-bit weights)
-- Native INT8 quantization (8-bit weights)
-- Unified memory architecture (no CPU<->GPU transfer)
+NOTE: This backend uses PyTorch with MPS, styled after MLX quantization conventions.
+For true MLX support, the mlx-lm library would be needed for LLMs.
+CrossEncoder models are not natively supported by MLX yet.
 
-Install: pip install mlx mlx-lm
-
-Note: MLX operations are not thread-safe. This backend uses a lock for thread safety.
+Uses CrossEncoder from sentence-transformers with MPS acceleration and
+MLX-style quantization bit configuration.
 """
 
 import numpy as np
 import logging
-import threading
-from pathlib import Path
-from .base_backend import BaseBackend
+import torch
+from sentence_transformers import CrossEncoder
+from .base_backend import BaseBackend, with_inference_mode
 
 logger = logging.getLogger(__name__)
 
 
 class MLXBackend(BaseBackend):
-    """MLX backend with native quantization support for Apple Silicon."""
+    """
+    MLX-style cross-encoder backend for query-document scoring.
+    
+    Uses PyTorch/MPS under the hood with MLX-style quantization config.
+    The quantization_bits parameter maps to precision:
+    - 32 bits -> FP32
+    - 16 bits -> FP16
+    - 8/4 bits -> FP16 (true INT8/INT4 requires specialized libraries)
+    """
     
     SUPPORTED_BITS = [4, 8, 16, 32]
     
@@ -31,165 +36,84 @@ class MLXBackend(BaseBackend):
         model_name: str, 
         device: str = "mps",
         quantization_bits: int = 16,
-        group_size: int = 64
+        group_size: int = 64  # Preserved for future MLX compatibility
     ):
         super().__init__(model_name, device)
         self.quantization_bits = quantization_bits
         self.group_size = group_size
-        self.tokenizer = None
-        self._mlx_available = False
-        self._inference_lock = threading.Lock()  # Thread safety for MLX
-        self._use_fallback = False
+        self.model = None
+        self.actual_dtype = None
+        
+        # Use shared device resolution
+        self.device = self.resolve_device(device)
+        
+        # Log if using fallback mode
+        if quantization_bits < 16:
+            logger.warning(
+                f"INT{quantization_bits} quantization requested but not available for CrossEncoder. "
+                "Using FP16 instead. For true low-bit quantization, use dedicated MLX models."
+            )
         
     def load_model(self) -> None:
-        """Load model with MLX and optional quantization."""
-        try:
-            import mlx.core as mx
-            import mlx.nn as nn
-            self._mlx_available = True
-        except ImportError:
-            logger.warning("MLX not installed. Using PyTorch fallback.")
-            self._fallback_to_pytorch()
-            return
+        """Load cross-encoder model with MLX-style configuration."""
+        logger.info(f"Loading cross-encoder: {self.model_name}")
+        logger.info(f"Device: {self.device}")
+        logger.info(f"Requested precision: {self.quantization_bits} bits")
         
-        logger.info(f"Loading MLX model: {self.model_name}")
-        logger.info(f"Quantization: {self.quantization_bits}-bit")
+        # Clear memory before loading
+        self.clear_memory(self.device)
         
-        try:
-            from transformers import AutoTokenizer, AutoModel
-            import torch
-            
-            # Load tokenizer
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            
-            # Load PyTorch model first
-            pt_model = AutoModel.from_pretrained(self.model_name)
-            pt_model.eval()
-            
-            # Store PyTorch model for fallback
-            self._pt_model = pt_model
-            
-            # Convert to MLX
-            self.model = self._convert_to_mlx(pt_model, mx)
-            
-            self._is_loaded = True
-            logger.info(f"Loaded MLX model with {self.quantization_bits}-bit precision")
-            
-        except Exception as e:
-            logger.error(f"Failed to load MLX model: {e}")
-            logger.warning("Falling back to PyTorch backend")
-            self._fallback_to_pytorch()
-    
-    def _convert_to_mlx(self, pt_model, mx):
-        """Convert PyTorch model weights to MLX format."""
-        # Extract model weights and convert to MLX arrays
-        mlx_weights = {}
-        for name, param in pt_model.named_parameters():
-            np_array = param.detach().cpu().numpy()
-            mlx_weights[name] = mx.array(np_array)
+        # Load CrossEncoder
+        self.model = CrossEncoder(self.model_name, device=self.device)
         
-        logger.info(f"Converted {len(mlx_weights)} weight tensors to MLX")
-        return {"weights": mlx_weights, "config": pt_model.config}
-    
-    def _fallback_to_pytorch(self) -> None:
-        """Fallback to PyTorch if MLX fails."""
-        from .pytorch_backend import PyTorchBackend
+        # Apply FP16 for any bits <= 16 on MPS
+        if self.quantization_bits <= 16 and self.device == "mps":
+            _, self.actual_dtype = self.apply_fp16(self.model, self.device, logger)
+        else:
+            self.actual_dtype = "float32"
         
-        logger.warning("Using PyTorch fallback for MLX backend")
-        self._use_fallback = True
-        self._pytorch_fallback = PyTorchBackend(
-            model_name=self.model_name,
-            device="mps",
-            quantized=self.quantization_bits < 32,
-            quantization_mode="fp16"
-        )
-        self._pytorch_fallback.load_model()
+        logger.info(f"Loaded {self.model_name} on {self.device} ({self.actual_dtype.upper()})")
         self._is_loaded = True
     
-    def infer(self, texts: list[str]) -> np.ndarray:
-        """Run inference and return embeddings."""
-        if self._use_fallback:
-            return self._pytorch_fallback.infer(texts)
+    @with_inference_mode
+    def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:
+        """
+        Run cross-encoder inference on query-document pairs.
+        Uses torch.inference_mode for better performance.
         
-        # Use lock for thread safety - MLX is not thread-safe
-        with self._inference_lock:
-            return self._mlx_infer(texts)
+        Args:
+            pairs: List of (query, document) tuples
+            
+        Returns:
+            Array of relevance scores
+        """
+        # predict already returns numpy, no wrapper needed
+        return self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
     
-    def _mlx_infer(self, texts: list[str]) -> np.ndarray:
-        """MLX inference implementation."""
-        import mlx.core as mx
+    def warmup(self, iterations: int = 10) -> None:
+        """Warm up the model with proper synchronization."""
+        logger.info(f"Warming up MLX backend ({iterations} iterations)...")
+        sample_pairs = [("warmup query", "warmup document")]
         
-        try:
-            # Tokenize
-            inputs = self.tokenizer(
-                texts,
-                return_tensors="np",
-                padding=True,
-                truncation=True,
-                max_length=128
-            )
-            
-            # Convert to MLX
-            input_ids = mx.array(inputs["input_ids"])
-            attention_mask = mx.array(inputs["attention_mask"])
-            
-            # Forward pass
-            embeddings = self._forward(input_ids, attention_mask, mx)
-            
-            # Evaluate and convert back to numpy
-            mx.eval(embeddings)
-            return np.array(embeddings)
-            
-        except Exception as e:
-            logger.error(f"MLX inference failed: {e}. Using PyTorch fallback.")
-            # Fallback to PyTorch for this request
-            if not self._use_fallback:
-                self._fallback_to_pytorch()
-            return self._pytorch_fallback.infer(texts)
-    
-    def _forward(self, input_ids, attention_mask, mx):
-        """Forward pass through the model."""
-        # Get embedding weights
-        word_embeddings = None
-        for key in self.model["weights"]:
-            if "word_embed" in key.lower() or "embeddings.word_embeddings.weight" in key:
-                word_embeddings = self.model["weights"][key]
-                break
+        for i in range(iterations):
+            self.infer(sample_pairs)
+            if (i + 1) % 5 == 0:
+                self.sync_device(self.device)
         
-        if word_embeddings is None:
-            raise ValueError("Could not find word embeddings in model weights")
-        
-        # Look up embeddings
-        batch_size, seq_len = input_ids.shape
-        embeddings = mx.take(word_embeddings, input_ids, axis=0)
-        
-        # Mean pooling
-        mask_expanded = mx.expand_dims(attention_mask.astype(mx.float32), -1)
-        sum_embeddings = mx.sum(embeddings * mask_expanded, axis=1)
-        sum_mask = mx.maximum(mx.sum(mask_expanded, axis=1), mx.array(1e-9))
-        pooled = sum_embeddings / sum_mask
-        
-        return pooled
-    
-    def warmup(self, iterations: int = 5) -> None:
-        """Warm up the model."""
-        sample = ["warmup text for MLX inference benchmark"]
-        for _ in range(iterations):
-            self.infer(sample)
-        logger.info(f"MLX warmup complete ({iterations} iterations)")
+        # Final sync and cleanup
+        self.sync_device(self.device)
+        self.clear_memory(self.device)
+        logger.info("Warmup complete")
     
     def get_model_info(self) -> dict:
         """Return model information."""
-        info = {
+        return {
             "model_name": self.model_name,
             "device": self.device,
             "backend": "mlx",
             "quantization_bits": self.quantization_bits,
-            "mlx_available": self._mlx_available,
-            "using_fallback": self._use_fallback,
+            "actual_dtype": self.actual_dtype,
+            "group_size": self.group_size,
+            "model_type": "cross-encoder",
+            "note": "Uses PyTorch/MPS with MLX-style config",
         }
-        
-        if self._use_fallback and hasattr(self, '_pytorch_fallback'):
-            info["fallback_info"] = self._pytorch_fallback.get_model_info()
-        
-        return info

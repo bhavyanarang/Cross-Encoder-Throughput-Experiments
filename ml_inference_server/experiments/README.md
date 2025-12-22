@@ -1,64 +1,67 @@
-# Experiment Configurations
+# Systematic Experiment Suite
 
-This directory contains experiment configurations for different model variants and optimizations.
+Experiments comparing MPS and MLX backends on Apple Silicon.
 
-## Structure
+## Experiment Progression
 
-- `base_config.yaml` - Base configuration with common settings
-- Individual experiment configs - Specific model variants to test
+### Phase 1: Backend Comparison (01-04)
+| # | Experiment | Purpose | Result |
+|---|------------|---------|--------|
+| 01 | `01_backend_pytorch` | PyTorch baseline | 462.1 p/s |
+| 02 | `02_backend_mps` | MPS backend | **476.0 p/s** ✓ |
+| 03 | `03_backend_mlx` | MLX backend | **473.1 p/s** ✓ |
+| 04 | `04_backend_compiled` | torch.compile | 189.6 p/s |
 
-## Available Experiments
+**Winners:** MPS and MLX (comparable performance)
 
-### 1. `minilm_baseline.yaml`
-Baseline experiment with MiniLM-L6-v2 on MPS without any optimizations.
+### Phase 2: Optimization (05-08)
+Using both MPS and MLX backends:
 
-### 2. `minilm_quantized.yaml`
-MiniLM-L6-v2 with INT8 dynamic quantization on CPU.
-
-### 3. `minilm_onnx.yaml`
-MiniLM-L6-v2 with ONNX Runtime optimization (to be implemented).
+| # | Experiment | MPS Config | MLX Config |
+|---|------------|------------|------------|
+| 05 | Batch Size Sweep | `05a_batch_size_mps` | `05b_batch_size_mlx` |
+| 06 | Concurrency Sweep | `06a_concurrency_mps` | `06b_concurrency_mlx` |
+| 07 | Multi-Model Sim | `07a_multi_model_mps` | `07b_multi_model_mlx` |
+| 08 | Dynamic Batching | `08a_dynamic_batch_mps` | `08b_dynamic_batch_mlx` |
 
 ## Running Experiments
 
-### Run a specific experiment:
+### Run individual experiment:
 ```bash
-./run_server.sh --experiment experiments/minilm_baseline.yaml
-# In another terminal:
-./run_client.sh --experiment --config experiments/minilm_baseline.yaml
+# Terminal 1: Start server
+./run_server.sh --experiment experiments/05a_batch_size_mps.yaml
+
+# Terminal 2: Run benchmark  
+./run_client.sh --experiment --config experiments/05a_batch_size_mps.yaml
 ```
 
-### Run all experiments sequentially:
+### Run all experiments:
 ```bash
-python run_all_experiments.py
+python run_systematic_experiments.py
 ```
 
-## Adding New Experiments
+## Backend Configuration
 
-1. Create a new YAML file in this directory
-2. Specify the model configuration and any overrides
-3. The experiment inherits settings from `base_config.yaml`
-4. Run the experiment using the commands above
-
-## Configuration Schema
-
+### MPS Backend (PyTorch + Metal)
 ```yaml
-name: "experiment_name"
-description: "Description of the experiment"
-
 model:
-  name: "model-name"
-  device: "cpu|mps|cuda"
-  quantized: true|false
-  backend: "pytorch|onnx"
-  # Backend-specific options
-  onnx:
-    optimize: true
-    use_gpu: false
-
-# Optional: override base experiment parameters
-experiment:
-  batch_sizes: [1, 4, 8]
-  concurrency_levels: [1, 4]
-  benchmark_requests: 100
+  backend: "mps"
+  mps:
+    fp16: true
 ```
 
+### MLX Backend (Apple MLX)
+```yaml
+model:
+  backend: "mlx"
+  mlx:
+    bits: 16
+    group_size: 64
+```
+
+## Results
+
+Results are saved to `docs/experiments/` with:
+- Full experiment configuration
+- Performance metrics table
+- Key findings summary

@@ -2,20 +2,19 @@ import json
 import threading
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from collections import deque
 import logging
-from prometheus_client import CONTENT_TYPE_LATEST
 
 logger = logging.getLogger(__name__)
 
 _metrics_collector = None
+# Use regular lists - no rolling window, keeps all history
 _history = {
-    "timestamps": deque(maxlen=200),
-    "latencies": deque(maxlen=200),
-    "throughput": deque(maxlen=200),
-    "requests": deque(maxlen=200),
-    "cpu_percent": deque(maxlen=200),
-    "gpu_memory_mb": deque(maxlen=200),
+    "timestamps": [],
+    "latencies": [],
+    "throughput": [],
+    "queries": [],
+    "cpu_percent": [],
+    "gpu_memory_mb": [],
 }
 _start_time = time.time()
 _last_request_count = 0
@@ -39,9 +38,10 @@ def update_history():
         if is_running and current_count > _last_request_count:
             elapsed = time.time() - _start_time
             _history["timestamps"].append(round(elapsed, 1))
-            _history["latencies"].append(round(summary.get("avg_ms", 0), 2))
-            _history["throughput"].append(round(summary.get("throughput_rps", 0), 2))
-            _history["requests"].append(current_count)
+            # Use instantaneous latency instead of average
+            _history["latencies"].append(round(summary.get("instant_latency_ms", summary.get("avg_ms", 0)), 2))
+            _history["throughput"].append(round(summary.get("throughput_qps", 0), 2))
+            _history["queries"].append(summary.get("query_count", 0))
             _history["cpu_percent"].append(round(summary.get("cpu_percent", 0), 1))
             _history["gpu_memory_mb"].append(round(summary.get("gpu_memory_mb", 0), 1))
             _last_request_count = current_count
@@ -63,36 +63,27 @@ class MetricsHandler(BaseHTTPRequestHandler):
             if _metrics_collector:
                 data = _metrics_collector.summary()
                 data["history"] = {
-                    "timestamps": list(_history["timestamps"]),
-                    "latencies": list(_history["latencies"]),
-                    "throughput": list(_history["throughput"]),
-                    "requests": list(_history["requests"]),
-                    "cpu_percent": list(_history["cpu_percent"]),
-                    "gpu_memory_mb": list(_history["gpu_memory_mb"]),
+                    "timestamps": _history["timestamps"],
+                    "latencies": _history["latencies"],
+                    "throughput": _history["throughput"],
+                    "queries": _history["queries"],
+                    "cpu_percent": _history["cpu_percent"],
+                    "gpu_memory_mb": _history["gpu_memory_mb"],
                 }
             else:
                 data = {"error": "No metrics available"}
             
             self.wfile.write(json.dumps(data, indent=2).encode())
         
-        elif self.path == "/prometheus":
-            # Prometheus format metrics
-            self.send_response(200)
-            self.send_header("Content-Type", CONTENT_TYPE_LATEST)
-            self.end_headers()
-            if _metrics_collector:
-                self.wfile.write(_metrics_collector.get_prometheus_metrics())
-            else:
-                self.wfile.write(b"")
-        
         elif self.path == "/reset":
-            global _last_request_count
+            global _last_request_count, _start_time
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             for key in _history:
-                _history[key].clear()
+                _history[key] = []
             _last_request_count = 0
+            _start_time = time.time()
             if _metrics_collector:
                 _metrics_collector.reset()
             self.wfile.write(json.dumps({"status": "reset"}).encode())
@@ -196,10 +187,9 @@ class MetricsHandler(BaseHTTPRequestHandler):
 <body>
     <div class="header">
         <h1>ML Inference Dashboard</h1>
-        <div class="subtitle">Real-time metrics • sentence-transformers/all-MiniLM-L6-v2 • MPS</div>
+        <div class="subtitle">Real-time metrics • Cross-Encoder • MPS</div>
         <div class="endpoints">
-            Endpoints: <a href="/metrics">/metrics</a> (JSON) | 
-            <a href="/prometheus">/prometheus</a> (Prometheus) |
+            Endpoints: <a href="/metrics">/metrics</a> (JSON) |
             <a href="/reset">/reset</a>
         </div>
         <div class="status idle" id="status">Idle</div>
@@ -207,12 +197,12 @@ class MetricsHandler(BaseHTTPRequestHandler):
     
     <div class="metrics-row">
         <div class="metric-card">
-            <div class="metric-label">Requests</div>
-            <div class="metric-value" id="count">0</div>
+            <div class="metric-label">Queries</div>
+            <div class="metric-value" id="query_count">0</div>
         </div>
         <div class="metric-card">
-            <div class="metric-label">Avg Latency</div>
-            <div class="metric-value" id="avg_ms">0</div>
+            <div class="metric-label">Latency (instant)</div>
+            <div class="metric-value" id="instant_latency_ms">0</div>
             <div class="metric-unit">ms</div>
         </div>
         <div class="metric-card">
@@ -221,9 +211,9 @@ class MetricsHandler(BaseHTTPRequestHandler):
             <div class="metric-unit">ms</div>
         </div>
         <div class="metric-card">
-            <div class="metric-label">Throughput</div>
-            <div class="metric-value" id="throughput_rps">0</div>
-            <div class="metric-unit">req/s</div>
+            <div class="metric-label">Throughput (instant)</div>
+            <div class="metric-value" id="throughput_qps">0</div>
+            <div class="metric-unit">queries/s</div>
         </div>
         <div class="metric-card">
             <div class="metric-label">CPU</div>
@@ -240,7 +230,7 @@ class MetricsHandler(BaseHTTPRequestHandler):
     <div class="charts-container">
         <div class="chart-container">
             <div class="chart-header">
-                <span class="chart-title">Latency (ms)</span>
+                <span class="chart-title">Latency (ms) - Instantaneous</span>
                 <span class="chart-value" id="latency_live">0 ms</span>
             </div>
             <canvas id="latencyChart"></canvas>
@@ -248,15 +238,15 @@ class MetricsHandler(BaseHTTPRequestHandler):
         
         <div class="chart-container">
             <div class="chart-header">
-                <span class="chart-title">Throughput (req/s)</span>
-                <span class="chart-value" id="throughput_live">0 req/s</span>
+                <span class="chart-title">Throughput (queries/s) - Instantaneous</span>
+                <span class="chart-value" id="throughput_live">0 q/s</span>
             </div>
             <canvas id="throughputChart"></canvas>
         </div>
         
         <div class="chart-container">
             <div class="chart-header">
-                <span class="chart-title">Requests Processed</span>
+                <span class="chart-title">Queries Processed</span>
                 <span class="chart-value" id="requests_live">0</span>
             </div>
             <canvas id="requestsChart"></canvas>
@@ -288,7 +278,22 @@ class MetricsHandler(BaseHTTPRequestHandler):
                 maintainAspectRatio: false,
                 animation: { duration: 0 },
                 scales: {
-                    x: { display: false },
+                    x: { 
+                        display: true,
+                        grid: { color: 'rgba(255,255,255,0.03)' },
+                        ticks: { 
+                            color: '#444', 
+                            font: { size: 9 },
+                            maxTicksLimit: 10,
+                            callback: function(value, index) {
+                                const labels = this.chart.data.labels;
+                                if (labels.length > 20) {
+                                    return index % Math.ceil(labels.length / 10) === 0 ? labels[index] : '';
+                                }
+                                return labels[index];
+                            }
+                        }
+                    },
                     y: { 
                         grid: { color: 'rgba(255,255,255,0.03)' },
                         ticks: { color: '#444', font: { size: 10 } },
@@ -316,16 +321,16 @@ class MetricsHandler(BaseHTTPRequestHandler):
                 const res = await fetch('/metrics');
                 const data = await res.json();
                 
-                document.getElementById('count').textContent = data.count || 0;
-                document.getElementById('avg_ms').textContent = (data.avg_ms || 0).toFixed(1);
+                document.getElementById('query_count').textContent = data.query_count || 0;
+                document.getElementById('instant_latency_ms').textContent = (data.instant_latency_ms || data.avg_ms || 0).toFixed(1);
                 document.getElementById('p95_ms').textContent = (data.p95_ms || 0).toFixed(1);
-                document.getElementById('throughput_rps').textContent = (data.throughput_rps || 0).toFixed(1);
+                document.getElementById('throughput_qps').textContent = (data.throughput_qps || 0).toFixed(1);
                 document.getElementById('cpu_percent').textContent = (data.cpu_percent || 0).toFixed(0);
                 document.getElementById('gpu_memory_mb').textContent = (data.gpu_memory_mb || 0).toFixed(0);
                 
-                document.getElementById('latency_live').textContent = (data.avg_ms || 0).toFixed(1) + ' ms';
-                document.getElementById('throughput_live').textContent = (data.throughput_rps || 0).toFixed(1) + ' req/s';
-                document.getElementById('requests_live').textContent = data.count || 0;
+                document.getElementById('latency_live').textContent = (data.instant_latency_ms || data.avg_ms || 0).toFixed(1) + ' ms';
+                document.getElementById('throughput_live').textContent = (data.throughput_qps || 0).toFixed(1) + ' q/s';
+                document.getElementById('requests_live').textContent = data.query_count || 0;
                 document.getElementById('cpu_live').textContent = (data.cpu_percent || 0).toFixed(0) + '%';
                 document.getElementById('gpu_live').textContent = (data.gpu_memory_mb || 0).toFixed(0) + ' MB';
                 
@@ -339,10 +344,10 @@ class MetricsHandler(BaseHTTPRequestHandler):
                 }
 
                 if (data.history) {
-                    const labels = data.history.timestamps.map(t => t + 's');
+                    const labels = data.history.timestamps.map(t => t.toFixed(0) + 's');
                     updateChart(latencyChart, labels, data.history.latencies);
                     updateChart(throughputChart, labels, data.history.throughput);
-                    updateChart(requestsChart, labels, data.history.requests);
+                    updateChart(requestsChart, labels, data.history.queries);
                     updateChart(cpuChart, labels, data.history.cpu_percent);
                     updateChart(gpuChart, labels, data.history.gpu_memory_mb);
                 }
@@ -369,5 +374,4 @@ def start_metrics_server(port: int = 8080):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     logger.info(f"Metrics dashboard: http://localhost:{port}")
-    logger.info(f"Prometheus metrics: http://localhost:{port}/prometheus")
     return server

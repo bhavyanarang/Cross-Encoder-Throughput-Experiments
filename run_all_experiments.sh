@@ -42,9 +42,9 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
     python ml_inference_server/main.py --experiment "$config" > /tmp/server_${EXPERIMENT_NAME}.log 2>&1 &
     SERVER_PID=$!
     
-    # Wait for server to start
-    echo "Waiting for server to initialize..."
-    sleep 10
+    # Wait for server to start (model loading can take 30-60 seconds)
+    echo "Waiting for server to initialize (up to 60s)..."
+    sleep 45
     
     # Check if server is running
     if ! kill -0 $SERVER_PID 2>/dev/null; then

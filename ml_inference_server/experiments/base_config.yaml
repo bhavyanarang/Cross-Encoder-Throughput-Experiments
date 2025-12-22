@@ -1,19 +1,24 @@
 # Base experiment configuration
-# This file contains the default settings for all experiments
+# All experiments inherit from this. Only override what you need to change.
+
+model:
+  name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  device: "mps"
+  backend: "pytorch"
+  quantized: false
+  quantization_mode: "fp16"
 
 server:
   host: "0.0.0.0"
   port: 50051
 
-# Common experiment parameters
-experiment:
-  batch_sizes: [1, 4, 8, 16, 32]
-  concurrency_levels: [1, 4, 8]
-  warmup_iterations: 10
-  benchmark_requests: 500
-
 batching:
   enabled: false
-  max_batch_size: 8
+  max_batch_size: 32
   timeout_ms: 100
 
+experiment:
+  batch_sizes: [32, 64, 128]
+  concurrency_levels: [4, 8]
+  warmup_iterations: 10
+  benchmark_requests: 500

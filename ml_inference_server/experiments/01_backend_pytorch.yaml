@@ -1,0 +1,11 @@
+# Experiment 01: Backend Comparison - PyTorch
+name: "01_backend_pytorch"
+description: "PyTorch backend baseline on MPS with FP16"
+
+model:
+  quantized: true
+
+experiment:
+  batch_sizes: [32]
+  concurrency_levels: [1]
+  benchmark_requests: 200

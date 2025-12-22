@@ -1,0 +1,14 @@
+# Experiment 06a: Concurrency Optimization - MPS Backend
+name: "06a_concurrency_mps"
+description: "Sweep concurrency levels on MPS backend"
+
+model:
+  backend: "mps"
+  mps:
+    fp16: true
+
+experiment:
+  batch_sizes: [96]  # Optimal from exp 05 (708 p/s, 135ms latency)
+  concurrency_levels: [1, 2, 3, 4, 6, 8, 12]
+  benchmark_requests: 150
+

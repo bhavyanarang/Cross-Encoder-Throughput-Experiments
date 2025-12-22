@@ -1,14 +1,21 @@
+"""
+PyTorch Backend - Cross-Encoder for Query-Document Scoring.
+
+Uses CrossEncoder from sentence-transformers for relevance scoring.
+Optimized with torch.inference_mode and shared utilities.
+"""
+
 import torch
 import numpy as np
 import logging
-from sentence_transformers import SentenceTransformer
-from .base_backend import BaseBackend
+from sentence_transformers import CrossEncoder
+from .base_backend import BaseBackend, with_inference_mode
 
 logger = logging.getLogger(__name__)
 
 
 class PyTorchBackend(BaseBackend):
-    """PyTorch backend with support for various quantization levels."""
+    """PyTorch cross-encoder backend for query-document scoring."""
     
     QUANTIZATION_MODES = {
         "none": "FP32 (no quantization)",
@@ -24,24 +31,19 @@ class PyTorchBackend(BaseBackend):
         quantization_mode: str = "fp16"
     ):
         super().__init__(model_name, device)
-        # Prefer MPS on Apple Silicon
-        if device == "mps" and torch.backends.mps.is_available():
-            self.device = "mps"
-        elif device == "cuda" and torch.cuda.is_available():
-            self.device = "cuda"
-        else:
-            self.device = "cpu"
-        
+        # Use shared device resolution
+        self.device = self.resolve_device(device)
         self.quantized = quantized
         self.quantization_mode = quantization_mode if quantized else "none"
         self.actual_dtype = None
     
     def load_model(self) -> None:
-        """Load model with optional quantization."""
-        logger.info(f"Loading model: {self.model_name}")
+        """Load cross-encoder model."""
+        logger.info(f"Loading cross-encoder: {self.model_name}")
         logger.info(f"Target device: {self.device}")
         
-        self.model = SentenceTransformer(self.model_name, device=self.device)
+        # Load CrossEncoder
+        self.model = CrossEncoder(self.model_name, device=self.device)
         
         if self.quantized:
             self._apply_quantization()
@@ -50,125 +52,56 @@ class PyTorchBackend(BaseBackend):
             logger.info(f"Loaded {self.model_name} on {self.device} (FP32)")
         
         self._is_loaded = True
-        self._verify_model_dtype()
     
     def _apply_quantization(self) -> None:
         """Apply the specified quantization mode."""
-        if self.quantization_mode == "int8":
-            self._apply_int8_quantization()
-        elif self.quantization_mode == "fp16":
-            self._apply_fp16_quantization()
-        else:
-            logger.warning(f"Unknown quantization mode: {self.quantization_mode}")
-            self.quantized = False
-            self.actual_dtype = "float32"
-    
-    def _apply_int8_quantization(self) -> None:
-        """Apply INT8 dynamic quantization (CPU only, x86 only)."""
-        import platform
-        
-        # Check if INT8 is supported (not on Apple Silicon)
-        is_arm = platform.machine() in ("arm64", "aarch64")
-        if is_arm:
-            logger.warning("INT8 quantization not supported on ARM/Apple Silicon.")
-            logger.warning("Falling back to FP16 quantization.")
-            self._apply_fp16_quantization()
-            return
-        
-        if self.device != "cpu":
-            logger.warning(f"INT8 quantization requires CPU. Moving model to CPU.")
-            self.device = "cpu"
-            self.model = SentenceTransformer(self.model_name, device="cpu")
-        
-        try:
-            quantized_any = False
-            if hasattr(self.model, '_modules'):
-                for module_name, module in self.model._modules.items():
-                    if hasattr(module, 'auto_model'):
-                        original_size = self._get_model_size(module.auto_model)
-                        self.model._modules[module_name].auto_model = torch.quantization.quantize_dynamic(
-                            module.auto_model, 
-                            {torch.nn.Linear}, 
-                            dtype=torch.qint8
-                        )
-                        new_size = self._get_model_size(self.model._modules[module_name].auto_model)
-                        quantized_any = True
-                        logger.info(f"Quantized {module_name}: {original_size:.1f}MB -> {new_size:.1f}MB")
-            
-            if quantized_any:
-                self.actual_dtype = "int8"
-                logger.info(f"Loaded {self.model_name} on {self.device} (INT8 QUANTIZED)")
-            else:
-                logger.warning("Could not find transformer modules to quantize.")
+        if self.quantization_mode == "fp16":
+            # Use shared FP16 utility
+            _, self.actual_dtype = self.apply_fp16(self.model, self.device, logger)
+            if self.actual_dtype == "float32":
                 self.quantized = False
-                self.actual_dtype = "float32"
-        except RuntimeError as e:
-            if "NoQEngine" in str(e):
-                logger.warning(f"INT8 engine not available: {e}")
-                logger.warning("Falling back to FP16 quantization.")
-                self._apply_fp16_quantization()
             else:
-                raise
-    
-    def _apply_fp16_quantization(self) -> None:
-        """Apply FP16 half precision."""
-        try:
-            if hasattr(self.model, '_modules'):
-                for module_name, module in self.model._modules.items():
-                    if hasattr(module, 'auto_model'):
-                        self.model._modules[module_name].auto_model = module.auto_model.half()
-            
-            self.actual_dtype = "float16"
-            logger.info(f"Loaded {self.model_name} on {self.device} (FP16 QUANTIZED)")
-        except Exception as e:
-            logger.warning(f"FP16 quantization failed: {e}")
+                logger.info(f"Loaded {self.model_name} on {self.device} (FP16)")
+        else:
+            logger.warning(f"Quantization mode {self.quantization_mode} not supported for cross-encoder")
             self.quantized = False
             self.actual_dtype = "float32"
     
-    def _get_model_size(self, model) -> float:
-        """Get model size in MB."""
-        param_size = sum(p.nelement() * p.element_size() for p in model.parameters())
-        buffer_size = sum(b.nelement() * b.element_size() for b in model.buffers())
-        return (param_size + buffer_size) / 1024 / 1024
-    
-    def _verify_model_dtype(self) -> None:
-        """Verify the actual dtype of model parameters."""
-        if hasattr(self.model, '_modules'):
-            for module_name, module in self.model._modules.items():
-                if hasattr(module, 'auto_model'):
-                    for name, param in module.auto_model.named_parameters():
-                        actual = str(param.dtype)
-                        logger.info(f"Verified dtype for {module_name}: {actual}")
-                        break
-                    break
-    
-    def infer(self, texts: list[str]) -> np.ndarray:
-        """Run inference and return embeddings."""
-        embeddings = self.model.encode(texts, convert_to_numpy=True)
-        return embeddings
+    @with_inference_mode
+    def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:
+        """
+        Run cross-encoder inference on query-document pairs.
+        Uses torch.inference_mode for better performance.
+        
+        Args:
+            pairs: List of (query, document) tuples
+            
+        Returns:
+            Array of relevance scores
+        """
+        # No need for np.array() - predict already returns numpy when convert_to_numpy=True
+        return self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
     
     def warmup(self, iterations: int = 5) -> None:
-        """Warm up the model."""
-        sample = ["warmup text for inference benchmark"]
-        for _ in range(iterations):
-            self.infer(sample)
+        """Warm up the model with synchronization for accurate timing."""
+        sample_pairs = [("warmup query", "warmup document")]
+        for i in range(iterations):
+            self.infer(sample_pairs)
+            if (i + 1) % 2 == 0:
+                logger.info(f"Warmup progress: {i + 1}/{iterations}")
+        
+        # Sync device to ensure all operations complete
+        self.sync_device(self.device)
         logger.info(f"Warmup complete ({iterations} iterations)")
     
     def get_model_info(self) -> dict:
         """Return model information."""
-        info = {
+        return {
             "model_name": self.model_name,
             "device": self.device,
             "quantized": self.quantized,
             "quantization_mode": self.quantization_mode,
             "actual_dtype": self.actual_dtype,
             "backend": "pytorch",
+            "model_type": "cross-encoder",
         }
-        
-        if self._is_loaded and hasattr(self.model, '_modules'):
-            for module_name, module in self.model._modules.items():
-                if hasattr(module, 'auto_model'):
-                    info["model_size_mb"] = self._get_model_size(module.auto_model)
-                    break
-        
-        return info
