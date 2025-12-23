@@ -129,12 +129,95 @@ class FirstAvailableRouter(RoutingStrategy):
         pass
 
 
+class FirstIdleRouter(RoutingStrategy):
+    """
+    First-idle routing strategy.
+    
+    Routes requests to the first idle (not busy) model instance.
+    If all instances are busy, routes to the one with fewest pending requests.
+    Optimized for maximizing throughput when you have multiple model replicas.
+    """
+    
+    def select_backend(self, backends: list["BaseBackend"]) -> "BaseBackend":
+        """Select the first idle backend, or least busy if all are busy."""
+        if not backends:
+            raise ValueError("No backends available for routing")
+        
+        # First pass: find any idle backend
+        for backend in backends:
+            if not backend.is_busy:
+                logger.debug(f"FirstIdle: found idle backend")
+                return backend
+        
+        # All busy - select one with fewest pending requests
+        selected = min(backends, key=lambda b: b.pending_requests)
+        logger.debug(f"FirstIdle: all busy, selecting backend with {selected.pending_requests} pending")
+        return selected
+    
+    def reset(self) -> None:
+        """No state to reset."""
+        pass
+
+
+class SmartIdleRouter(RoutingStrategy):
+    """
+    Smart idle-based routing with utilization tracking.
+    
+    Routes to idle backends first, with fallback to round-robin among busy ones.
+    Tracks which backends have been selected to ensure balanced distribution
+    when all backends are idle.
+    """
+    
+    def __init__(self):
+        self._last_selected = 0
+        self._lock = threading.Lock()
+    
+    def select_backend(self, backends: list["BaseBackend"]) -> "BaseBackend":
+        """Select backend with smart idle-aware routing."""
+        if not backends:
+            raise ValueError("No backends available for routing")
+        
+        with self._lock:
+            n = len(backends)
+            
+            # Collect idle backends
+            idle_backends = [(i, b) for i, b in enumerate(backends) if not b.is_busy]
+            
+            if idle_backends:
+                # Round-robin among idle backends starting from last selected
+                for offset in range(n):
+                    idx = (self._last_selected + offset) % n
+                    if not backends[idx].is_busy:
+                        self._last_selected = (idx + 1) % n
+                        logger.debug(f"SmartIdle: selected idle backend {idx}")
+                        return backends[idx]
+            
+            # All busy - select least busy
+            selected_idx, selected = min(
+                enumerate(backends),
+                key=lambda x: x[1].pending_requests
+            )
+            self._last_selected = (selected_idx + 1) % n
+            logger.debug(f"SmartIdle: all busy, selected backend {selected_idx} with {selected.pending_requests} pending")
+            return selected
+    
+    def reset(self) -> None:
+        """Reset the round-robin index."""
+        with self._lock:
+            self._last_selected = 0
+
+
 def create_router(strategy_name: str) -> RoutingStrategy:
     """
     Factory function to create a routing strategy.
     
     Args:
-        strategy_name: Name of the strategy ("round_robin", "least_busy", "first_available")
+        strategy_name: Name of the strategy:
+            - "round_robin": Distribute evenly across backends
+            - "least_busy": Route to backend with fewest pending requests
+            - "first_available": Route to first non-busy backend
+            - "first_idle": Route to first idle backend (optimized for replicas)
+            - "smart_idle": Smart idle-aware routing with balanced distribution
         
     Returns:
         RoutingStrategy instance
@@ -146,6 +229,8 @@ def create_router(strategy_name: str) -> RoutingStrategy:
         "round_robin": RoundRobinRouter,
         "least_busy": LeastBusyRouter,
         "first_available": FirstAvailableRouter,
+        "first_idle": FirstIdleRouter,
+        "smart_idle": SmartIdleRouter,
     }
     
     if strategy_name not in strategies:
@@ -159,6 +244,8 @@ __all__ = [
     "RoundRobinRouter",
     "LeastBusyRouter",
     "FirstAvailableRouter",
+    "FirstIdleRouter",
+    "SmartIdleRouter",
     "create_router",
 ]
 

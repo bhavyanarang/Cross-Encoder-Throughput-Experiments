@@ -62,6 +62,7 @@ class MetricsCollector:
     - Throughput (QPS)
     - Padding waste analysis
     - Per-stage timing breakdown
+    - Per-instance model metrics
     
     Thread-safe: uses internal locking for all operations.
     """
@@ -88,10 +89,18 @@ class MetricsCollector:
     # Model reference for GPU memory tracking
     _model = None
     
+    # Model pool reference for per-instance metrics
+    _model_pool = None
+    
     @classmethod
     def set_model(cls, model):
         """Set model reference for GPU memory tracking."""
         cls._model = model
+    
+    @classmethod
+    def set_model_pool(cls, model_pool):
+        """Set model pool reference for per-instance metrics."""
+        cls._model_pool = model_pool
     
     def set_experiment_info(
         self,
@@ -208,6 +217,14 @@ class MetricsCollector:
         if latency_stats.count == 0:
             return {}
         
+        # Get instance metrics if model pool is available
+        instance_metrics = {}
+        if self._model_pool is not None:
+            try:
+                instance_metrics = self._model_pool.get_instance_metrics_summary()
+            except Exception:
+                pass
+        
         return {
             # Experiment metadata
             "experiment_name": self.experiment.name,
@@ -269,6 +286,9 @@ class MetricsCollector:
                 "last_max_seq_length": padding_stats.last_max_seq_length,
                 "last_avg_seq_length": padding_stats.last_avg_seq_length,
             },
+            
+            # Per-instance model metrics
+            "instance_metrics": instance_metrics,
         }
     
     def summary(self) -> dict:

@@ -78,6 +78,12 @@
         </div>
     </section>
 
+    <!-- Model Instance Metrics -->
+    <div class="section-title" id="instance_section_title" style="display: none;">Model Instances</div>
+    <section class="metrics-row instance-metrics" id="instance_metrics" style="display: none;">
+        <!-- Dynamically populated with per-instance cards -->
+    </section>
+
     <!-- Stage Breakdown -->
     <div class="section-title">Stage Breakdown</div>
     <section class="stage-breakdown">
@@ -201,6 +207,35 @@
                     <canvas id="queriesChart"></canvas>
                 </div>
             </div>
+        </div>
+
+        <!-- Row 4: Padding Waste Chart -->
+        <div class="section-title">Padding Analysis</div>
+        <div class="chart-grid">
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Padding Waste</span>
+                    <span class="chart-value padding" id="padding_live">0%</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="paddingChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Avg Utilization</span>
+                    <span class="chart-value" id="utilization_live">0%</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="utilizationChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Row 5: Per-Instance Utilization Charts (multi-model mode) -->
+        <div class="section-title" id="instance_charts_title" style="display: none;">Per-Instance Metrics</div>
+        <div class="chart-grid instance-charts" id="instance_charts" style="display: none;">
+            <!-- Dynamically populated with per-instance utilization charts -->
         </div>
     </main>
 

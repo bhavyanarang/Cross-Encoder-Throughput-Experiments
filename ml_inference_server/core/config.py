@@ -19,6 +19,7 @@ class ModelInstanceConfig(BaseModel):
     )
     use_fp16: bool = Field(default=True, description="Use FP16 precision")
     compile_model: bool = Field(default=False, description="Use torch.compile")
+    max_length: Optional[int] = Field(default=None, description="Max sequence length for tokenization (None = use model default)")
     
     # Backend-specific options
     quantization_bits: int = Field(default=16, description="Quantization bits for MLX")
@@ -34,9 +35,12 @@ class ModelPoolConfig(BaseModel):
         default_factory=list,
         description="List of model instances to load"
     )
-    routing_strategy: Literal["round_robin", "least_busy"] = Field(
-        default="round_robin",
-        description="Strategy for routing requests to model instances"
+    routing_strategy: Literal[
+        "round_robin", "least_busy", "first_available", "first_idle", "smart_idle"
+    ] = Field(
+        default="first_idle",
+        description="Strategy for routing requests to model instances. "
+                    "'first_idle' routes to non-busy instances for max throughput."
     )
 
 

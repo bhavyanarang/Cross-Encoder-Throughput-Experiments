@@ -45,6 +45,14 @@ class MetricsHistory:
     tokenize_ms: list = field(default_factory=list)
     inference_ms: list = field(default_factory=list)
     
+    # Padding waste history
+    padding_pct: list = field(default_factory=list)
+    
+    # Per-instance metrics history (list of lists)
+    instance_utilization: list = field(default_factory=list)
+    instance_idle: list = field(default_factory=list)
+    instance_names: list = field(default_factory=list)
+    
     start_time: float = field(default_factory=time.time)
     last_request_count: int = 0
     
@@ -59,6 +67,10 @@ class MetricsHistory:
         self.queue_wait_ms = []
         self.tokenize_ms = []
         self.inference_ms = []
+        self.padding_pct = []
+        self.instance_utilization = []
+        self.instance_idle = []
+        self.instance_names = []
         self.start_time = time.time()
         self.last_request_count = 0
     
@@ -74,6 +86,10 @@ class MetricsHistory:
             "queue_wait_ms": self.queue_wait_ms,
             "tokenize_ms": self.tokenize_ms,
             "inference_ms": self.inference_ms,
+            "padding_pct": self.padding_pct,
+            "instance_utilization": self.instance_utilization,
+            "instance_idle": self.instance_idle,
+            "instance_names": self.instance_names,
         }
 
 
@@ -125,6 +141,27 @@ class MetricsServer:
             self.history.queue_wait_ms.append(round(summary.get("last_queue_wait_ms", 0), 2))
             self.history.tokenize_ms.append(round(summary.get("last_tokenize_ms", 0), 2))
             self.history.inference_ms.append(round(summary.get("last_inference_ms", 0), 2))
+            
+            # Padding waste history
+            padding_analysis = summary.get("padding_analysis", {})
+            padding_pct = padding_analysis.get("last_padding_pct", padding_analysis.get("avg_padding_pct", 0))
+            self.history.padding_pct.append(round(padding_pct, 2))
+            
+            # Per-instance metrics history
+            instance_metrics = summary.get("instance_metrics", {})
+            instances = instance_metrics.get("instances", [])
+            
+            if instances:
+                # Store instance names (only once, or update if changed)
+                if not self.history.instance_names:
+                    self.history.instance_names = [inst.get("name", f"inst-{i}") for i, inst in enumerate(instances)]
+                
+                # Store utilization for each instance at this time point
+                utilization = [inst.get("utilization_pct", 0) for inst in instances]
+                idle = [inst.get("idle_pct", 100) for inst in instances]
+                self.history.instance_utilization.append(utilization)
+                self.history.instance_idle.append(idle)
+            
             self.history.last_request_count = current_count
     
     def reset_history(self) -> None:

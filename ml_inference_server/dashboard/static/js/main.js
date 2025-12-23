@@ -50,7 +50,13 @@ const elements = {
     inferenceLive: document.getElementById('inference_live'),
     cpuLive: document.getElementById('cpu_live'),
     gpuLive: document.getElementById('gpu_live'),
-    queriesLive: document.getElementById('queries_live')
+    queriesLive: document.getElementById('queries_live'),
+    paddingLive: document.getElementById('padding_live'),
+    utilizationLive: document.getElementById('utilization_live'),
+    
+    // Instance metrics section
+    instanceSectionTitle: document.getElementById('instance_section_title'),
+    instanceMetrics: document.getElementById('instance_metrics')
 };
 
 // Format number with fixed decimals
@@ -154,6 +160,54 @@ function updateChartValues(data) {
     elements.cpuLive.textContent = fmt(data.cpu_percent, 0) + '%';
     elements.gpuLive.textContent = fmt(data.gpu_memory_mb, 0) + ' MB';
     elements.queriesLive.textContent = data.query_count || 0;
+    
+    // Padding live value
+    const padding = data.padding_analysis || {};
+    elements.paddingLive.textContent = fmt(padding.last_padding_pct || padding.avg_padding_pct) + '%';
+    
+    // Utilization live value (average across instances)
+    const instanceMetrics = data.instance_metrics || {};
+    elements.utilizationLive.textContent = fmt(instanceMetrics.avg_utilization_pct || 0) + '%';
+}
+
+// Update per-instance metrics cards
+function updateInstanceMetrics(data) {
+    const instanceMetrics = data.instance_metrics || {};
+    const instances = instanceMetrics.instances || [];
+    
+    if (instances.length <= 1) {
+        elements.instanceSectionTitle.style.display = 'none';
+        elements.instanceMetrics.style.display = 'none';
+        return;
+    }
+    
+    elements.instanceSectionTitle.style.display = 'block';
+    elements.instanceMetrics.style.display = 'grid';
+    
+    // Build HTML for instance cards
+    const cardsHtml = instances.map((inst, i) => {
+        const color = getInstanceColor(i);
+        const busyClass = inst.is_busy ? 'busy' : 'idle';
+        return `
+            <div class="metric-card instance-card" style="border-color: ${color}">
+                <div class="metric-label">${inst.name}</div>
+                <div class="metric-value" style="color: ${color}">${fmt(inst.utilization_pct)}%</div>
+                <div class="metric-unit">utilization</div>
+                <div class="instance-stats">
+                    <span class="stat">${inst.request_count} reqs</span>
+                    <span class="stat ${busyClass}">${inst.is_busy ? '⚡ busy' : '💤 idle'}</span>
+                </div>
+            </div>
+        `;
+    }).join('');
+    
+    elements.instanceMetrics.innerHTML = cardsHtml;
+}
+
+// Get color for instance by index
+function getInstanceColor(index) {
+    const colors = ['#58a6ff', '#3fb950', '#f0883e', '#a371f7', '#f85149', '#56d4dd', '#db61a2', '#e3b341'];
+    return colors[index % colors.length];
 }
 
 // Fetch metrics and update dashboard
@@ -168,6 +222,7 @@ async function fetchAndUpdate() {
         updateStageBreakdown(data);
         updateP95Stats(data);
         updateChartValues(data);
+        updateInstanceMetrics(data);
         
         if (data.history) {
             window.DashboardCharts.updateAll(data.history);

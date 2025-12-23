@@ -11,10 +11,10 @@ import numpy as np
 import logging
 import torch
 from sentence_transformers import CrossEncoder
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from .base_backend import BaseBackend, InferenceResult
-from .device_utils import sync_device, clear_memory, apply_fp16
+from .device_utils import sync_device, clear_memory, apply_fp16, get_device_lock
 from .mixins import with_inference_mode
 
 if TYPE_CHECKING:
@@ -33,13 +33,17 @@ class MPSBackend(BaseBackend):
         use_fp16: bool = True,
         compile_model: bool = False,
         sync_on_infer: bool = False,
+        max_length: Optional[int] = None,
     ):
         super().__init__(model_name, device)
         self.use_fp16 = use_fp16
         self.compile_model = compile_model
         self.sync_on_infer = sync_on_infer
         self.actual_dtype = None
-        self._max_length = None
+        self._max_length = max_length  # Will be set from config or model default in load_model
+        # Global lock for GPU submission on this device (important for MPS stability).
+        # This is shared across *all* MPSBackend instances in-process.
+        self._device_lock = get_device_lock(self.device)
     
     @classmethod
     def from_config(cls, config: "ModelInstanceConfig") -> "MPSBackend":
@@ -49,6 +53,7 @@ class MPSBackend(BaseBackend):
             device=config.device,
             use_fp16=config.use_fp16,
             compile_model=config.compile_model,
+            max_length=config.max_length,
         )
         
     def load_model(self) -> None:
@@ -65,7 +70,11 @@ class MPSBackend(BaseBackend):
         
         # Cache tokenizer reference for timing measurements
         self._tokenizer = self.model.tokenizer
-        self._max_length = self.model.max_length
+        # Use configured max_length if provided, otherwise use model default
+        if self._max_length is None:
+            self._max_length = self.model.max_length
+        else:
+            logger.info(f"Using configured max_length: {self._max_length} (model default: {self.model.max_length})")
         
         # Apply FP16 using utility
         if self.use_fp16 and self.device == "mps":
@@ -82,14 +91,19 @@ class MPSBackend(BaseBackend):
         """
         Run cross-encoder inference on query-document pairs.
         Uses torch.inference_mode for better performance.
-        Thread-safe: uses lock to serialize MPS operations.
+        Thread-safe: per-instance lock + global per-device lock for MPS GPU work.
         """
         self._acquire_for_inference()
         try:
-            scores = self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
+            # CrossEncoder.predict performs both tokenization and forward pass.
+            # To avoid Metal command buffer issues under concurrent load, serialize
+            # the whole call on MPS.
+            with self._device_lock:
+                scores = self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
             
             if self.sync_on_infer:
-                self.sync_device()
+                with self._device_lock:
+                    self.sync_device()
             
             return scores
         finally:
@@ -99,7 +113,7 @@ class MPSBackend(BaseBackend):
     def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
         """
         Run inference with separate timing for tokenization and model forward pass.
-        Thread-safe: uses lock to serialize MPS operations.
+        Thread-safe: per-instance lock + global per-device lock for MPS GPU work.
         """
         self._acquire_for_inference()
         try:
@@ -128,28 +142,30 @@ class MPSBackend(BaseBackend):
             padding_ratio = padded_tokens / total_tokens if total_tokens > 0 else 0.0
             avg_seq_length = float(real_tokens_per_seq.float().mean().item())
             
-            features = {k: v.to(self.device) for k, v in features.items()}
-            
             t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
             
             # Stage 2: Model inference
             inference_start = time.perf_counter()
-            
-            sync_device(self.device)
-            
-            model_predictions = self.model.model(**features, return_dict=True)
-            logits = model_predictions.logits
-            
-            if self.model.config.num_labels == 1:
-                scores = torch.sigmoid(logits).squeeze(-1)
-            else:
-                scores = torch.softmax(logits, dim=-1)[:, 1]
-            
-            sync_device(self.device)
-            
+
+            # Important: serialize the GPU section (H2D copies + forward + D2H copy)
+            # across all MPS backends to avoid Metal command buffer assertion failures.
+            with self._device_lock:
+                features = {k: v.to(self.device) for k, v in features.items()}
+
+                sync_device(self.device)
+
+                model_predictions = self.model.model(**features, return_dict=True)
+                logits = model_predictions.logits
+
+                if self.model.config.num_labels == 1:
+                    scores = torch.sigmoid(logits).squeeze(-1)
+                else:
+                    scores = torch.softmax(logits, dim=-1)[:, 1]
+
+                sync_device(self.device)
+                scores_np = scores.cpu().numpy()
+
             t_model_inference_ms = (time.perf_counter() - inference_start) * 1000
-            
-            scores_np = scores.cpu().numpy()
             
             total_ms = (time.perf_counter() - total_start) * 1000
             

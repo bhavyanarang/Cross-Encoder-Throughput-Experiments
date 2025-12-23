@@ -162,6 +162,10 @@ def main():
     metrics = MetricsCollector()
     set_metrics_collector(metrics)
     
+    # Set model pool reference for per-instance metrics
+    if model_pool is not None:
+        MetricsCollector.set_model_pool(model_pool)
+    
     # Set experiment info for dashboard display
     metrics.set_experiment_info(
         name=config.get('_experiment_name', 'Manual Run'),
@@ -203,7 +207,12 @@ def main():
     logger.info("=" * 50)
 
     # Start gRPC server
-    serve(scheduler, config["server"]["host"], config["server"]["port"])
+    serve(
+        scheduler,
+        config["server"]["host"],
+        config["server"]["port"],
+        max_workers=config.get("server", {}).get("grpc_workers", 10),
+    )
 
 
 if __name__ == "__main__":

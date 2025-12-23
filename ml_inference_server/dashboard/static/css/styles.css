@@ -374,6 +374,55 @@ body {
     height: 100% !important;
 }
 
+/* Instance Metrics Section */
+.instance-metrics {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin-bottom: 20px;
+    max-width: 900px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.instance-card {
+    border-width: 2px;
+}
+
+.instance-card .instance-stats {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border-primary);
+    font-size: 0.6em;
+}
+
+.instance-stats .stat {
+    color: var(--text-muted);
+}
+
+.instance-stats .stat.busy {
+    color: var(--accent-orange);
+}
+
+.instance-stats .stat.idle {
+    color: var(--accent-green);
+}
+
+/* Instance Charts */
+.instance-charts {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+/* Padding chart value */
+.chart-value.padding {
+    color: var(--accent-purple);
+}
+
 /* Footer */
 .footer {
     text-align: center;

@@ -6,9 +6,32 @@ Provides device resolution, synchronization, memory management, and FP16 convers
 """
 
 import logging
+import threading
 from typing import Tuple, Any
 
 logger = logging.getLogger(__name__)
+
+# NOTE: On Apple Silicon, PyTorch MPS uses a shared Metal context.
+# Submitting GPU work concurrently from multiple Python threads can be unstable
+# for some workloads. We expose a per-device lock so backends can serialize
+# GPU sections while still allowing CPU work (e.g., tokenization) to run in parallel.
+_DEVICE_LOCKS: dict[str, threading.Lock] = {}
+_DEVICE_LOCKS_GUARD = threading.Lock()
+
+
+def get_device_lock(device: str) -> threading.Lock:
+    """
+    Get a shared (process-wide) lock for a device.
+
+    Currently most relevant for "mps" where concurrent command buffer submission
+    can lead to Metal validation/assertion failures.
+    """
+    with _DEVICE_LOCKS_GUARD:
+        lock = _DEVICE_LOCKS.get(device)
+        if lock is None:
+            lock = threading.Lock()
+            _DEVICE_LOCKS[device] = lock
+        return lock
 
 
 def resolve_device(requested_device: str) -> str:

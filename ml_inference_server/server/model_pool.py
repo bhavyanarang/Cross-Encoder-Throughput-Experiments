@@ -2,14 +2,16 @@
 Model Pool Manager.
 
 Manages multiple model instances and routes requests to available backends.
-Supports eager loading and configurable routing strategies.
+Supports eager loading, configurable routing strategies, and per-instance metrics.
 """
 
 import threading
 import logging
+import time
 from typing import TYPE_CHECKING, Optional, Tuple
 
 from backends import create_backend, BaseBackend, InferenceResult
+from metrics.components.instance_metrics import InstanceMetricsTracker
 from .routing import RoutingStrategy, create_router
 
 if TYPE_CHECKING:
@@ -61,6 +63,9 @@ class ModelPool:
         self._lock = threading.Lock()
         self._is_loaded = False
         
+        # Per-instance metrics tracking
+        self.instance_metrics = InstanceMetricsTracker()
+        
         # Create router from config or use provided
         if routing_strategy is not None:
             self.router = routing_strategy
@@ -104,6 +109,7 @@ class ModelPool:
         Eager load all model instances.
         
         Loads each configured model, runs warmup, and adds to pool.
+        Also registers each instance with the metrics tracker.
         """
         logger.info(f"Loading {len(self.config.instances)} model instance(s)...")
         
@@ -117,6 +123,9 @@ class ModelPool:
             
             with self._lock:
                 self.backends.append(backend)
+                # Register instance with metrics tracker
+                instance_name = f"{instance_config.backend}-{i}"
+                self.instance_metrics.register_instance(i, instance_name)
             
             logger.info(f"Instance {i + 1} loaded successfully")
         
@@ -163,6 +172,7 @@ class ModelPool:
         Run inference using an available backend.
         
         Automatically selects backend using routing strategy.
+        Tracks per-instance metrics (busy time, utilization).
         
         Args:
             pairs: List of (query, document) tuples
@@ -171,10 +181,24 @@ class ModelPool:
             InferenceResult with scores and timing
         """
         backend, idx = self.acquire_backend()
+        
+        # Mark instance as busy for metrics tracking
+        self.instance_metrics.mark_busy(idx)
+        start_time = time.perf_counter()
+        
         try:
-            return backend.infer_with_timing(pairs)
+            result = backend.infer_with_timing(pairs)
+            latency_ms = result.total_ms
+        except Exception:
+            # On error, compute latency from elapsed time
+            latency_ms = (time.perf_counter() - start_time) * 1000
+            raise
         finally:
+            # Mark instance as idle and record latency
+            self.instance_metrics.mark_idle(idx, latency_ms=latency_ms)
             self.release_backend(idx)
+        
+        return result
     
     def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
         """
@@ -191,7 +215,9 @@ class ModelPool:
         return self.infer(pairs)
     
     def get_pool_info(self) -> dict:
-        """Get information about the model pool."""
+        """Get information about the model pool including per-instance metrics."""
+        instance_metrics = self.instance_metrics.get_summary()
+        
         return {
             "num_instances": len(self.backends),
             "routing_strategy": self.config.routing_strategy,
@@ -199,7 +225,16 @@ class ModelPool:
             "instances": [b.get_model_info() for b in self.backends],
             "busy_count": sum(1 for b in self.backends if b.is_busy),
             "total_pending": sum(b.pending_requests for b in self.backends),
+            "instance_metrics": instance_metrics,
         }
+    
+    def get_instance_metrics_summary(self) -> dict:
+        """Get per-instance metrics summary for dashboard."""
+        return self.instance_metrics.get_summary()
+    
+    def get_instance_metrics_history(self) -> dict:
+        """Get per-instance metrics snapshot for charts."""
+        return self.instance_metrics.get_history_snapshot()
     
     def reset_router(self) -> None:
         """Reset the routing strategy state."""

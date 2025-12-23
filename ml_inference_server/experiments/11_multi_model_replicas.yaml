@@ -1,0 +1,52 @@
+# Multi-Model Replicas Experiment
+# Tests hosting the same model multiple times with idle-based routing
+
+name: "Multi-Model Replicas (3x MPS)"
+description: "3 model replicas with first-idle routing for max throughput"
+
+# Multi-model pool configuration
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      use_fp16: true
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      use_fp16: true
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      use_fp16: true
+  # Route to idle instances first for maximum throughput
+  routing_strategy: "first_idle"
+
+# Legacy model config (used for display info)
+model:
+  name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  device: "mps"
+  backend: "mps"
+  mps:
+    fp16: true
+
+# Batching settings
+batching:
+  enabled: false
+  max_batch_size: 64
+  timeout_ms: 50
+  length_aware_batching: false
+
+# Server configuration
+server:
+  host: "0.0.0.0"
+  port: 50051
+  grpc_workers: 12
+
+# Experiment parameters
+experiment:
+  batch_sizes: [32, 64, 128]
+  concurrency_levels: [4, 8, 12]
+  benchmark_requests: 200
+  warmup_iterations: 20
+
