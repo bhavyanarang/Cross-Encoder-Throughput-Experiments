@@ -3,13 +3,18 @@ ONNX Backend - Cross-Encoder for Query-Document Scoring.
 
 Uses ONNX Runtime for optimized cross-encoder inference.
 Supports CoreML acceleration on Apple Silicon with fixed batch sizes.
-Optimized with pre-allocated padding buffers and efficient batch processing.
 """
 
+import time
 import numpy as np
 import logging
 from pathlib import Path
-from .base_backend import BaseBackend
+from typing import TYPE_CHECKING
+
+from .base_backend import BaseBackend, InferenceResult
+
+if TYPE_CHECKING:
+    from core.config import ModelInstanceConfig
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +29,8 @@ COREML_FLAG_CREATE_MLPROGRAM = 0x010
 class ONNXBackend(BaseBackend):
     """ONNX Runtime cross-encoder backend for query-document scoring."""
     
-    # Fixed batch size for CoreML (CoreML doesn't support dynamic shapes well)
     COREML_BATCH_SIZE = 32
-    MAX_SEQ_LENGTH = 128  # Fixed sequence length for CoreML
+    MAX_SEQ_LENGTH = 128
     
     def __init__(
         self, 
@@ -42,13 +46,19 @@ class ONNXBackend(BaseBackend):
         self.session = None
         self.providers = []
         self._fixed_batch_size = self.COREML_BATCH_SIZE if self.use_coreml else None
-        
-        # Pre-allocated padding pair for efficiency (avoid creating new strings)
         self._pad_pair = ("", "")
-        
-        # Cache for pre-allocated input buffers (reduces memory allocation overhead)
         self._input_ids_buffer = None
         self._attention_mask_buffer = None
+    
+    @classmethod
+    def from_config(cls, config: "ModelInstanceConfig") -> "ONNXBackend":
+        """Create ONNXBackend from configuration."""
+        return cls(
+            model_name=config.name,
+            device=config.device,
+            optimize=config.onnx_optimize,
+            use_coreml=config.onnx_use_coreml,
+        )
     
     def load_model(self) -> None:
         """Load cross-encoder model with ONNX Runtime."""
@@ -61,16 +71,13 @@ class ONNXBackend(BaseBackend):
         
         logger.info(f"Loading ONNX cross-encoder: {self.model_name}")
         
-        # Load tokenizer
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self._tokenizer = self.tokenizer  # For compatibility
+        self._max_length = self.MAX_SEQ_LENGTH
         
-        # Determine ONNX model path (use fixed batch size suffix for CoreML)
         onnx_path = self._get_or_export_onnx_model()
-        
-        # Configure providers with CoreML options
         self.providers = self._get_providers(ort)
         
-        # Create session with optimization
         sess_options = ort.SessionOptions()
         if self.optimize:
             sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
@@ -92,11 +99,9 @@ class ONNXBackend(BaseBackend):
         providers = []
         
         if self.use_coreml and "CoreMLExecutionProvider" in available:
-            # Configure CoreML with optimal settings for Apple Silicon GPU
-            # MLComputeUnits: 0=CPU_AND_NE, 1=CPU_ONLY, 2=ALL (CPU+GPU+ANE)
             coreml_options = {
-                "coreml_flags": COREML_FLAG_CREATE_MLPROGRAM,  # Use MLProgram format
-                "MLComputeUnits": 2,  # ALL = CPU + GPU + Neural Engine
+                "coreml_flags": COREML_FLAG_CREATE_MLPROGRAM,
+                "MLComputeUnits": 2,
             }
             providers.append(("CoreMLExecutionProvider", coreml_options))
             logger.info(f"Using CoreML with ALL compute units (CPU+GPU+ANE), batch={self._fixed_batch_size}")
@@ -111,7 +116,6 @@ class ONNXBackend(BaseBackend):
         cache_dir = Path.home() / ".cache" / "onnx_models"
         model_safe_name = self.model_name.replace("/", "_")
         
-        # Use different model file for CoreML (fixed batch size)
         if self.use_coreml:
             onnx_path = cache_dir / f"{model_safe_name}_cross_encoder_batch{self._fixed_batch_size}.onnx"
         else:
@@ -135,10 +139,8 @@ class ONNXBackend(BaseBackend):
         model.eval()
         
         if self.use_coreml:
-            # Export with FIXED batch size for CoreML
             logger.info(f"Exporting for CoreML with fixed batch size {self._fixed_batch_size}...")
             
-            # Create dummy inputs with the exact batch size we'll use
             dummy_queries = ["sample query"] * self._fixed_batch_size
             dummy_docs = ["sample document for export"] * self._fixed_batch_size
             
@@ -148,7 +150,7 @@ class ONNXBackend(BaseBackend):
                 return_tensors="pt",
                 padding="max_length",
                 truncation=True,
-                max_length=128  # Fixed sequence length for CoreML
+                max_length=128
             )
             
             with torch.no_grad():
@@ -158,13 +160,11 @@ class ONNXBackend(BaseBackend):
                     str(onnx_path),
                     input_names=["input_ids", "attention_mask"],
                     output_names=["logits"],
-                    # NO dynamic_axes for CoreML - use fixed shapes
                     opset_version=14,
                     do_constant_folding=True,
                     dynamo=False
                 )
         else:
-            # Export with dynamic batch size for CPU
             logger.info("Exporting with dynamic batch size for CPU...")
             
             dummy_input = self.tokenizer(
@@ -197,51 +197,134 @@ class ONNXBackend(BaseBackend):
         return str(onnx_path)
     
     def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:
-        """
-        Run cross-encoder inference on query-document pairs.
-        For CoreML, handles padding to fixed batch size.
-        """
-        batch_size = len(pairs)
-        
-        # For CoreML with fixed batch size, pad or split as needed
-        if self.use_coreml and self._fixed_batch_size:
-            return self._infer_fixed_batch(pairs)
-        else:
-            return self._infer_dynamic(pairs)
+        """Run cross-encoder inference on query-document pairs."""
+        self._acquire_for_inference()
+        try:
+            if self.use_coreml and self._fixed_batch_size:
+                return self._infer_fixed_batch(pairs)
+            else:
+                return self._infer_dynamic(pairs)
+        finally:
+            self._release_after_inference()
+    
+    def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
+        """Run inference with timing breakdown."""
+        self._acquire_for_inference()
+        try:
+            total_start = time.perf_counter()
+            
+            # Tokenization stage
+            tokenize_start = time.perf_counter()
+            
+            if self.use_coreml and self._fixed_batch_size:
+                batch_size = len(pairs)
+                fixed_size = self._fixed_batch_size
+                
+                queries = [None] * fixed_size
+                documents = [None] * fixed_size
+                
+                for j, (q, d) in enumerate(pairs[:fixed_size]):
+                    queries[j] = q
+                    documents[j] = d
+                
+                for j in range(batch_size, fixed_size):
+                    queries[j] = ""
+                    documents[j] = ""
+                
+                inputs = self.tokenizer(
+                    queries,
+                    documents,
+                    return_tensors="np",
+                    padding="max_length",
+                    truncation=True,
+                    max_length=self.MAX_SEQ_LENGTH
+                )
+            else:
+                queries, documents = zip(*pairs) if pairs else ([], [])
+                inputs = self.tokenizer(
+                    list(queries),
+                    list(documents),
+                    return_tensors="np",
+                    padding=True,
+                    truncation=True,
+                    max_length=512
+                )
+            
+            # Padding analysis
+            attention_mask = inputs["attention_mask"]
+            actual_batch_size = len(pairs)
+            max_seq_length = attention_mask.shape[1]
+            total_real_tokens = int(attention_mask[:actual_batch_size].sum())
+            total_tokens = actual_batch_size * max_seq_length
+            padded_tokens = total_tokens - total_real_tokens
+            padding_ratio = padded_tokens / total_tokens if total_tokens > 0 else 0.0
+            avg_seq_length = float(attention_mask[:actual_batch_size].sum(axis=1).mean())
+            
+            input_ids = inputs["input_ids"]
+            if input_ids.dtype != np.int64:
+                input_ids = input_ids.astype(np.int64)
+            if attention_mask.dtype != np.int64:
+                attention_mask = attention_mask.astype(np.int64)
+            
+            t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+            
+            # Inference stage
+            inference_start = time.perf_counter()
+            
+            outputs = self.session.run(
+                None,
+                {"input_ids": input_ids, "attention_mask": attention_mask}
+            )
+            
+            logits = outputs[0]
+            
+            if logits.shape[-1] == 1:
+                scores = logits.squeeze(-1)[:actual_batch_size]
+            else:
+                scores = 1.0 / (1.0 + np.exp(-logits[:actual_batch_size, 1]))
+            
+            t_model_inference_ms = (time.perf_counter() - inference_start) * 1000
+            total_ms = (time.perf_counter() - total_start) * 1000
+            
+            return InferenceResult(
+                scores=scores,
+                t_tokenize_ms=t_tokenize_ms,
+                t_model_inference_ms=t_model_inference_ms,
+                total_ms=total_ms,
+                total_tokens=total_tokens,
+                real_tokens=total_real_tokens,
+                padded_tokens=padded_tokens,
+                padding_ratio=padding_ratio,
+                max_seq_length=max_seq_length,
+                avg_seq_length=avg_seq_length,
+                batch_size=actual_batch_size,
+            )
+        finally:
+            self._release_after_inference()
     
     def _infer_fixed_batch(self, pairs: list) -> np.ndarray:
-        """
-        Inference with fixed batch size for CoreML.
-        Optimized with pre-allocated lists and efficient padding.
-        """
+        """Inference with fixed batch size for CoreML."""
         batch_size = len(pairs)
         fixed_size = self._fixed_batch_size
         
-        # Pre-allocate result array for known size
         all_scores = np.empty(batch_size, dtype=np.float32)
         
-        # Process in chunks of fixed_size
         result_idx = 0
         for i in range(0, batch_size, fixed_size):
             chunk = pairs[i:i + fixed_size]
             chunk_size = len(chunk)
             
-            # Build queries and documents lists efficiently
-            # Use pre-sized lists to avoid reallocations
             queries = [None] * fixed_size
             documents = [None] * fixed_size
             
-            # Fill with actual data
             for j, (q, d) in enumerate(chunk):
                 queries[j] = q
                 documents[j] = d
             
-            # Fill remaining with empty padding (more efficient than "pad")
             for j in range(chunk_size, fixed_size):
                 queries[j] = ""
                 documents[j] = ""
             
-            # Tokenize with fixed max_length
             inputs = self.tokenizer(
                 queries,
                 documents,
@@ -251,11 +334,9 @@ class ONNXBackend(BaseBackend):
                 max_length=self.MAX_SEQ_LENGTH
             )
             
-            # Run inference (reuse dtype conversion)
             input_ids = inputs["input_ids"]
             attention_mask = inputs["attention_mask"]
             
-            # Only convert if needed
             if input_ids.dtype != np.int64:
                 input_ids = input_ids.astype(np.int64)
             if attention_mask.dtype != np.int64:
@@ -268,11 +349,9 @@ class ONNXBackend(BaseBackend):
             
             logits = outputs[0]
             
-            # Extract scores directly into result array
             if logits.shape[-1] == 1:
                 all_scores[result_idx:result_idx + chunk_size] = logits.squeeze(-1)[:chunk_size]
             else:
-                # Sigmoid for multi-class output
                 all_scores[result_idx:result_idx + chunk_size] = (
                     1.0 / (1.0 + np.exp(-logits[:chunk_size, 1]))
                 )
@@ -282,11 +361,7 @@ class ONNXBackend(BaseBackend):
         return all_scores
     
     def _infer_dynamic(self, pairs: list) -> np.ndarray:
-        """
-        Inference with dynamic batch size for CPU.
-        Optimized with efficient list construction.
-        """
-        # Use zip for more efficient unpacking
+        """Inference with dynamic batch size for CPU."""
         queries, documents = zip(*pairs) if pairs else ([], [])
         
         inputs = self.tokenizer(
@@ -298,7 +373,6 @@ class ONNXBackend(BaseBackend):
             max_length=512
         )
         
-        # Avoid redundant dtype conversions
         input_ids = inputs["input_ids"]
         attention_mask = inputs["attention_mask"]
         
@@ -317,12 +391,11 @@ class ONNXBackend(BaseBackend):
         if logits.shape[-1] == 1:
             return logits.squeeze(-1)
         else:
-            # In-place sigmoid calculation
             return 1.0 / (1.0 + np.exp(-logits[:, 1]))
     
     def warmup(self, iterations: int = 5) -> None:
         """Warm up the model."""
-        # Use fixed batch size for warmup if CoreML
+        logger.info(f"Warming up ONNX backend ({iterations} iterations)...")
         if self.use_coreml:
             sample_pairs = [("warmup query", "warmup document")] * self._fixed_batch_size
         else:

@@ -1,5 +1,23 @@
-from .collector import MetricsCollector
-from .http_server import start_metrics_server, set_metrics_collector
+"""
+Metrics module - Metrics collection and HTTP dashboard.
+"""
 
-__all__ = ["MetricsCollector", "start_metrics_server", "set_metrics_collector"]
+from .collector import MetricsCollector, ExperimentInfo, get_cpu_percent
+from .components import (
+    LatencyTracker,
+    ThroughputTracker,
+    PaddingAnalyzer,
+    StageMetrics,
+    StageMetricsGroup,
+)
 
+__all__ = [
+    "MetricsCollector",
+    "ExperimentInfo",
+    "get_cpu_percent",
+    "LatencyTracker",
+    "ThroughputTracker",
+    "PaddingAnalyzer",
+    "StageMetrics",
+    "StageMetricsGroup",
+]

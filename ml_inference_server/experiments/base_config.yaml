@@ -1,12 +1,35 @@
 # Base experiment configuration
 # All experiments inherit from this. Only override what you need to change.
 
+# Legacy single-model configuration (for backward compatibility)
 model:
   name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
   device: "mps"
   backend: "pytorch"
   quantized: false
   quantization_mode: "fp16"
+  # Backend-specific options
+  mps:
+    fp16: true
+    compile: false
+  mlx:
+    bits: 16
+    group_size: 64
+  onnx:
+    optimize: true
+    use_gpu: true
+  compiled:
+    mode: "reduce-overhead"
+    fp16: true
+
+# New model pool configuration (optional - overrides 'model' if present)
+# model_pool:
+#   instances:
+#     - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+#       backend: mps
+#       device: mps
+#       use_fp16: true
+#   routing_strategy: round_robin
 
 server:
   host: "0.0.0.0"
@@ -16,6 +39,12 @@ batching:
   enabled: false
   max_batch_size: 32
   timeout_ms: 100
+  length_aware_batching: false
+
+# Screenshot configuration (optional)
+screenshot:
+  enabled: false
+  output_dir: "docs/experiments/screenshots"
 
 experiment:
   batch_sizes: [32, 64, 128]

@@ -856,3 +856,25 @@ Combined results from all experiments.
 **Summary:** BestTP=714.8 | AvgTP=698.9 | AvgLat=91.1ms | AvgP99Lat=157.5ms
 
 ---
+
+## 02_backend_mps (2025-12-23 04:54:06)
+
+**Backend:** `mps` | **Device:** `mps` | **Dynamic Batching:** `False`
+
+| Batch | Conc | Pairs | Time | Lat Avg | Lat P50 | Lat P95 | Lat P99 | TP Avg | TP P50 | TP P95 | TP P99 |
+|-------|------|-------|------|---------|---------|---------|---------|--------|--------|--------|--------|
+| 32 | 1 | 6400 | 10.6s | 52.8 | 45.1 | 81.2 | 97.1 | 605.3 | 709.5 | 866.4 | 912.4 |
+
+**Summary:** BestTP=605.3 | AvgTP=605.3 | AvgLat=52.8ms | AvgP99Lat=97.1ms
+
+---
+
+## 02_backend_mps (PARTIAL) (2025-12-23 04:58:45)
+
+**Backend:** `mps` | **Device:** `mps` | **Dynamic Batching:** `False`
+
+| Batch | Conc | Pairs | Time | Lat Avg | Lat P50 | Lat P95 | Lat P99 | TP Avg | TP P50 | TP P95 | TP P99 |
+|-------|------|-------|------|---------|---------|---------|---------|--------|--------|--------|--------|
+| 32 | 1 | ERROR | - | - | - | - | - | - | - | - | - |
+
+---

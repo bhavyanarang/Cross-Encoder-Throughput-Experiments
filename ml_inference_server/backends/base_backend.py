@@ -1,15 +1,20 @@
+"""
+Base Backend - Abstract base class for cross-encoder inference backends.
+
+Defines the interface that all backend implementations must follow.
+"""
+
 from abc import ABC, abstractmethod
 import time
+import threading
 import numpy as np
 import logging
-from functools import wraps
-from typing import Callable, TypeVar, Optional
 from dataclasses import dataclass
+from typing import Optional
+
+from .device_utils import resolve_device, sync_device, clear_memory, apply_fp16
 
 logger = logging.getLogger(__name__)
-
-# Type variable for decorator
-F = TypeVar('F', bound=Callable)
 
 
 @dataclass
@@ -30,28 +35,21 @@ class InferenceResult:
     batch_size: int = 0             # Number of sequences in batch
 
 
-def with_inference_mode(func: F) -> F:
-    """Decorator to run inference in torch.inference_mode for better performance."""
-    @wraps(func)
-    def wrapper(self, *args, **kwargs):
-        try:
-            import torch
-            with torch.inference_mode():
-                return func(self, *args, **kwargs)
-        except ImportError:
-            return func(self, *args, **kwargs)
-    return wrapper
-
-
 class BaseBackend(ABC):
     """Abstract base class for cross-encoder inference backends."""
     
     def __init__(self, model_name: str, device: str = "mps"):
         self.model_name = model_name
-        self.device = device
+        self.device = resolve_device(device)
         self.model = None
         self._is_loaded = False
         self._tokenizer = None
+        
+        # Thread safety and busy state tracking
+        self._inference_lock = threading.Lock()
+        self._is_busy = False
+        self._pending_requests = 0
+        self._pending_lock = threading.Lock()
     
     @abstractmethod
     def load_model(self) -> None:
@@ -71,12 +69,12 @@ class BaseBackend(ABC):
         """
         pass
     
+    @abstractmethod
     def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
         """
         Run inference with timing breakdown for tokenization and model inference.
         
-        Default implementation wraps infer() without stage separation.
-        Subclasses should override for accurate timing breakdown.
+        All backends must implement this method to satisfy LSP.
         
         Args:
             pairs: List of (query, document) tuples
@@ -84,16 +82,7 @@ class BaseBackend(ABC):
         Returns:
             InferenceResult with scores and timing breakdown
         """
-        start = time.perf_counter()
-        scores = self.infer(pairs)
-        total_ms = (time.perf_counter() - start) * 1000
-        
-        return InferenceResult(
-            scores=scores,
-            t_tokenize_ms=0.0,  # Not measurable in default implementation
-            t_model_inference_ms=total_ms,  # All time attributed to inference
-            total_ms=total_ms
-        )
+        pass
     
     @abstractmethod
     def warmup(self, iterations: int = 5) -> None:
@@ -107,63 +96,89 @@ class BaseBackend(ABC):
     
     @property
     def is_loaded(self) -> bool:
+        """Check if model is loaded."""
         return self._is_loaded
     
-    # ================== Shared Utilities ==================
+    @property
+    def is_busy(self) -> bool:
+        """Check if backend is currently processing a request."""
+        return self._is_busy
     
-    @staticmethod
-    def apply_fp16(model, device: str, logger) -> tuple:
-        """
-        Apply FP16 quantization to a CrossEncoder model.
-        
-        Returns:
-            Tuple of (success: bool, actual_dtype: str)
-        """
-        if device != "mps":
-            logger.info("FP16 only supported on MPS, using FP32")
-            return False, "float32"
-        
-        try:
-            model.model = model.model.half()
-            logger.info("Applied FP16 precision")
-            return True, "float16"
-        except Exception as e:
-            logger.warning(f"FP16 conversion failed: {e}, using FP32")
-            return False, "float32"
+    @property
+    def pending_requests(self) -> int:
+        """Get number of pending requests in queue."""
+        return self._pending_requests
     
-    @staticmethod
-    def resolve_device(requested_device: str) -> str:
-        """Resolve the actual device to use, preferring MPS on Apple Silicon."""
-        try:
-            import torch
-            if requested_device == "mps" and torch.backends.mps.is_available():
-                return "mps"
-            elif requested_device == "cuda" and torch.cuda.is_available():
-                return "cuda"
-        except ImportError:
-            pass
-        return "cpu"
+    # ================== Thread Safety Helpers ==================
     
-    @staticmethod
-    def sync_device(device: str) -> None:
+    def _acquire_for_inference(self) -> None:
+        """Acquire lock and mark as busy."""
+        with self._pending_lock:
+            self._pending_requests += 1
+        self._inference_lock.acquire()
+        self._is_busy = True
+    
+    def _release_after_inference(self) -> None:
+        """Release lock and mark as not busy."""
+        self._is_busy = False
+        self._inference_lock.release()
+        with self._pending_lock:
+            self._pending_requests -= 1
+    
+    # ================== Device Utilities (delegated) ==================
+    
+    def sync_device(self) -> None:
         """Synchronize GPU operations for accurate timing."""
-        try:
-            import torch
-            if device == "mps":
-                torch.mps.synchronize()
-            elif device == "cuda":
-                torch.cuda.synchronize()
-        except (ImportError, RuntimeError):
-            pass
+        sync_device(self.device)
     
-    @staticmethod
-    def clear_memory(device: str) -> None:
-        """Clear GPU memory cache to reduce fragmentation."""
+    def clear_memory(self) -> None:
+        """Clear GPU memory cache."""
+        clear_memory(self.device)
+    
+    def apply_fp16_to_model(self) -> tuple[bool, str]:
+        """Apply FP16 precision to the loaded model."""
+        return apply_fp16(self.model, self.device)
+    
+    # ================== Default infer_with_timing ==================
+    
+    def _default_infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
+        """
+        Default implementation of infer_with_timing.
+        
+        Wraps infer() with overall timing but no stage breakdown.
+        Subclasses should override for more detailed timing.
+        """
+        self._acquire_for_inference()
         try:
-            import torch
-            if device == "mps":
-                torch.mps.empty_cache()
-            elif device == "cuda":
-                torch.cuda.empty_cache()
-        except (ImportError, RuntimeError, AttributeError):
-            pass
+            start = time.perf_counter()
+            self.sync_device()
+            scores = self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
+            self.sync_device()
+            total_ms = (time.perf_counter() - start) * 1000
+            
+            return InferenceResult(
+                scores=scores,
+                t_tokenize_ms=0.0,
+                t_model_inference_ms=total_ms,
+                total_ms=total_ms,
+                batch_size=len(pairs),
+            )
+        finally:
+            self._release_after_inference()
+    
+    # ================== Factory Method ==================
+    
+    @classmethod
+    def from_config(cls, config) -> "BaseBackend":
+        """
+        Create backend instance from configuration.
+        
+        Subclasses should override this to handle their specific config options.
+        
+        Args:
+            config: ModelInstanceConfig or dict with configuration
+            
+        Returns:
+            Configured backend instance
+        """
+        raise NotImplementedError("Subclasses must implement from_config")

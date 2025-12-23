@@ -1,119 +1,93 @@
+"""
+Metrics Collector - Composed metrics collection for inference server.
+
+Aggregates metrics from modular components:
+- LatencyTracker: Request latencies with percentiles
+- ThroughputTracker: QPS with sliding window
+- PaddingAnalyzer: Padding waste analysis
+- StageMetricsGroup: Per-stage timing breakdown
+"""
+
 import time
 import os
-import logging
 import threading
-import numpy as np
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
-from collections import deque
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
+from .components import (
+    LatencyTracker,
+    ThroughputTracker,
+    PaddingAnalyzer,
+    StageMetricsGroup,
+)
+
 logger = logging.getLogger(__name__)
 
 # Process monitoring
 try:
     import psutil
-    SERVER_PROCESS = psutil.Process(os.getpid())
-    SERVER_PROCESS.cpu_percent()
+    _SERVER_PROCESS = psutil.Process(os.getpid())
+    _SERVER_PROCESS.cpu_percent()
 except ImportError:
-    SERVER_PROCESS = None
+    _SERVER_PROCESS = None
 
 
 def get_cpu_percent() -> float:
-    if SERVER_PROCESS:
+    """Get current process CPU percentage."""
+    if _SERVER_PROCESS:
         try:
-            return SERVER_PROCESS.cpu_percent(interval=None)
-        except:
+            return _SERVER_PROCESS.cpu_percent(interval=None)
+        except Exception:
             pass
     return 0.0
 
 
 @dataclass
-class StageMetrics:
-    """Container for per-stage timing statistics."""
-    latencies: list = field(default_factory=list)
-    
-    def record(self, duration_ms: float) -> None:
-        """Record a timing measurement."""
-        self.latencies.append(duration_ms)
-    
-    def get_stats(self) -> dict:
-        """Get P50/P95/P99 statistics."""
-        if not self.latencies:
-            return {"p50_ms": 0, "p95_ms": 0, "p99_ms": 0, "avg_ms": 0, "count": 0}
-        
-        arr = np.array(self.latencies)
-        return {
-            "p50_ms": float(np.percentile(arr, 50)),
-            "p95_ms": float(np.percentile(arr, 95)),
-            "p99_ms": float(np.percentile(arr, 99)),
-            "avg_ms": float(np.mean(arr)),
-            "count": len(arr),
-        }
-    
-    def reset(self) -> None:
-        """Reset all measurements."""
-        self.latencies = []
+class ExperimentInfo:
+    """Experiment metadata for dashboard display."""
+    name: str = ""
+    description: str = ""
+    backend_type: str = ""
+    device: str = ""
 
 
 @dataclass
 class MetricsCollector:
-    latencies: list = field(default_factory=list)
-    start_time: float = field(default_factory=time.time)
-    request_count: int = 0
-    query_count: int = 0  # Total number of queries (texts) processed
-    last_update_time: float = field(default_factory=time.time)
+    """
+    Composed metrics collector for inference server.
+    
+    Aggregates metrics from modular components for:
+    - Request latencies
+    - Throughput (QPS)
+    - Padding waste analysis
+    - Per-stage timing breakdown
+    
+    Thread-safe: uses internal locking for all operations.
+    """
+    
+    # Modular components
+    latency: LatencyTracker = field(default_factory=LatencyTracker)
+    throughput: ThroughputTracker = field(default_factory=ThroughputTracker)
+    padding: PaddingAnalyzer = field(default_factory=PaddingAnalyzer)
+    stages: StageMetricsGroup = field(default_factory=StageMetricsGroup)
     
     # Experiment metadata
-    experiment_name: str = ""
-    experiment_description: str = ""
-    backend_type: str = ""
-    device: str = ""
+    experiment: ExperimentInfo = field(default_factory=ExperimentInfo)
     
-    # For instantaneous metrics calculation (1-second windows)
-    recent_queries: deque = field(default_factory=lambda: deque(maxlen=200))  # (timestamp, query_count)
-    recent_latencies: deque = field(default_factory=lambda: deque(maxlen=200))  # (timestamp, latency_ms)
-    
-    # Per-stage timing metrics
-    stage_grpc_receive: StageMetrics = field(default_factory=StageMetrics)
-    stage_tokenize: StageMetrics = field(default_factory=StageMetrics)
-    stage_queue_wait: StageMetrics = field(default_factory=StageMetrics)
-    stage_model_inference: StageMetrics = field(default_factory=StageMetrics)
-    stage_grpc_send: StageMetrics = field(default_factory=StageMetrics)
-    
-    # Recent stage timings for history charts
-    recent_stage_tokenize: deque = field(default_factory=lambda: deque(maxlen=200))
-    recent_stage_inference: deque = field(default_factory=lambda: deque(maxlen=200))
-    recent_queue_wait: deque = field(default_factory=lambda: deque(maxlen=200))  # Queue wait times
+    # Timing
+    start_time: float = field(default_factory=time.time)
+    last_update_time: float = field(default_factory=time.time)
     
     # Frozen snapshot when experiment stops
     frozen_snapshot: Optional[dict] = None
-    last_request_count: int = 0
     
-    # Last instantaneous latency
-    last_latency_ms: float = 0.0
+    # Thread lock
+    _lock: threading.Lock = field(default_factory=threading.Lock)
     
-    # Last stage timings for live display
-    last_stage_tokenize_ms: float = 0.0
-    last_stage_inference_ms: float = 0.0
-    last_queue_wait_ms: float = 0.0
-    
-    # Padding analysis metrics
-    padding_ratios: list = field(default_factory=list)      # Track padding % per batch
-    padded_tokens_total: int = 0                            # Total padding tokens across all batches
-    real_tokens_total: int = 0                              # Total real tokens
-    max_seq_lengths: list = field(default_factory=list)     # Track max seq length per batch
-    avg_seq_lengths: list = field(default_factory=list)     # Track avg seq length per batch
-    last_padding_ratio: float = 0.0                         # Last batch padding ratio
-    last_max_seq_length: int = 0                            # Last batch max sequence length
-    last_avg_seq_length: float = 0.0                        # Last batch avg sequence length
-    
-    # Reference to model for GPU memory
+    # Model reference for GPU memory tracking
     _model = None
     
-    # Thread lock for concurrent access (gRPC uses multiple threads)
-    _lock: threading.Lock = field(default_factory=threading.Lock)
-
     @classmethod
     def set_model(cls, model):
         """Set model reference for GPU memory tracking."""
@@ -127,16 +101,18 @@ class MetricsCollector:
         device: str = ""
     ) -> None:
         """Set experiment metadata for dashboard display."""
-        self.experiment_name = name
-        self.experiment_description = description
-        self.backend_type = backend
-        self.device = device
+        self.experiment = ExperimentInfo(
+            name=name,
+            description=description,
+            backend_type=backend,
+            device=device,
+        )
         logger.info(f"Experiment: {name} | Backend: {backend} | Device: {device}")
-
+    
     def is_active(self) -> bool:
         """Check if experiment is actively running."""
-        return (time.time() - self.last_update_time) < 2.0 and self.request_count > 0
-
+        return (time.time() - self.last_update_time) < 2.0 and self.latency.count > 0
+    
     def get_gpu_memory_mb(self) -> float:
         """Get GPU memory from PyTorch MPS."""
         try:
@@ -144,28 +120,31 @@ class MetricsCollector:
             if torch.backends.mps.is_available():
                 allocated = torch.mps.current_allocated_memory()
                 return allocated / (1024 * 1024)
-        except Exception as e:
-            pass  # Silently fail - GPU memory tracking is optional
+        except Exception:
+            pass
         return 0.0
-
-    def record(self, duration_ms: float, num_queries: int = 1):
-        now = time.time()
+    
+    def record(self, duration_ms: float, num_queries: int = 1) -> None:
+        """
+        Record a completed request.
+        
+        Args:
+            duration_ms: Total request latency in milliseconds
+            num_queries: Number of queries in the request
+        """
         with self._lock:
-            self.latencies.append(duration_ms)
-            self.request_count += 1
-            self.query_count += num_queries
-            self.last_update_time = now
-            self.last_latency_ms = duration_ms
+            self.latency.record(duration_ms)
+            self.throughput.record(num_queries)
+            self.last_update_time = time.time()
             self.frozen_snapshot = None  # Clear frozen snapshot on new data
             
-            # Record for instantaneous metrics
-            self.recent_queries.append((now, num_queries))
-            self.recent_latencies.append((now, duration_ms))
-            
-            if self.request_count % 50 == 0:
-                instant_qps = self._compute_instant_qps()
-                logger.info(f"Processed {self.query_count} queries ({self.request_count} requests) | "
-                           f"Latency: {duration_ms:.2f}ms | QPS: {instant_qps:.1f}")
+            if self.throughput.request_count % 50 == 0:
+                instant_qps = self.throughput.get_instant_qps()
+                logger.info(
+                    f"Processed {self.throughput.query_count} queries "
+                    f"({self.throughput.request_count} requests) | "
+                    f"Latency: {duration_ms:.2f}ms | QPS: {instant_qps:.1f}"
+                )
     
     def record_stage_timings(
         self,
@@ -177,7 +156,6 @@ class MetricsCollector:
     ) -> None:
         """
         Record per-stage timing measurements.
-        Thread-safe: uses lock for concurrent gRPC calls.
         
         Args:
             t_grpc_receive: Time to deserialize gRPC request (ms)
@@ -186,25 +164,13 @@ class MetricsCollector:
             t_model_inference: GPU forward pass time (ms)
             t_grpc_send: Time to serialize + send response (ms)
         """
-        now = time.time()
-        
-        with self._lock:
-            if t_grpc_receive > 0:
-                self.stage_grpc_receive.record(t_grpc_receive)
-            if t_tokenize > 0:
-                self.stage_tokenize.record(t_tokenize)
-                self.last_stage_tokenize_ms = t_tokenize
-                self.recent_stage_tokenize.append((now, t_tokenize))
-            if t_queue_wait > 0:
-                self.stage_queue_wait.record(t_queue_wait)
-                self.last_queue_wait_ms = t_queue_wait
-                self.recent_queue_wait.append((now, t_queue_wait))
-            if t_model_inference > 0:
-                self.stage_model_inference.record(t_model_inference)
-                self.last_stage_inference_ms = t_model_inference
-                self.recent_stage_inference.append((now, t_model_inference))
-            if t_grpc_send > 0:
-                self.stage_grpc_send.record(t_grpc_send)
+        self.stages.record(
+            t_grpc_receive=t_grpc_receive,
+            t_tokenize=t_tokenize,
+            t_queue_wait=t_queue_wait,
+            t_model_inference=t_model_inference,
+            t_grpc_send=t_grpc_send,
+        )
     
     def record_padding_stats(
         self,
@@ -216,7 +182,6 @@ class MetricsCollector:
     ) -> None:
         """
         Record padding analysis statistics per batch.
-        Thread-safe: uses lock for concurrent gRPC calls.
         
         Args:
             padding_ratio: Fraction of tokens that are padding (0-1)
@@ -225,191 +190,107 @@ class MetricsCollector:
             max_seq_length: Longest sequence in batch
             avg_seq_length: Average sequence length before padding
         """
-        with self._lock:
-            if padding_ratio > 0:
-                self.padding_ratios.append(padding_ratio)
-                self.last_padding_ratio = padding_ratio
-            if padded_tokens > 0:
-                self.padded_tokens_total += padded_tokens
-                real_tokens = total_tokens - padded_tokens
-                self.real_tokens_total += real_tokens
-            if max_seq_length > 0:
-                self.max_seq_lengths.append(max_seq_length)
-                self.last_max_seq_length = max_seq_length
-            if avg_seq_length > 0:
-                self.avg_seq_lengths.append(avg_seq_length)
-                self.last_avg_seq_length = avg_seq_length
-
-    def _compute_instant_qps(self) -> float:
-        """Compute instantaneous throughput based on last 1 second of data."""
-        if not self.recent_queries:
-            return 0.0
-        
-        now = time.time()
-        window_sec = 1.0  # 1-second window
-        
-        # Sum queries in the time window
-        queries_in_window = sum(
-            q for t, q in self.recent_queries 
-            if (now - t) <= window_sec
+        self.padding.record_batch(
+            padding_ratio=padding_ratio,
+            padded_tokens=padded_tokens,
+            total_tokens=total_tokens,
+            max_seq_length=max_seq_length,
+            avg_seq_length=avg_seq_length,
         )
-        
-        return queries_in_window / window_sec
-
-    def _compute_queue_wait_stats(self) -> dict:
-        """Compute queue wait time statistics."""
-        stats = self.stage_queue_wait.get_stats()
-        
-        # Calculate % of total latency spent waiting in queue
-        if self.latencies:
-            total_avg = float(np.mean(self.latencies))
-            queue_pct = (stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
-        else:
-            queue_pct = 0
-        
-        return {
-            "avg_ms": round(stats["avg_ms"], 2),
-            "p50_ms": round(stats["p50_ms"], 2),
-            "p95_ms": round(stats["p95_ms"], 2),
-            "p99_ms": round(stats["p99_ms"], 2),
-            "count": stats["count"],
-            "queue_pct_of_latency": round(queue_pct, 1),
-            "last_ms": round(self.last_queue_wait_ms, 2),
-        }
-
-    def _compute_padding_stats(self) -> dict:
-        """Compute padding analysis statistics."""
-        if not self.padding_ratios:
-            return {
-                "avg_padding_pct": 0.0,
-                "p50_padding_pct": 0.0,
-                "p95_padding_pct": 0.0,
-                "total_wasted_compute_pct": 0.0,
-                "last_padding_pct": 0.0,
-                "avg_max_seq_length": 0,
-                "avg_avg_seq_length": 0.0,
-                "last_max_seq_length": 0,
-                "last_avg_seq_length": 0.0,
-            }
-        
-        arr = np.array(self.padding_ratios) * 100  # Convert to percentage
-        
-        # Calculate total wasted compute across all batches
-        total_all_tokens = self.padded_tokens_total + self.real_tokens_total
-        total_wasted_pct = (self.padded_tokens_total / total_all_tokens * 100) if total_all_tokens > 0 else 0.0
-        
-        return {
-            "avg_padding_pct": round(float(np.mean(arr)), 1),
-            "p50_padding_pct": round(float(np.percentile(arr, 50)), 1),
-            "p95_padding_pct": round(float(np.percentile(arr, 95)), 1),
-            "total_wasted_compute_pct": round(total_wasted_pct, 1),
-            "last_padding_pct": round(self.last_padding_ratio * 100, 1),
-            "avg_max_seq_length": int(np.mean(self.max_seq_lengths)) if self.max_seq_lengths else 0,
-            "avg_avg_seq_length": round(float(np.mean(self.avg_seq_lengths)), 1) if self.avg_seq_lengths else 0.0,
-            "last_max_seq_length": self.last_max_seq_length,
-            "last_avg_seq_length": round(self.last_avg_seq_length, 1),
-        }
-
-    def _compute_instant_latency(self) -> float:
-        """Compute instantaneous latency (average of last 1 second)."""
-        if not self.recent_latencies:
-            return self.last_latency_ms
-        
-        now = time.time()
-        window_sec = 1.0  # 1-second window
-        
-        # Get latencies in the time window
-        latencies_in_window = [
-            lat for t, lat in self.recent_latencies 
-            if (now - t) <= window_sec
-        ]
-        
-        if latencies_in_window:
-            return np.mean(latencies_in_window)
-        return self.last_latency_ms
-
+    
     def _compute_metrics(self) -> dict:
         """Compute current metrics."""
-        if not self.latencies:
+        latency_stats = self.latency.get_stats()
+        throughput_stats = self.throughput.get_stats()
+        padding_stats = self.padding.get_stats()
+        stage_breakdown = self.stages.get_all_stats()
+        
+        if latency_stats.count == 0:
             return {}
-        
-        arr = np.array(self.latencies)
-        elapsed = time.time() - self.start_time
-        cpu_pct = get_cpu_percent()
-        gpu_mem = self.get_gpu_memory_mb()
-        
-        # Compute instantaneous metrics
-        instant_qps = self._compute_instant_qps()
-        instant_latency = self._compute_instant_latency()
-        
-        # Compute stage breakdown percentages
-        tokenize_stats = self.stage_tokenize.get_stats()
-        inference_stats = self.stage_model_inference.get_stats()
-        total_avg = float(np.mean(arr)) if len(arr) > 0 else 1.0
-        
-        tokenize_pct = (tokenize_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
-        inference_pct = (inference_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
         
         return {
             # Experiment metadata
-            "experiment_name": self.experiment_name,
-            "experiment_description": self.experiment_description,
-            "backend_type": self.backend_type,
-            "device": self.device,
-            # Core metrics
-            "count": len(arr),
-            "query_count": self.query_count,
-            "instant_latency_ms": instant_latency,  # Instantaneous latency
-            "avg_ms": float(np.mean(arr)),  # Average over experiment
-            "p50_ms": float(np.percentile(arr, 50)),
-            "p95_ms": float(np.percentile(arr, 95)),
-            "p99_ms": float(np.percentile(arr, 99)),
-            "min_ms": float(np.min(arr)),
-            "max_ms": float(np.max(arr)),
-            "std_ms": float(np.std(arr)),
-            "throughput_qps": instant_qps,  # Instantaneous
-            "avg_throughput_qps": self.query_count / elapsed if elapsed > 0 else 0,  # Average over experiment
-            "total_time_s": elapsed,
-            "cpu_percent": cpu_pct,
-            "gpu_memory_mb": gpu_mem,
+            "experiment_name": self.experiment.name,
+            "experiment_description": self.experiment.description,
+            "backend_type": self.experiment.backend_type,
+            "device": self.experiment.device,
+            
+            # Core latency metrics
+            "count": latency_stats.count,
+            "query_count": throughput_stats.total_queries,
+            "instant_latency_ms": self.latency.get_instant_latency(),
+            "avg_ms": latency_stats.avg_ms,
+            "p50_ms": latency_stats.p50_ms,
+            "p95_ms": latency_stats.p95_ms,
+            "p99_ms": latency_stats.p99_ms,
+            "min_ms": latency_stats.min_ms,
+            "max_ms": latency_stats.max_ms,
+            "std_ms": latency_stats.std_ms,
+            
+            # Throughput metrics
+            "throughput_qps": throughput_stats.instant_qps,
+            "avg_throughput_qps": throughput_stats.avg_qps,
+            "total_time_s": throughput_stats.elapsed_seconds,
+            
+            # System metrics
+            "cpu_percent": get_cpu_percent(),
+            "gpu_memory_mb": self.get_gpu_memory_mb(),
+            
             # Stage breakdown
             "stage_breakdown": {
-                "grpc_receive": self.stage_grpc_receive.get_stats(),
-                "tokenize": tokenize_stats,
-                "queue_wait": self.stage_queue_wait.get_stats(),
-                "model_inference": inference_stats,
-                "grpc_send": self.stage_grpc_send.get_stats(),
+                name: {
+                    "p50_ms": stats.p50_ms,
+                    "p95_ms": stats.p95_ms,
+                    "p99_ms": stats.p99_ms,
+                    "avg_ms": stats.avg_ms,
+                    "count": stats.count,
+                }
+                for name, stats in stage_breakdown.items()
             },
-            "stage_percentages": {
-                "tokenize_pct": round(tokenize_pct, 1),
-                "inference_pct": round(inference_pct, 1),
-                "other_pct": round(100 - tokenize_pct - inference_pct, 1),
-            },
-            # Last stage timings for live display
-            "last_tokenize_ms": self.last_stage_tokenize_ms,
-            "last_inference_ms": self.last_stage_inference_ms,
-            "last_queue_wait_ms": self.last_queue_wait_ms,
-            # Queue wait analysis (time from request arrival to GPU processing)
-            "queue_wait_analysis": self._compute_queue_wait_stats(),
+            "stage_percentages": self.stages.get_percentages(latency_stats.avg_ms),
+            
+            # Last stage timings
+            "last_tokenize_ms": self.stages.last_tokenize_ms,
+            "last_inference_ms": self.stages.last_inference_ms,
+            "last_queue_wait_ms": self.stages.last_queue_wait_ms,
+            
+            # Queue wait analysis
+            "queue_wait_analysis": self.stages.get_queue_wait_analysis(latency_stats.avg_ms),
+            
             # Padding analysis
-            "padding_analysis": self._compute_padding_stats(),
+            "padding_analysis": {
+                "avg_padding_pct": padding_stats.avg_padding_pct,
+                "p50_padding_pct": padding_stats.p50_padding_pct,
+                "p95_padding_pct": padding_stats.p95_padding_pct,
+                "total_wasted_compute_pct": padding_stats.total_wasted_compute_pct,
+                "last_padding_pct": padding_stats.last_padding_pct,
+                "avg_max_seq_length": padding_stats.avg_max_seq_length,
+                "avg_avg_seq_length": padding_stats.avg_avg_seq_length,
+                "last_max_seq_length": padding_stats.last_max_seq_length,
+                "last_avg_seq_length": padding_stats.last_avg_seq_length,
+            },
         }
-
+    
     def summary(self) -> dict:
+        """
+        Get metrics summary for dashboard.
+        
+        Returns frozen snapshot when experiment is not active.
+        """
         is_running = self.is_active()
         
-        if not self.latencies:
+        if self.latency.count == 0:
             return {
-                "experiment_name": self.experiment_name,
-                "experiment_description": self.experiment_description,
-                "backend_type": self.backend_type,
-                "device": self.device,
+                "experiment_name": self.experiment.name,
+                "experiment_description": self.experiment.description,
+                "backend_type": self.experiment.backend_type,
+                "device": self.experiment.device,
                 "is_running": is_running,
                 "cpu_percent": get_cpu_percent(),
                 "gpu_memory_mb": self.get_gpu_memory_mb(),
             }
         
-        # If not running and we have a frozen snapshot, return it
+        # Return frozen snapshot if not running
         if not is_running and self.frozen_snapshot is not None:
             return {**self.frozen_snapshot, "is_running": False}
         
@@ -423,39 +304,18 @@ class MetricsCollector:
             logger.info("Metrics frozen - experiment stopped")
         
         return metrics
-
-    def reset(self):
+    
+    def reset(self) -> None:
+        """Reset all metrics."""
         logger.info("Metrics reset")
-        self.latencies = []
-        self.start_time = time.time()
-        self.request_count = 0
-        self.query_count = 0
-        self.last_update_time = time.time()
-        self.frozen_snapshot = None
-        self.last_request_count = 0
-        self.last_latency_ms = 0.0
-        self.recent_queries.clear()
-        self.recent_latencies.clear()
-        
-        # Reset stage metrics
-        self.stage_grpc_receive.reset()
-        self.stage_tokenize.reset()
-        self.stage_queue_wait.reset()
-        self.stage_model_inference.reset()
-        self.stage_grpc_send.reset()
-        self.recent_stage_tokenize.clear()
-        self.recent_stage_inference.clear()
-        self.recent_queue_wait.clear()
-        self.last_stage_tokenize_ms = 0.0
-        self.last_stage_inference_ms = 0.0
-        self.last_queue_wait_ms = 0.0
-        
-        # Reset padding metrics
-        self.padding_ratios = []
-        self.padded_tokens_total = 0
-        self.real_tokens_total = 0
-        self.max_seq_lengths = []
-        self.avg_seq_lengths = []
-        self.last_padding_ratio = 0.0
-        self.last_max_seq_length = 0
-        self.last_avg_seq_length = 0.0
+        with self._lock:
+            self.latency.reset()
+            self.throughput.reset()
+            self.padding.reset()
+            self.stages.reset()
+            self.start_time = time.time()
+            self.last_update_time = time.time()
+            self.frozen_snapshot = None
+
+
+__all__ = ["MetricsCollector", "ExperimentInfo", "get_cpu_percent"]

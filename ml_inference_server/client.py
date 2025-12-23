@@ -1,5 +1,14 @@
+"""
+ML Inference Client - Benchmark and testing client for the inference server.
+
+Features:
+- Load query-document pairs from MS MARCO dataset
+- Run benchmarks with configurable batch sizes and concurrency
+- Save results to markdown files
+- Graceful interrupt handling with partial result saving
+"""
+
 import grpc
-import sys
 import os
 import argparse
 import yaml
@@ -10,6 +19,7 @@ import numpy as np
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+# Configure logging (only once at entry point)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -31,10 +41,8 @@ def handle_interrupt(signum, frame):
 signal.signal(signal.SIGINT, handle_interrupt)
 signal.signal(signal.SIGTERM, handle_interrupt)
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "proto"))
-import inference_pb2
-import inference_pb2_grpc
-
+# Import proto modules
+from proto import inference_pb2, inference_pb2_grpc
 from utils import load_experiment_config
 
 
@@ -42,14 +50,12 @@ def load_dataset(num_samples: int = 1000, cache_dir: str = None):
     """Load MS MARCO query-passage pairs from HuggingFace datasets with local caching."""
     import json
     
-    # Default cache location
     if cache_dir is None:
         cache_dir = os.path.join(os.path.dirname(__file__), ".cache")
     os.makedirs(cache_dir, exist_ok=True)
     
     cache_file = os.path.join(cache_dir, f"msmarco_pairs_{num_samples}.json")
     
-    # Check if cached file exists
     if os.path.exists(cache_file):
         logger.info(f"Loading cached pairs from {cache_file}")
         with open(cache_file, "r") as f:
@@ -57,7 +63,6 @@ def load_dataset(num_samples: int = 1000, cache_dir: str = None):
         logger.info(f"Loaded {len(pairs)} cached query-passage pairs from MS MARCO")
         return pairs
     
-    # Download and cache
     from datasets import load_dataset as hf_load_dataset
     
     logger.info("Downloading MS MARCO dataset (first time only, will be cached)...")
@@ -68,18 +73,14 @@ def load_dataset(num_samples: int = 1000, cache_dir: str = None):
         if i >= num_samples:
             break
         query = item["query"]
-        # Get passages from the item
         passages = item.get("passages", {})
         passage_texts = passages.get("passage_text", [])
         
         if passage_texts:
-            # Use the first passage as the document
             pairs.append([query, passage_texts[0]])
         else:
-            # Fallback: use query as both (for testing)
             pairs.append([query, query])
     
-    # Save to cache
     with open(cache_file, "w") as f:
         json.dump(pairs, f)
     logger.info(f"Cached {len(pairs)} query-passage pairs to {cache_file}")
@@ -87,7 +88,7 @@ def load_dataset(num_samples: int = 1000, cache_dir: str = None):
     return pairs
 
 
-def run_inference_timed(stub, pairs: list):
+def run_inference_timed(stub, pairs: list, timeout_sec: float = 60.0):
     """Run cross-encoder inference and return (response, latency_ms)."""
     try:
         start = time.perf_counter()
@@ -96,7 +97,7 @@ def run_inference_timed(stub, pairs: list):
             for p in pairs
         ]
         request = inference_pb2.InferRequest(pairs=proto_pairs)
-        response = stub.Infer(request)
+        response = stub.Infer(request, timeout=timeout_sec)
         latency_ms = (time.perf_counter() - start) * 1000
         return response, latency_ms
     except grpc.RpcError as e:
@@ -107,9 +108,10 @@ def run_inference_timed(stub, pairs: list):
         raise
 
 
-def get_metrics(stub):
+def get_metrics(stub, timeout_sec: float = 10.0):
+    """Get metrics from server."""
     try:
-        response = stub.GetMetrics(inference_pb2.Empty())
+        response = stub.GetMetrics(inference_pb2.Empty(), timeout=timeout_sec)
         return response
     except grpc.RpcError as e:
         logger.error(f"gRPC error getting metrics: {e.code()} - {e.details()}")
@@ -120,12 +122,11 @@ def get_metrics(stub):
 
 
 def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurrency: int = 1):
-    """Run benchmark with configurable concurrency, tracking per-request metrics."""
+    """Run benchmark with configurable concurrency."""
     global _interrupted
     
     logger.info(f"Starting benchmark: {num_requests} requests, concurrency={concurrency}, batch_size={batch_size}")
     
-    # Prepare batches from real pairs
     batches = []
     for i in range(num_requests):
         start_idx = (i * batch_size) % len(all_pairs)
@@ -134,23 +135,20 @@ def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurr
             batch = batch + all_pairs[:batch_size - len(batch)]
         batches.append(batch)
     
-    # Track per-request latencies and throughputs
     request_latencies = []
-    request_throughputs = []  # pairs/second for each request
+    request_throughputs = []
     
     start = time.perf_counter()
     completed = 0
     
     if concurrency == 1:
         for batch in batches:
-            # Check for interrupt
             if _interrupted:
                 logger.warning(f"Benchmark interrupted after {completed}/{num_requests} requests")
                 break
             
             _, latency_ms = run_inference_timed(stub, batch)
             request_latencies.append(latency_ms)
-            # Throughput for this request: pairs / time_in_seconds
             request_throughputs.append(batch_size / (latency_ms / 1000))
             completed += 1
             if completed % 100 == 0:
@@ -183,7 +181,6 @@ def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurr
     
     elapsed = time.perf_counter() - start
     
-    # Handle partial results
     actual_requests = len(request_latencies)
     if actual_requests == 0:
         return {
@@ -199,7 +196,6 @@ def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurr
     total_pairs = actual_requests * batch_size
     avg_throughput = total_pairs / elapsed if elapsed > 0 else 0
     
-    # Convert to numpy for percentile calculations
     lat_arr = np.array(request_latencies)
     tp_arr = np.array(request_throughputs)
     
@@ -213,7 +209,6 @@ def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurr
         "requested_requests": num_requests,
         "total_pairs": total_pairs,
         "total_time_s": elapsed,
-        # Latency metrics (ms)
         "latency_avg_ms": float(np.mean(lat_arr)),
         "latency_min_ms": float(np.min(lat_arr)),
         "latency_max_ms": float(np.max(lat_arr)),
@@ -222,7 +217,6 @@ def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurr
         "latency_p90_ms": float(np.percentile(lat_arr, 90)),
         "latency_p95_ms": float(np.percentile(lat_arr, 95)),
         "latency_p99_ms": float(np.percentile(lat_arr, 99)),
-        # Throughput metrics (pairs/s)
         "throughput_avg": avg_throughput,
         "throughput_min": float(np.min(tp_arr)),
         "throughput_max": float(np.max(tp_arr)),
@@ -240,7 +234,7 @@ def benchmark(stub, all_pairs: list, batch_size: int, num_requests: int, concurr
 
 
 def save_results_to_markdown(results: list, config: dict, output_file: str = "docs/experiment_results.md", partial: bool = False):
-    """Save experiment results to markdown file with detailed sub-experiment metrics."""
+    """Save experiment results to markdown file."""
     if not results:
         logger.warning("No results to save")
         return
@@ -255,12 +249,10 @@ def save_results_to_markdown(results: list, config: dict, output_file: str = "do
     batching_enabled = config.get('batching', {}).get('enabled', False)
     batching_config = config.get('batching', {})
     
-    # Check if any results were interrupted
     has_interrupted = any(r.get("interrupted") for r in results)
     if partial or has_interrupted:
         experiment_name = f"{experiment_name} (PARTIAL)"
     
-    # Write to experiment-specific file (overwrite)
     with open(output_file, "w") as f:
         f.write(f"# {experiment_name}\n\n")
         f.write(f"**Timestamp:** {timestamp}\n\n")
@@ -274,7 +266,6 @@ def save_results_to_markdown(results: list, config: dict, output_file: str = "do
         f.write(f"**Model Type:** Cross-Encoder\n\n")
         f.write(f"**Requests per config:** `{config['experiment']['benchmark_requests']}`\n\n")
         
-        # Summary table
         f.write("## Results Summary\n\n")
         f.write("| Batch | Conc | Pairs | Time(s) | Lat Avg | Lat P95 | Lat P99 | TP Avg | TP P95 |\n")
         f.write("|-------|------|-------|---------|---------|---------|---------|--------|--------|\n")
@@ -287,7 +278,6 @@ def save_results_to_markdown(results: list, config: dict, output_file: str = "do
                         f"{r['total_time_s']:.2f} | {r['latency_avg_ms']:.1f}ms | {r['latency_p95_ms']:.1f}ms | "
                         f"{r['latency_p99_ms']:.1f}ms | {r['throughput_avg']:.1f} | {r['throughput_p95']:.1f} |\n")
         
-        # Detailed sub-experiment metrics
         f.write("\n## Detailed Sub-Experiment Metrics\n\n")
         
         for i, r in enumerate(results, 1):
@@ -322,7 +312,6 @@ def save_results_to_markdown(results: list, config: dict, output_file: str = "do
                 f.write(f"| P95 | {r['throughput_p95']:.2f} |\n")
                 f.write(f"| P99 | {r['throughput_p99']:.2f} |\n\n")
         
-        # Overall summary
         successful = [r for r in results if 'error' not in r]
         if successful:
             best_throughput = max(successful, key=lambda x: x['throughput_avg'])
@@ -338,7 +327,6 @@ def save_results_to_markdown(results: list, config: dict, output_file: str = "do
             f.write(f"| Avg Throughput | {avg_all_throughput:.2f} p/s | all configs |\n")
             f.write(f"| Avg Latency | {avg_all_latency:.2f}ms | all configs |\n")
     
-    # Also append to combined results file
     combined_file = os.path.join(os.path.dirname(output_file), "all_results.md")
     file_exists = os.path.exists(combined_file)
     
@@ -351,7 +339,6 @@ def save_results_to_markdown(results: list, config: dict, output_file: str = "do
         f.write(f"\n## {experiment_name} ({timestamp})\n\n")
         f.write(f"**Backend:** `{backend}` | **Device:** `{device}` | **Dynamic Batching:** `{batching_enabled}`\n\n")
         
-        # Full table with comprehensive metrics
         f.write("| Batch | Conc | Pairs | Time | Lat Avg | Lat P50 | Lat P95 | Lat P99 | TP Avg | TP P50 | TP P95 | TP P99 |\n")
         f.write("|-------|------|-------|------|---------|---------|---------|---------|--------|--------|--------|--------|\n")
         
@@ -364,7 +351,6 @@ def save_results_to_markdown(results: list, config: dict, output_file: str = "do
                         f"{r['latency_p95_ms']:.1f} | {r['latency_p99_ms']:.1f} | {r['throughput_avg']:.1f} | "
                         f"{r['throughput_p50']:.1f} | {r['throughput_p95']:.1f} | {r['throughput_p99']:.1f} |\n")
         
-        # Add summary stats
         successful = [r for r in results if 'error' not in r]
         if successful:
             best_tp = max(successful, key=lambda x: x['throughput_avg'])
@@ -394,7 +380,6 @@ def run_experiments(stub, config, pairs: list):
     
     for batch_size in batch_sizes:
         for concurrency in concurrency_levels:
-            # Check for interrupt before starting new experiment
             if _interrupted:
                 logger.warning(f"Skipping remaining experiments due to interrupt")
                 break
@@ -406,9 +391,8 @@ def run_experiments(stub, config, pairs: list):
             try:
                 result = benchmark(stub, pairs, batch_size, num_requests, concurrency)
                 results.append(result)
-                _partial_results = results.copy()  # Update partial results for interrupt handler
+                _partial_results = results.copy()
                 
-                # If this experiment was interrupted, stop
                 if result.get("interrupted"):
                     logger.warning("Experiment was interrupted, stopping further experiments")
                     break
@@ -426,7 +410,6 @@ def run_experiments(stub, config, pairs: list):
                 })
                 _partial_results = results.copy()
         
-        # Break outer loop if interrupted
         if _interrupted:
             break
     
@@ -446,7 +429,13 @@ def main():
     parser.add_argument("--experiment", action="store_true", help="Run full experiment suite from config")
     parser.add_argument("--config", help="Path to experiment config (e.g., experiments/minilm_baseline.yaml)")
     parser.add_argument("--output", default="docs/experiment_results.md", help="Output markdown file")
+    parser.add_argument("--debug", action="store_true", help="Enable debug/trace logging")
     args = parser.parse_args()
+    
+    # Enable debug logging if requested
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("[TRACE] Debug logging enabled")
     
     _output_file = args.output
 
@@ -459,10 +448,8 @@ def main():
     logger.info("Press Ctrl+C to interrupt (partial results will be saved)")
     logger.info("=" * 60)
 
-    # Load real query-passage pairs
     pairs = load_dataset(args.dataset_size)
 
-    # Check if server is reachable
     try:
         _ = get_metrics(stub)
         logger.info("Connected to cross-encoder server successfully")
@@ -470,7 +457,7 @@ def main():
         logger.error(f"Failed to connect to server at {args.host}:{args.port}")
         logger.error(f"Error: {e}")
         logger.error("Make sure the server is running with: ./run_server.sh")
-        sys.exit(1)
+        exit(1)
 
     if args.experiment:
         config = None
@@ -498,13 +485,11 @@ def main():
             logger.error(f"Failed to run experiments: {e}")
             import traceback
             traceback.print_exc()
-            # Try to save partial results on error
             if _partial_results and _current_config:
                 results = _partial_results
             else:
-                sys.exit(1)
+                exit(1)
         
-        # Always save results (even partial ones)
         if results and config:
             is_partial = _interrupted or any(r.get("interrupted") for r in results)
             
@@ -515,7 +500,6 @@ def main():
             
             save_results_to_markdown(results, config, args.output, partial=is_partial)
             
-            # Print summary
             status = "PARTIAL " if is_partial else ""
             print("\n" + "=" * 120)
             print(f"{status}EXPERIMENT SUMMARY (Cross-Encoder)")
@@ -541,7 +525,7 @@ def main():
             print(f"\nResults saved to: {args.output}")
         
         if _interrupted:
-            sys.exit(130)  # Standard exit code for SIGINT
+            exit(130)
     else:
         try:
             result = benchmark(stub, pairs, args.batch_size, args.requests, args.concurrency)
@@ -556,7 +540,7 @@ def main():
             logger.error(f"Benchmark failed: {e}")
             import traceback
             traceback.print_exc()
-            sys.exit(1)
+            exit(1)
 
 
 if __name__ == "__main__":
