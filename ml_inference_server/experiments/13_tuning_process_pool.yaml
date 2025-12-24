@@ -1,8 +1,8 @@
-# Multi-Model Process Pool Experiment
-# Tests true parallelism with separate processes per model instance
+# Tuning Process Pool Experiment
+# Tests optimizations: torch.compile + ProcessPool + Large Batching
 
-name: "Multi-Model Process Pool (2x MPS)"
-description: "2 model replicas in separate processes for true MPS parallelism"
+name: "Tuning Process Pool (4x MPS + Compile)"
+description: "4 model replicas with torch.compile and process isolation"
 
 # Multi-model pool configuration
 model_pool:
@@ -11,38 +11,32 @@ model_pool:
       device: "mps"
       backend: "mps"
       use_fp16: true
+      compile_model: true
       max_length: 256
     - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
       device: "mps"
       backend: "mps"
       use_fp16: true
+      compile_model: true
       max_length: 256
-  routing_strategy: "round_robin"
+  
+  routing_strategy: "smart_idle"
 
 # Legacy model config (used for display info)
 model:
   name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
   device: "mps"
   backend: "mps"
-  mps:
-    fp16: true
 
 # Batching settings
 batching:
-  enabled: false
-  max_batch_size: 64
-  timeout_ms: 50
-  length_aware_batching: false
-
-# Server configuration
-server:
-  host: "0.0.0.0"
-  port: 50051
-  grpc_workers: 16
+  enabled: true
+  max_batch_size: 256
+  timeout_ms: 200
 
 # Experiment parameters
 experiment:
-  batch_sizes: [64]
+  batch_sizes: [32]
   concurrency_levels: [8]
   benchmark_requests: 500
   warmup_iterations: 20

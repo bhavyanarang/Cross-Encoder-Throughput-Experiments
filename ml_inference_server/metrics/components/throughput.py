@@ -29,7 +29,9 @@ class ThroughputTracker:
     start_time: float = field(default_factory=time.time)
     query_count: int = 0
     request_count: int = 0
-    recent_queries: deque = field(default_factory=lambda: deque(maxlen=200))
+    # Increased maxlen to support high throughput (e.g. up to 10k QPS)
+    # 200 was too small causing under-reporting at high loads
+    recent_queries: deque = field(default_factory=lambda: deque(maxlen=10000))
     _lock: threading.Lock = field(default_factory=threading.Lock)
     
     def record(self, num_queries: int = 1) -> None:

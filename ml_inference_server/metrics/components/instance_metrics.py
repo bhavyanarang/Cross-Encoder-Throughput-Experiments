@@ -52,6 +52,8 @@ class InstanceMetricsTracker:
         self._instances: dict[int, dict] = {}
         self._lock = threading.Lock()
         self._start_time = time.time()
+        # Window size for utilization calculation (seconds)
+        self.window_size = 10.0
     
     def register_instance(self, instance_id: int, name: str = "") -> None:
         """
@@ -70,6 +72,8 @@ class InstanceMetricsTracker:
                 "is_busy": False,
                 "latencies_ms": [],
                 "last_request_time": 0.0,
+                # Store busy intervals as (end_time, duration) for sliding window
+                "busy_intervals": [], 
             }
     
     def mark_busy(self, instance_id: int) -> None:
@@ -106,6 +110,8 @@ class InstanceMetricsTracker:
             if instance["busy_start_time"] is not None:
                 busy_duration = now - instance["busy_start_time"]
                 instance["total_busy_time_s"] += busy_duration
+                # Add to intervals for sliding window
+                instance["busy_intervals"].append((now, busy_duration))
             
             instance["is_busy"] = False
             instance["busy_start_time"] = None
@@ -147,15 +153,38 @@ class InstanceMetricsTracker:
     def _compute_stats(self, instance_id: int) -> InstanceStats:
         """Compute stats for an instance (must hold lock)."""
         instance = self._instances[instance_id]
-        elapsed = time.time() - self._start_time
+        now = time.time()
+        elapsed = now - self._start_time
         
         # Calculate current busy time if currently busy
         total_busy = instance["total_busy_time_s"]
-        if instance["is_busy"] and instance["busy_start_time"]:
-            total_busy += time.time() - instance["busy_start_time"]
+        current_busy_duration = 0.0
         
-        # Calculate utilization percentage
-        utilization_pct = (total_busy / elapsed * 100) if elapsed > 0 else 0.0
+        if instance["is_busy"] and instance["busy_start_time"]:
+            current_busy_duration = now - instance["busy_start_time"]
+            total_busy += current_busy_duration
+        
+        # Clean up old intervals outside window
+        window_start = now - self.window_size
+        valid_intervals = [
+            (end, dur) for end, dur in instance["busy_intervals"]
+            if end > window_start
+        ]
+        instance["busy_intervals"] = valid_intervals
+        
+        # Calculate busy time in window
+        busy_in_window = sum(dur for _, dur in valid_intervals)
+        
+        # Add current busy time if applicable
+        if instance["is_busy"]:
+            busy_in_window += current_busy_duration
+            
+        # Utilization = busy time / window size (capped at 100%)
+        # For very short elapsed time, use elapsed instead of window_size
+        effective_window = min(self.window_size, elapsed) if elapsed > 0.1 else 0.1
+        utilization_pct = (busy_in_window / effective_window * 100)
+        utilization_pct = min(100.0, max(0.0, utilization_pct))
+        
         idle_pct = 100.0 - utilization_pct
         
         # Calculate average latency
@@ -241,6 +270,7 @@ class InstanceMetricsTracker:
                 instance["is_busy"] = False
                 instance["latencies_ms"] = []
                 instance["last_request_time"] = 0.0
+                instance["busy_intervals"] = []
             self._start_time = time.time()
 
 

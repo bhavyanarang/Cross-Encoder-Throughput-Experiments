@@ -9,11 +9,11 @@ Handles:
 
 import time
 import logging
-from typing import Tuple, Optional, Union
+from typing import Tuple, Optional
 
 import numpy as np
 
-from backends import BaseBackend, InferenceResult
+from backends import InferenceResult
 from metrics import MetricsCollector
 from utils.length_aware_batching import LengthAwareBatcher
 from .model_pool import ModelPool
@@ -25,13 +25,12 @@ class Scheduler:
     """
     Scheduler for cross-encoder inference requests.
     
-    Supports both single-backend mode (legacy) and multi-model pool mode.
+    Routes requests to a process-based ModelPool for true parallel inference.
     """
     
     def __init__(
         self,
-        backend: Optional[BaseBackend] = None,
-        model_pool: Optional[ModelPool] = None,
+        model_pool: ModelPool,
         metrics: Optional[MetricsCollector] = None,
         batching_enabled: bool = False,
         max_batch_size: int = 8,
@@ -43,8 +42,7 @@ class Scheduler:
         Initialize scheduler.
         
         Args:
-            backend: Single backend instance (legacy mode)
-            model_pool: ModelPool for multi-model support
+            model_pool: ModelPool for multi-model support (process-based)
             metrics: MetricsCollector for recording stats
             batching_enabled: Enable dynamic batching
             max_batch_size: Maximum batch size
@@ -52,18 +50,7 @@ class Scheduler:
             enable_stage_timing: Enable per-stage timing
             enable_length_aware_batching: Sort pairs by length to reduce padding
         """
-        # Support both single backend and model pool modes
-        if model_pool is not None:
             self.model_pool = model_pool
-            self.backend = None  # Use pool instead
-            self._use_pool = True
-        elif backend is not None:
-            self.backend = backend
-            self.model_pool = None
-            self._use_pool = False
-        else:
-            raise ValueError("Either backend or model_pool must be provided")
-        
         self.metrics = metrics or MetricsCollector()
         self.batching_enabled = batching_enabled
         self.max_batch_size = max_batch_size
@@ -105,11 +92,8 @@ class Scheduler:
             batcher = LengthAwareBatcher(pairs)
             pairs, unsort_fn = batcher.get_sorted_pairs()
         
-        # Run inference through pool or single backend
-        if self._use_pool:
+        # Run inference through model pool
             result = self.model_pool.infer_with_timing(pairs)
-        else:
-            result = self._infer_single_backend(pairs)
         
         scores = result.scores
         elapsed_ms = result.total_ms
@@ -136,39 +120,16 @@ class Scheduler:
         self.metrics.record(elapsed_ms, num_queries=len(pairs))
         return scores, elapsed_ms
     
-    def _infer_single_backend(self, pairs: list[tuple[str, str]]) -> InferenceResult:
-        """Run inference on single backend with timing."""
-        if hasattr(self.backend, 'infer_with_timing'):
-            return self.backend.infer_with_timing(pairs)
-        else:
-            # Fallback for backends without infer_with_timing
-            start = time.perf_counter()
-            scores = self.backend.infer(pairs)
-            elapsed_ms = (time.perf_counter() - start) * 1000
-            return InferenceResult(
-                scores=scores,
-                t_model_inference_ms=elapsed_ms,
-                total_ms=elapsed_ms,
-                batch_size=len(pairs),
-            )
-    
     def get_info(self) -> dict:
         """Get scheduler information."""
-        info = {
+        return {
             "batching_enabled": self.batching_enabled,
             "max_batch_size": self.max_batch_size,
             "timeout_ms": self.timeout_ms,
             "enable_stage_timing": self.enable_stage_timing,
             "enable_length_aware_batching": self.enable_length_aware_batching,
-            "use_model_pool": self._use_pool,
+            "pool_info": self.model_pool.get_pool_info(),
         }
-        
-        if self._use_pool:
-            info["pool_info"] = self.model_pool.get_pool_info()
-        else:
-            info["backend_info"] = self.backend.get_model_info()
-        
-        return info
 
 
 __all__ = ["Scheduler"]

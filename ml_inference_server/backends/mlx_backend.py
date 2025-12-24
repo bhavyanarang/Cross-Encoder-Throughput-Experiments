@@ -44,13 +44,14 @@ class MLXBackend(BaseBackend):
         model_name: str, 
         device: str = "mps",
         quantization_bits: int = 16,
-        group_size: int = 64
+        group_size: int = 64,
+        max_length: int = None,
     ):
         super().__init__(model_name, device)
         self.quantization_bits = quantization_bits
         self.group_size = group_size
         self.actual_dtype = None
-        self._max_length = None
+        self._max_length = max_length  # Will use config value or fall back to model default
         
         if quantization_bits < 16:
             logger.warning(
@@ -65,6 +66,7 @@ class MLXBackend(BaseBackend):
             model_name=config.name,
             device=config.device,
             quantization_bits=config.quantization_bits,
+            max_length=config.max_length,
         )
         
     def load_model(self) -> None:
@@ -78,7 +80,11 @@ class MLXBackend(BaseBackend):
         self.model = CrossEncoder(self.model_name, device=self.device)
         
         self._tokenizer = self.model.tokenizer
-        self._max_length = self.model.max_length
+        # Use configured max_length if provided, otherwise use model default
+        if self._max_length is None:
+            self._max_length = self.model.max_length
+        else:
+            logger.info(f"Using configured max_length: {self._max_length} (model default: {self.model.max_length})")
         
         if self.quantization_bits <= 16 and self.device == "mps":
             _, self.actual_dtype = apply_fp16(self.model, self.device)

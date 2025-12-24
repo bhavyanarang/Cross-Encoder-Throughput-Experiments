@@ -32,12 +32,14 @@ class MPSBackend(BaseBackend):
         device: str = "mps",
         use_fp16: bool = True,
         compile_model: bool = False,
+        compile_mode: str = "reduce-overhead",
         sync_on_infer: bool = False,
         max_length: Optional[int] = None,
     ):
         super().__init__(model_name, device)
         self.use_fp16 = use_fp16
         self.compile_model = compile_model
+        self.compile_mode = compile_mode
         self.sync_on_infer = sync_on_infer
         self.actual_dtype = None
         self._max_length = max_length  # Will be set from config or model default in load_model
@@ -53,6 +55,7 @@ class MPSBackend(BaseBackend):
             device=config.device,
             use_fp16=config.use_fp16,
             compile_model=config.compile_model,
+            compile_mode=getattr(config, "compile_mode", "reduce-overhead"),
             max_length=config.max_length,
         )
         
@@ -83,6 +86,17 @@ class MPSBackend(BaseBackend):
         else:
             self.actual_dtype = "float32"
             logger.info(f"Loaded {self.model_name} on {self.device} (FP32)")
+        
+        # Apply torch.compile if requested
+        if self.compile_model:
+            try:
+                # Use aot_eager backend for MPS as inductor support is still experimental/limited
+                backend = "aot_eager" if self.device == "mps" else "inductor"
+                logger.info(f"Compiling model with mode='{self.compile_mode}' backend='{backend}'...")
+                self.model.model = torch.compile(self.model.model, mode=self.compile_mode, backend=backend)
+                logger.info("Model compilation enabled")
+            except Exception as e:
+                logger.warning(f"Model compilation failed: {e}")
         
         self._is_loaded = True
     

@@ -108,9 +108,9 @@ SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
 # Wait for server to start (model loading can take 30-60 seconds)
-echo "Waiting for server to initialize (up to 60s)..."
+echo "Waiting for server to initialize (up to 180s)..."
 WAIT_TIME=0
-MAX_WAIT=60
+MAX_WAIT=180
 SERVER_READY=false
 
 while [ $WAIT_TIME -lt $MAX_WAIT ]; do

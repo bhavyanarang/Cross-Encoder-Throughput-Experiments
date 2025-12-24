@@ -17,8 +17,6 @@ import multiprocessing as mp
 import os
 import queue
 import time
-import threading
-import concurrent.futures
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -255,10 +253,6 @@ class ModelPool:
         self._worker_request_counts: Dict[int, int] = {}
         self._worker_busy: Dict[int, bool] = {}
         
-        # Result routing
-        self._pending_requests: Dict[int, concurrent.futures.Future] = {}
-        self._result_thread: Optional[threading.Thread] = None
-        
         logger.info(f"ModelPool initialized with {self.num_workers} instance(s), "
                    f"routing={config.routing_strategy}")
     
@@ -307,11 +301,6 @@ class ModelPool:
                 raise RuntimeError(f"Worker {i} failed to start within {timeout_s}s")
         
         self._is_started = True
-        
-        # Start result router thread
-        self._result_thread = threading.Thread(target=self._result_loop, daemon=True)
-        self._result_thread.start()
-        
         logger.info(f"ModelPool ready with {self.num_workers} worker(s)")
     
     def stop(self, timeout_s: float = 30.0) -> None:
@@ -324,12 +313,6 @@ class ModelPool:
         # Send stop signals
         for _ in range(self.num_workers):
             self._input_queue.put(_STOP)
-            
-        # Stop result thread
-        if self._result_thread and self._result_thread.is_alive():
-            # We can't easily interrupt the get(), but since it's daemon it will die with main
-            # Or we can push a dummy result to unblock it if we wanted to be clean
-            pass
         
         # Wait for processes to exit
         deadline = time.time() + timeout_s
@@ -347,36 +330,6 @@ class ModelPool:
         
         logger.info("ModelPool stopped")
     
-    def _result_loop(self) -> None:
-        """Background thread to route results to waiting requests."""
-        while True:
-            try:
-                # Block until result is available
-                # Note: This is efficient because only ONE thread waits here
-                result = self._output_queue.get()
-                
-                # Check for stop signal (if we implement one) or errors
-                if not isinstance(result, WorkResult):
-                    continue
-                
-                # Route result to the correct future
-                req_id = result.req_id
-                
-                # Update metrics
-                self._worker_request_counts[result.worker_id] = \
-                    self._worker_request_counts.get(result.worker_id, 0) + 1
-                
-                future = self._pending_requests.pop(req_id, None)
-                if future and not future.cancelled():
-                    future.set_result(result)
-                else:
-                    logger.warning(f"Received result for unknown/cancelled req_id={req_id}")
-                    
-            except Exception as e:
-                logger.error(f"Error in result loop: {e}")
-                # Don't crash the loop
-                time.sleep(0.1)
-
     def infer(self, pairs: List[Tuple[str, str]]) -> "InferenceResult":
         """
         Run inference on query-document pairs.
@@ -394,37 +347,32 @@ class ModelPool:
         if not self._is_started:
             raise RuntimeError("ModelPool not started. Call start() first.")
         
-        # Create a future for this request
         req_id = self._next_req_id
         self._next_req_id += 1
-        
-        future = concurrent.futures.Future()
-        self._pending_requests[req_id] = future
         
         # Send work
         self._input_queue.put(WorkItem(req_id=req_id, pairs=pairs))
         
-        try:
-            # Wait for result (mapped by background thread)
-            result = future.result()
-            
-            return InferenceResult(
-                scores=result.scores,
-                t_tokenize_ms=result.t_tokenize_ms,
-                t_model_inference_ms=result.t_model_inference_ms,
-                total_ms=result.total_ms,
-                total_tokens=result.total_tokens,
-                real_tokens=result.real_tokens,
-                padded_tokens=result.padded_tokens,
-                padding_ratio=result.padding_ratio,
-                max_seq_length=result.max_seq_length,
-                avg_seq_length=result.avg_seq_length,
-                batch_size=result.batch_size,
-            )
-        except Exception:
-            # Clean up if something goes wrong
-            self._pending_requests.pop(req_id, None)
-            raise
+        # Wait for result
+        result = self._output_queue.get()
+        
+        # Update metrics
+        self._worker_request_counts[result.worker_id] = \
+            self._worker_request_counts.get(result.worker_id, 0) + 1
+        
+        return InferenceResult(
+            scores=result.scores,
+            t_tokenize_ms=result.t_tokenize_ms,
+            t_model_inference_ms=result.t_model_inference_ms,
+            total_ms=result.total_ms,
+            total_tokens=result.total_tokens,
+            real_tokens=result.real_tokens,
+            padded_tokens=result.padded_tokens,
+            padding_ratio=result.padding_ratio,
+            max_seq_length=result.max_seq_length,
+            avg_seq_length=result.avg_seq_length,
+            batch_size=result.batch_size,
+        )
     
     def infer_with_timing(self, pairs: List[Tuple[str, str]]) -> "InferenceResult":
         """Alias for infer() - timing is always included."""

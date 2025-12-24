@@ -1,6 +1,6 @@
-# Multi-Model Smart Idle (4x MPS) (PARTIAL)
+# Multi-Model Process Pool (2x MPS)
 
-**Timestamp:** 2025-12-24 04:23:22
+**Timestamp:** 2025-12-24 20:28:03
 
 **Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2`
 
@@ -8,7 +8,7 @@
 
 **Backend:** `mps`
 
-**Dynamic Batching:** `True` (max_batch=128, timeout=200ms)
+**Dynamic Batching:** `False`
 
 **Model Type:** Cross-Encoder
 
@@ -18,43 +18,43 @@
 
 | Batch | Conc | Pairs | Time(s) | Lat Avg | Lat P95 | Lat P99 | TP Avg | TP P95 |
 |-------|------|-------|---------|---------|---------|---------|--------|--------|
-| 64 | 8 | 28416 | 54.19 | 966.8ms | 1268.7ms | 1371.3ms | 524.3 | 76.3 |
+| 64 | 8 | 32000 | 67.05 | 1066.2ms | 1274.1ms | 1879.4ms | 477.2 | 72.3 |
 
 ## Detailed Sub-Experiment Metrics
 
 ### Config 1: batch=64, concurrency=8
 
-**Total:** 28416 pairs in 54.19s
+**Total:** 32000 pairs in 67.05s
 
 #### Latency (ms)
 | Metric | Value |
 |--------|-------|
-| Average | 966.83 |
-| Min | 203.71 |
-| Max | 1513.87 |
-| Std Dev | 144.09 |
-| P50 | 927.27 |
-| P90 | 1185.52 |
-| P95 | 1268.70 |
-| P99 | 1371.33 |
+| Average | 1066.16 |
+| Min | 820.19 |
+| Max | 2490.01 |
+| Std Dev | 169.44 |
+| P50 | 1037.80 |
+| P90 | 1212.25 |
+| P95 | 1274.09 |
+| P99 | 1879.45 |
 
 #### Throughput (pairs/s)
 | Metric | Value |
 |--------|-------|
-| Average | 524.34 |
-| Min | 42.28 |
-| Max | 314.18 |
-| Std Dev | 15.97 |
-| P50 | 69.02 |
-| P90 | 74.60 |
-| P95 | 76.29 |
-| P99 | 85.89 |
+| Average | 477.22 |
+| Min | 25.70 |
+| Max | 78.03 |
+| Std Dev | 7.34 |
+| P50 | 61.67 |
+| P90 | 69.82 |
+| P95 | 72.27 |
+| P99 | 76.05 |
 
 ## Overall Summary
 
 | Metric | Value | Config |
 |--------|-------|--------|
-| Best Throughput | 524.34 p/s | batch=64, conc=8 |
-| Best Latency | 966.83ms | batch=64, conc=8 |
-| Avg Throughput | 524.34 p/s | all configs |
-| Avg Latency | 966.83ms | all configs |
+| Best Throughput | 477.22 p/s | batch=64, conc=8 |
+| Best Latency | 1066.16ms | batch=64, conc=8 |
+| Avg Throughput | 477.22 p/s | all configs |
+| Avg Latency | 1066.16ms | all configs |

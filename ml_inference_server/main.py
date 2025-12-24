@@ -51,12 +51,12 @@ def create_model_pool_from_config(config: dict) -> ModelPool:
         config: Configuration dictionary
         
     Returns:
-        Configured ModelPool instance
+        Configured ModelPool instance (process-based for true parallelism)
     """
+    from core.config import ModelPoolConfig, ModelInstanceConfig
+    
     # Check for new model_pool format
     if "model_pool" in config:
-        from core.config import ModelPoolConfig, ModelInstanceConfig
-        
         pool_data = config["model_pool"]
         instances = [
             ModelInstanceConfig(**inst) 
@@ -69,7 +69,20 @@ def create_model_pool_from_config(config: dict) -> ModelPool:
         return ModelPool(pool_config)
     
     # Fall back to legacy single-model format
-    return ModelPool.from_legacy_config(config)
+    from core.config import ModelPoolConfig, ModelInstanceConfig
+    model_data = config.get("model", {})
+    instance = ModelInstanceConfig(
+        name=model_data.get("name", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
+        device=model_data.get("device", "mps"),
+        backend=model_data.get("backend", "mps"),
+        use_fp16=model_data.get("mps", {}).get("fp16", True),
+        max_length=model_data.get("max_length"),
+    )
+    pool_config = ModelPoolConfig(
+        instances=[instance],
+        routing_strategy="round_robin",
+    )
+    return ModelPool(pool_config)
 
 
 def main():
@@ -116,55 +129,40 @@ def main():
     else:
         logger.info("Quantization: DISABLED")
     
-    # Create model pool (supports multi-model or legacy single-model)
-    if args.multi_model > 1 or "model_pool" in config:
-        # Multi-model mode
-        if args.multi_model > 1 and "model_pool" not in config:
-            # Create pool config from legacy config with multiple instances
-            from core.config import ModelPoolConfig, ModelInstanceConfig
-            
-            instance = ModelInstanceConfig(
-                name=config["model"]["name"],
-                device=config["model"].get("device", "mps"),
-                backend=config["model"].get("backend", "mps"),
-                use_fp16=config["model"].get("mps", {}).get("fp16", True),
-            )
-            pool_config = ModelPoolConfig(
-                instances=[instance] * args.multi_model,
-                routing_strategy="round_robin",
-            )
-            model_pool = ModelPool(pool_config)
-        else:
-            model_pool = create_model_pool_from_config(config)
+    # Create model pool (always process-based for true parallelism)
+    if args.multi_model > 1 and "model_pool" not in config:
+        # Create pool config from legacy config with multiple instances
+        from core.config import ModelPoolConfig, ModelInstanceConfig
         
-        model_pool.load_all()
-        
-        # Log pool info
-        pool_info = model_pool.get_pool_info()
-        logger.info(f"Model pool: {pool_info['num_instances']} instances, "
-                   f"routing={pool_info['routing_strategy']}")
-        
-        # Use first backend for legacy compatibility
-        backend = model_pool.backends[0] if model_pool.backends else None
+        instance = ModelInstanceConfig(
+            name=config["model"]["name"],
+            device=config["model"].get("device", "mps"),
+            backend=config["model"].get("backend", "mps"),
+            use_fp16=config["model"].get("mps", {}).get("fp16", True),
+            max_length=config["model"].get("max_length"),
+        )
+        pool_config = ModelPoolConfig(
+            instances=[instance] * args.multi_model,
+            routing_strategy="round_robin",
+        )
+        model_pool = ModelPool(pool_config)
     else:
-        # Legacy single-backend mode
-        backend = create_backend(config)
-        backend.load_model()
-        backend.warmup()
-        model_pool = None
+        model_pool = create_model_pool_from_config(config)
     
-    # Log model info
-    if backend:
-        model_info = backend.get_model_info()
-        logger.info(f"Model info: {model_info}")
+    # Start the process pool
+    model_pool.start()
+    
+    # Log pool info
+    pool_info = model_pool.get_pool_info()
+    logger.info(f"Model pool: {pool_info['num_instances']} instances, "
+                f"routing={pool_info.get('routing_strategy', 'N/A')}")
 
     # Initialize metrics and scheduler
     metrics = MetricsCollector()
     set_metrics_collector(metrics)
     
     # Set model pool reference for per-instance metrics
-    if model_pool is not None:
-        MetricsCollector.set_model_pool(model_pool)
+    MetricsCollector.set_model_pool(model_pool)
     
     # Set experiment info for dashboard display
     metrics.set_experiment_info(
@@ -179,25 +177,15 @@ def main():
     if enable_length_aware:
         logger.info("Length-aware batching: ENABLED (sorting pairs by length)")
     
-    # Create scheduler with model pool or single backend
-    if model_pool is not None:
-        scheduler = Scheduler(
-            model_pool=model_pool,
-            metrics=metrics,
-            batching_enabled=config["batching"]["enabled"],
-            max_batch_size=config["batching"]["max_batch_size"],
-            timeout_ms=config["batching"]["timeout_ms"],
-            enable_length_aware_batching=enable_length_aware,
-        )
-    else:
-        scheduler = Scheduler(
-            backend=backend,
-            metrics=metrics,
-            batching_enabled=config["batching"]["enabled"],
-            max_batch_size=config["batching"]["max_batch_size"],
-            timeout_ms=config["batching"]["timeout_ms"],
-            enable_length_aware_batching=enable_length_aware,
-        )
+    # Create scheduler with model pool
+    scheduler = Scheduler(
+        model_pool=model_pool,
+        metrics=metrics,
+        batching_enabled=config["batching"]["enabled"],
+        max_batch_size=config["batching"]["max_batch_size"],
+        timeout_ms=config["batching"]["timeout_ms"],
+        enable_length_aware_batching=enable_length_aware,
+    )
 
     # Start metrics HTTP server
     start_metrics_server(port=8080)

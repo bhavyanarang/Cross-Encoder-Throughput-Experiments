@@ -123,13 +123,24 @@ class MetricsCollector:
         return (time.time() - self.last_update_time) < 2.0 and self.latency.count > 0
     
     def get_gpu_memory_mb(self) -> float:
-        """Get GPU memory from PyTorch MPS."""
+        """Get active GPU memory allocated by PyTorch (excluding cache)."""
         try:
             import torch
             if torch.backends.mps.is_available():
                 allocated = torch.mps.current_allocated_memory()
                 return allocated / (1024 * 1024)
         except Exception:
+            pass
+        return 0.0
+
+    def get_gpu_driver_memory_mb(self) -> float:
+        """Get total GPU memory footprint (including cache/driver overhead)."""
+        try:
+            import torch
+            if torch.backends.mps.is_available():
+                # specific to MPS on macOS
+                return torch.mps.driver_allocated_memory() / (1024 * 1024)
+        except (AttributeError, Exception):
             pass
         return 0.0
     
@@ -252,6 +263,7 @@ class MetricsCollector:
             # System metrics
             "cpu_percent": get_cpu_percent(),
             "gpu_memory_mb": self.get_gpu_memory_mb(),
+            "gpu_driver_mb": self.get_gpu_driver_memory_mb(),
             
             # Stage breakdown
             "stage_breakdown": {
@@ -308,6 +320,7 @@ class MetricsCollector:
                 "is_running": is_running,
                 "cpu_percent": get_cpu_percent(),
                 "gpu_memory_mb": self.get_gpu_memory_mb(),
+                "gpu_driver_mb": self.get_gpu_driver_memory_mb(),
             }
         
         # Return frozen snapshot if not running

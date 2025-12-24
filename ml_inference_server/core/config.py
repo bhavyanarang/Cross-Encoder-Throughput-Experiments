@@ -38,9 +38,8 @@ class ModelPoolConfig(BaseModel):
     routing_strategy: Literal[
         "round_robin", "least_busy", "first_available", "first_idle", "smart_idle"
     ] = Field(
-        default="first_idle",
-        description="Strategy for routing requests to model instances. "
-                    "'first_idle' routes to non-busy instances for max throughput."
+        default="round_robin",
+        description="Strategy for routing requests to model instances."
     )
 
 
@@ -92,6 +91,7 @@ class LegacyModelConfig(BaseModel):
     backend: str = "pytorch"
     quantized: bool = False
     quantization_mode: str = "fp16"
+    max_length: Optional[int] = Field(default=None, description="Max sequence length for tokenization")
     
     # Backend-specific nested configs (legacy format)
     mps: dict = Field(default_factory=dict)
@@ -189,6 +189,7 @@ class ServerConfig(BaseModel):
             onnx_optimize=onnx_optimize,
             onnx_use_coreml=onnx_use_coreml,
             compile_mode=compile_mode,
+            max_length=legacy.max_length,
         )
 
 
