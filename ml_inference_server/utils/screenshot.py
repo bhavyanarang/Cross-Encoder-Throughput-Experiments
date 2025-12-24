@@ -7,13 +7,11 @@ Uses Playwright for headless browser rendering.
 Screenshot functionality is OPTIONAL and controlled via config flag.
 """
 
+import logging
 import os
 import sys
 import time
-import logging
-from pathlib import Path
 from datetime import datetime
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +23,7 @@ _SCREENSHOT_OUTPUT_DIR = "docs/experiments/screenshots"
 def configure_screenshots(enabled: bool = False, output_dir: str = "") -> None:
     """
     Configure screenshot settings.
-    
+
     Args:
         enabled: Whether screenshots are enabled
         output_dir: Directory to save screenshots
@@ -34,7 +32,7 @@ def configure_screenshots(enabled: bool = False, output_dir: str = "") -> None:
     _SCREENSHOT_ENABLED = enabled
     if output_dir:
         _SCREENSHOT_OUTPUT_DIR = output_dir
-    
+
     if enabled:
         logger.info(f"Screenshots enabled, output dir: {_SCREENSHOT_OUTPUT_DIR}")
     else:
@@ -58,7 +56,7 @@ def capture_dashboard_screenshot(
 ) -> bool:
     """
     Capture a screenshot of the metrics dashboard.
-    
+
     Args:
         output_path: Path to save the screenshot (PNG format)
         dashboard_url: URL of the dashboard
@@ -68,7 +66,7 @@ def capture_dashboard_screenshot(
         timeout_ms: Navigation timeout in milliseconds (default 2 minutes)
         retries: Number of retry attempts
         force: Force capture even if screenshots are disabled
-        
+
     Returns:
         True if screenshot was captured successfully, False otherwise
     """
@@ -76,7 +74,7 @@ def capture_dashboard_screenshot(
     if not force and not _SCREENSHOT_ENABLED:
         logger.debug("Screenshots disabled, skipping capture")
         return False
-    
+
     # Try to import playwright
     try:
         from playwright.sync_api import sync_playwright
@@ -86,10 +84,10 @@ def capture_dashboard_screenshot(
             "Install with: pip install playwright && playwright install chromium"
         )
         return _fallback_screenshot(output_path, dashboard_url)
-    
+
     # Ensure output directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    
+
     for attempt in range(retries):
         try:
             with sync_playwright() as p:
@@ -103,24 +101,24 @@ def capture_dashboard_screenshot(
                 page = context.new_page()
                 page.set_default_timeout(timeout_ms)
                 page.set_default_navigation_timeout(timeout_ms)
-                
+
                 logger.info(f"Navigating to {dashboard_url} (attempt {attempt + 1}/{retries})...")
                 page.goto(dashboard_url, wait_until="load", timeout=timeout_ms)
-                
+
                 logger.info("Waiting for page to be fully loaded...")
                 page.wait_for_load_state("networkidle", timeout=timeout_ms)
-                
+
                 logger.info(f"Waiting {wait_seconds}s for charts to render...")
                 time.sleep(wait_seconds)
-                
+
                 logger.info(f"Taking screenshot: {output_path}")
                 page.screenshot(path=output_path, full_page=True, timeout=timeout_ms)
-                
+
                 browser.close()
-                
+
             logger.info(f"Dashboard screenshot saved: {output_path}")
             return True
-            
+
         except Exception as e:
             logger.warning(f"Screenshot attempt {attempt + 1}/{retries} failed: {e}")
             if attempt < retries - 1:
@@ -129,7 +127,7 @@ def capture_dashboard_screenshot(
             else:
                 logger.error(f"All {retries} screenshot attempts failed")
                 return _fallback_screenshot(output_path, dashboard_url)
-    
+
     return False
 
 
@@ -139,9 +137,10 @@ def _fallback_screenshot(output_path: str, dashboard_url: str) -> bool:
     Creates a simple HTML file with a link to the dashboard instead.
     """
     try:
-        html_path = output_path.replace('.png', '.html')
-        with open(html_path, 'w') as f:
-            f.write(f'''<!DOCTYPE html>
+        html_path = output_path.replace(".png", ".html")
+        with open(html_path, "w") as f:
+            f.write(
+                f"""<!DOCTYPE html>
 <html>
 <head>
     <meta http-equiv="refresh" content="0; url={dashboard_url}">
@@ -152,7 +151,8 @@ def _fallback_screenshot(output_path: str, dashboard_url: str) -> bool:
     <p>To enable screenshots, install Playwright:</p>
     <pre>pip install playwright && playwright install chromium</pre>
 </body>
-</html>''')
+</html>"""
+            )
         logger.info(f"Created dashboard link: {html_path}")
         return False
     except Exception as e:
@@ -162,17 +162,17 @@ def _fallback_screenshot(output_path: str, dashboard_url: str) -> bool:
 
 def capture_experiment_screenshot(
     experiment_name: str,
-    output_dir: Optional[str] = None,
+    output_dir: str | None = None,
     force: bool = False,
 ) -> str:
     """
     Capture a screenshot for a specific experiment.
-    
+
     Args:
         experiment_name: Name of the experiment
         output_dir: Directory to save screenshots (uses global config if None)
         force: Force capture even if screenshots are disabled
-        
+
     Returns:
         Path to the saved screenshot, or empty string if skipped/failed
     """
@@ -180,44 +180,46 @@ def capture_experiment_screenshot(
     if not force and not _SCREENSHOT_ENABLED:
         logger.debug("Screenshots disabled, skipping experiment screenshot")
         return ""
-    
+
     # Use global output dir if not specified
     if output_dir is None:
         output_dir = _SCREENSHOT_OUTPUT_DIR
-    
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     safe_name = experiment_name.replace(" ", "_").replace("/", "_")
     filename = f"{safe_name}_{timestamp}.png"
     output_path = os.path.join(output_dir, filename)
-    
+
     success = capture_dashboard_screenshot(output_path, force=force)
-    
+
     return output_path if success else ""
 
 
 def main():
     """CLI interface for taking dashboard screenshots."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Capture dashboard screenshot")
-    parser.add_argument("--output", "-o", default="dashboard_screenshot.png",
-                       help="Output file path")
-    parser.add_argument("--url", default="http://localhost:8080",
-                       help="Dashboard URL")
-    parser.add_argument("--wait", type=float, default=3.0,
-                       help="Seconds to wait for rendering")
-    parser.add_argument("--width", type=int, default=1400,
-                       help="Screenshot width")
-    parser.add_argument("--height", type=int, default=1200,
-                       help="Screenshot height")
-    parser.add_argument("--timeout", type=int, default=120000,
-                       help="Timeout in milliseconds (default: 120000 = 2 minutes)")
-    parser.add_argument("--retries", type=int, default=3,
-                       help="Number of retry attempts (default: 3)")
+    parser.add_argument(
+        "--output", "-o", default="dashboard_screenshot.png", help="Output file path"
+    )
+    parser.add_argument("--url", default="http://localhost:8080", help="Dashboard URL")
+    parser.add_argument("--wait", type=float, default=3.0, help="Seconds to wait for rendering")
+    parser.add_argument("--width", type=int, default=1400, help="Screenshot width")
+    parser.add_argument("--height", type=int, default=1200, help="Screenshot height")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=120000,
+        help="Timeout in milliseconds (default: 120000 = 2 minutes)",
+    )
+    parser.add_argument(
+        "--retries", type=int, default=3, help="Number of retry attempts (default: 3)"
+    )
     args = parser.parse_args()
-    
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
-    
+
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+
     # Force enable for CLI usage
     success = capture_dashboard_screenshot(
         args.output,
@@ -229,7 +231,7 @@ def main():
         retries=args.retries,
         force=True,
     )
-    
+
     sys.exit(0 if success else 1)
 
 

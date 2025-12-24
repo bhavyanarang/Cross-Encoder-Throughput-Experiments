@@ -51,7 +51,7 @@ Running benchmark...
 2025-12-23 02:21:46,299 | INFO | Description: MPS backend with FP16 optimization
 2025-12-23 02:21:46,299 | INFO | Running experiments with 1 batch sizes and 1 concurrency levels
 2025-12-23 02:21:46,299 | INFO | Total experiments: 1
-2025-12-23 02:21:46,299 | INFO | 
+2025-12-23 02:21:46,299 | INFO |
 ============================================================
 2025-12-23 02:21:46,299 | INFO | Experiment 1/1: batch_size=32, concurrency=1
 2025-12-23 02:21:46,299 | INFO | ============================================================
@@ -69,9 +69,9 @@ Running benchmark...
 ========================================================================================================================
 EXPERIMENT SUMMARY (Cross-Encoder)
 ========================================================================================================================
-Batch  Conc  Pairs    Time     Lat Avg    Lat P95    Lat P99    TP Avg       TP P99      
+Batch  Conc  Pairs    Time     Lat Avg    Lat P95    Lat P99    TP Avg       TP P99
 ------------------------------------------------------------------------------------------------------------------------
-32     1     6400     10.5     52.7       80.5       101.8      607.1        917.8       
+32     1     6400     10.5     52.7       80.5       101.8      607.1        917.8
 ========================================================================================================================
 
 Results saved to: ml_inference_server/docs/experiments/02_backend_mps_results.md
@@ -141,7 +141,7 @@ Running benchmark...
 2025-12-23 02:22:34,165 | INFO | Description: MLX backend with 16-bit quantization
 2025-12-23 02:22:34,165 | INFO | Running experiments with 1 batch sizes and 1 concurrency levels
 2025-12-23 02:22:34,165 | INFO | Total experiments: 1
-2025-12-23 02:22:34,165 | INFO | 
+2025-12-23 02:22:34,165 | INFO |
 ============================================================
 2025-12-23 02:22:34,165 | INFO | Experiment 1/1: batch_size=32, concurrency=1
 2025-12-23 02:22:34,165 | INFO | ============================================================
@@ -159,9 +159,9 @@ Running benchmark...
 ========================================================================================================================
 EXPERIMENT SUMMARY (Cross-Encoder)
 ========================================================================================================================
-Batch  Conc  Pairs    Time     Lat Avg    Lat P95    Lat P99    TP Avg       TP P99      
+Batch  Conc  Pairs    Time     Lat Avg    Lat P95    Lat P99    TP Avg       TP P99
 ------------------------------------------------------------------------------------------------------------------------
-32     1     6400     10.5     52.3       79.0       97.4       611.1        927.8       
+32     1     6400     10.5     52.3       79.0       97.4       611.1        927.8
 ========================================================================================================================
 
 Results saved to: ml_inference_server/docs/experiments/03_backend_mlx_results.md
@@ -232,7 +232,7 @@ Running benchmark...
 2025-12-23 02:23:25,523 | INFO | Description: Sweep batch sizes on MPS backend
 2025-12-23 02:23:25,523 | INFO | Running experiments with 9 batch sizes and 1 concurrency levels
 2025-12-23 02:23:25,523 | INFO | Total experiments: 9
-2025-12-23 02:23:25,523 | INFO | 
+2025-12-23 02:23:25,523 | INFO |
 ============================================================
 2025-12-23 02:23:25,523 | INFO | Experiment 1/9: batch_size=8, concurrency=1
 2025-12-23 02:23:25,523 | INFO | ============================================================
@@ -242,7 +242,7 @@ Running benchmark...
 2025-12-23 02:23:29,116 | INFO | Progress: 100/150 requests
 2025-12-23 02:23:30,595 | INFO | Processed 1200 queries (150 requests) | Latency: 26.63ms | QPS: 280.0
 2025-12-23 02:23:30,595 | INFO | Completed: 5.07s | 1200 pairs | 236.56 pairs/s
-2025-12-23 02:23:30,603 | INFO | 
+2025-12-23 02:23:30,603 | INFO |
 ============================================================
 2025-12-23 02:23:30,603 | INFO | Experiment 2/9: batch_size=16, concurrency=1
 2025-12-23 02:23:30,603 | INFO | ============================================================
@@ -252,7 +252,7 @@ Running benchmark...
 2025-12-23 02:23:35,280 | INFO | Progress: 100/150 requests
 2025-12-23 02:23:37,023 | INFO | Processed 3600 queries (300 requests) | Latency: 22.34ms | QPS: 512.0
 2025-12-23 02:23:37,023 | INFO | Completed: 6.42s | 2400 pairs | 373.83 pairs/s
-2025-12-23 02:23:37,024 | INFO | 
+2025-12-23 02:23:37,024 | INFO |
 ============================================================
 2025-12-23 02:23:37,024 | INFO | Experiment 3/9: batch_size=32, concurrency=1
 2025-12-23 02:23:37,024 | INFO | ============================================================
@@ -262,7 +262,7 @@ Running benchmark...
 2025-12-23 02:23:43,217 | INFO | Progress: 100/150 requests
 2025-12-23 02:23:45,862 | INFO | Processed 8400 queries (450 requests) | Latency: 56.89ms | QPS: 608.0
 2025-12-23 02:23:45,863 | INFO | Completed: 8.84s | 4800 pairs | 543.05 pairs/s
-2025-12-23 02:23:45,863 | INFO | 
+2025-12-23 02:23:45,863 | INFO |
 ============================================================
 2025-12-23 02:23:45,863 | INFO | Experiment 4/9: batch_size=48, concurrency=1
 2025-12-23 02:23:45,863 | INFO | ============================================================
@@ -272,7 +272,7 @@ Running benchmark...
 2025-12-23 02:23:54,037 | INFO | Progress: 100/150 requests
 2025-12-23 02:23:57,237 | INFO | Processed 15600 queries (600 requests) | Latency: 53.51ms | QPS: 768.0
 2025-12-23 02:23:57,237 | INFO | Completed: 11.37s | 7200 pairs | 633.05 pairs/s
-2025-12-23 02:23:57,238 | INFO | 
+2025-12-23 02:23:57,238 | INFO |
 ============================================================
 2025-12-23 02:23:57,238 | INFO | Experiment 5/9: batch_size=64, concurrency=1
 2025-12-23 02:23:57,238 | INFO | ============================================================
@@ -282,7 +282,7 @@ Running benchmark...
 2025-12-23 02:24:07,430 | INFO | Progress: 100/150 requests
 2025-12-23 02:24:11,845 | INFO | Processed 25200 queries (750 requests) | Latency: 77.91ms | QPS: 832.0
 2025-12-23 02:24:11,845 | INFO | Completed: 14.61s | 9600 pairs | 657.19 pairs/s
-2025-12-23 02:24:11,846 | INFO | 
+2025-12-23 02:24:11,846 | INFO |
 ============================================================
 2025-12-23 02:24:11,846 | INFO | Experiment 6/9: batch_size=96, concurrency=1
 2025-12-23 02:24:11,846 | INFO | ============================================================
@@ -292,7 +292,7 @@ Running benchmark...
 2025-12-23 02:24:25,742 | INFO | Progress: 100/150 requests
 2025-12-23 02:24:32,152 | INFO | Processed 39600 queries (900 requests) | Latency: 108.55ms | QPS: 864.0
 2025-12-23 02:24:32,153 | INFO | Completed: 20.31s | 14400 pairs | 709.13 pairs/s
-2025-12-23 02:24:32,153 | INFO | 
+2025-12-23 02:24:32,153 | INFO |
 ============================================================
 2025-12-23 02:24:32,153 | INFO | Experiment 7/9: batch_size=128, concurrency=1
 2025-12-23 02:24:32,153 | INFO | ============================================================
@@ -302,7 +302,7 @@ Running benchmark...
 2025-12-23 02:24:49,867 | INFO | Progress: 100/150 requests
 2025-12-23 02:24:58,112 | INFO | Processed 58800 queries (1050 requests) | Latency: 149.25ms | QPS: 896.0
 2025-12-23 02:24:58,112 | INFO | Completed: 25.96s | 19200 pairs | 739.63 pairs/s
-2025-12-23 02:24:58,113 | INFO | 
+2025-12-23 02:24:58,113 | INFO |
 ============================================================
 2025-12-23 02:24:58,113 | INFO | Experiment 8/9: batch_size=192, concurrency=1
 2025-12-23 02:24:58,113 | INFO | ============================================================
@@ -312,7 +312,7 @@ Running benchmark...
 2025-12-23 02:25:25,501 | INFO | Progress: 100/150 requests
 2025-12-23 02:25:39,385 | INFO | Processed 87600 queries (1200 requests) | Latency: 241.25ms | QPS: 768.0
 2025-12-23 02:25:39,387 | INFO | Completed: 41.27s | 28800 pairs | 697.79 pairs/s
-2025-12-23 02:25:39,392 | INFO | 
+2025-12-23 02:25:39,392 | INFO |
 ============================================================
 2025-12-23 02:25:39,392 | INFO | Experiment 9/9: batch_size=256, concurrency=1
 2025-12-23 02:25:39,392 | INFO | ============================================================
@@ -328,17 +328,17 @@ Running benchmark...
 ========================================================================================================================
 EXPERIMENT SUMMARY (Cross-Encoder)
 ========================================================================================================================
-Batch  Conc  Pairs    Time     Lat Avg    Lat P95    Lat P99    TP Avg       TP P99      
+Batch  Conc  Pairs    Time     Lat Avg    Lat P95    Lat P99    TP Avg       TP P99
 ------------------------------------------------------------------------------------------------------------------------
-8      1     1200     5.1      33.8       57.4       62.3       236.6        524.7       
-16     1     2400     6.4      42.8       70.3       76.5       373.8        731.3       
-32     1     4800     8.8      58.9       89.3       123.5      543.1        926.1       
-48     1     7200     11.4     75.8       108.0      171.4      633.0        900.1       
-64     1     9600     14.6     97.4       132.5      194.5      657.2        907.0       
-96     1     14400    20.3     135.3      165.6      231.0      709.1        935.5       
-128    1     19200    26.0     173.0      215.9      283.4      739.6        945.7       
-192    1     28800    41.3     275.1      409.3      486.6      697.8        906.6       
-256    1     38400    51.9     345.9      417.7      506.8      739.9        921.2       
+8      1     1200     5.1      33.8       57.4       62.3       236.6        524.7
+16     1     2400     6.4      42.8       70.3       76.5       373.8        731.3
+32     1     4800     8.8      58.9       89.3       123.5      543.1        926.1
+48     1     7200     11.4     75.8       108.0      171.4      633.0        900.1
+64     1     9600     14.6     97.4       132.5      194.5      657.2        907.0
+96     1     14400    20.3     135.3      165.6      231.0      709.1        935.5
+128    1     19200    26.0     173.0      215.9      283.4      739.6        945.7
+192    1     28800    41.3     275.1      409.3      486.6      697.8        906.6
+256    1     38400    51.9     345.9      417.7      506.8      739.9        921.2
 ========================================================================================================================
 
 Results saved to: ml_inference_server/docs/experiments/05a_batch_size_mps_results.md
@@ -411,7 +411,7 @@ Running benchmark...
 2025-12-23 02:49:33,044 | INFO | Description: Sweep concurrency levels on MPS backend
 2025-12-23 02:49:33,044 | INFO | Running experiments with 1 batch sizes and 7 concurrency levels
 2025-12-23 02:49:33,044 | INFO | Total experiments: 7
-2025-12-23 02:49:33,044 | INFO | 
+2025-12-23 02:49:33,044 | INFO |
 ============================================================
 2025-12-23 02:49:33,044 | INFO | Experiment 1/7: batch_size=96, concurrency=1
 2025-12-23 02:49:33,044 | INFO | ============================================================
@@ -421,7 +421,7 @@ Running benchmark...
 2025-12-23 02:49:46,825 | INFO | Progress: 100/150 requests
 2025-12-23 02:49:53,136 | INFO | Processed 14400 queries (150 requests) | Latency: 108.31ms | QPS: 864.0
 2025-12-23 02:49:53,137 | INFO | Completed: 20.09s | 14400 pairs | 716.69 pairs/s
-2025-12-23 02:49:53,147 | INFO | 
+2025-12-23 02:49:53,147 | INFO |
 ============================================================
 2025-12-23 02:49:53,147 | INFO | Experiment 2/7: batch_size=96, concurrency=2
 2025-12-23 02:49:53,147 | INFO | ============================================================
@@ -576,7 +576,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"Socket closed"}"
 >
 2025-12-23 02:49:54,274 | ERROR | Continuing with next experiment...
-2025-12-23 02:49:54,274 | INFO | 
+2025-12-23 02:49:54,274 | INFO |
 ============================================================
 2025-12-23 02:49:54,274 | INFO | Experiment 3/7: batch_size=96, concurrency=3
 2025-12-23 02:49:54,274 | INFO | ============================================================
@@ -737,7 +737,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:49:54,317 | ERROR | Continuing with next experiment...
-2025-12-23 02:49:54,317 | INFO | 
+2025-12-23 02:49:54,317 | INFO |
 ============================================================
 2025-12-23 02:49:54,317 | INFO | Experiment 4/7: batch_size=96, concurrency=4
 2025-12-23 02:49:54,317 | INFO | ============================================================
@@ -898,7 +898,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)", grpc_status:14}"
 >
 2025-12-23 02:49:54,351 | ERROR | Continuing with next experiment...
-2025-12-23 02:49:54,351 | INFO | 
+2025-12-23 02:49:54,351 | INFO |
 ============================================================
 2025-12-23 02:49:54,351 | INFO | Experiment 5/7: batch_size=96, concurrency=6
 2025-12-23 02:49:54,351 | INFO | ============================================================
@@ -1059,7 +1059,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:49:54,384 | ERROR | Continuing with next experiment...
-2025-12-23 02:49:54,384 | INFO | 
+2025-12-23 02:49:54,384 | INFO |
 ============================================================
 2025-12-23 02:49:54,384 | INFO | Experiment 6/7: batch_size=96, concurrency=8
 2025-12-23 02:49:54,384 | INFO | ============================================================
@@ -1220,7 +1220,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:49:54,418 | ERROR | Continuing with next experiment...
-2025-12-23 02:49:54,418 | INFO | 
+2025-12-23 02:49:54,418 | INFO |
 ============================================================
 2025-12-23 02:49:54,418 | INFO | Experiment 7/7: batch_size=96, concurrency=12
 2025-12-23 02:49:54,418 | INFO | ============================================================
@@ -1387,15 +1387,15 @@ Running benchmark...
 ========================================================================================================================
 EXPERIMENT SUMMARY (Cross-Encoder)
 ========================================================================================================================
-Batch  Conc  Pairs    Time     Lat Avg    Lat P95    Lat P99    TP Avg       TP P99      
+Batch  Conc  Pairs    Time     Lat Avg    Lat P95    Lat P99    TP Avg       TP P99
 ------------------------------------------------------------------------------------------------------------------------
-96     1     14400    20.1     133.9      171.8      198.5      716.7        919.9       
-96     2     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-96     3     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-96     4     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-96     6     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-96     8     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-96     12    FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
+96     1     14400    20.1     133.9      171.8      198.5      716.7        919.9
+96     2     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+96     3     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+96     4     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+96     6     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+96     8     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+96     12    FAILED   N/A      N/A        N/A        N/A        N/A          N/A
 ========================================================================================================================
 
 Results saved to: ml_inference_server/docs/experiments/06a_concurrency_mps_results.md

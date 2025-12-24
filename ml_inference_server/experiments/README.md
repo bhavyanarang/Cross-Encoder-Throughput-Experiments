@@ -31,7 +31,7 @@ Using both MPS and MLX backends:
 # Terminal 1: Start server
 ./run_server.sh --experiment experiments/05a_batch_size_mps.yaml
 
-# Terminal 2: Run benchmark  
+# Terminal 2: Run benchmark
 ./run_client.sh --experiment --config experiments/05a_batch_size_mps.yaml
 ```
 

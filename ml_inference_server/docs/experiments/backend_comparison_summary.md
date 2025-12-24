@@ -1,7 +1,7 @@
 # Backend Comparison Summary
 
-**Date:** 2023-12-23  
-**Model:** cross-encoder/ms-marco-MiniLM-L-6-v2  
+**Date:** 2023-12-23
+**Model:** cross-encoder/ms-marco-MiniLM-L-6-v2
 **Test Config:** batch_size=32, concurrency=1, 200 requests (6400 pairs total)
 
 ## Results
@@ -68,7 +68,6 @@ model:
 
 With MPS/MLX as the chosen backend:
 1. **Experiment 05:** Batch size optimization
-2. **Experiment 06:** Concurrency optimization  
+2. **Experiment 06:** Concurrency optimization
 3. **Experiment 07:** Multi-model simulation
 4. **Experiment 08:** Dynamic batching
-

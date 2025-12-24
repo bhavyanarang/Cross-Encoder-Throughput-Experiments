@@ -169,9 +169,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed diagrams.
 
 ### Understanding the Results
 
-**Throughput (pairs/sec):** How many query-document pairs processed per second  
-**Latency P50:** Median latency (50% of requests faster than this)  
-**Latency P99:** 99th percentile latency (only 1% of requests slower)  
+**Throughput (pairs/sec):** How many query-document pairs processed per second
+**Latency P50:** Median latency (50% of requests faster than this)
+**Latency P99:** 99th percentile latency (only 1% of requests slower)
 **Padding Ratio:** % of tokens that are padding (lower is better)
 
 ### Why Process-Based?
@@ -180,8 +180,7 @@ Apple Silicon's Metal framework has **command buffer conflicts** with multi-thre
 
 ### Why Length-Aware Batching?
 
-**Without:** All sequences padded to max length → 70% waste  
+**Without:** All sequences padded to max length → 70% waste
 **With:** Similar-length sequences batched together → 30% waste
 
 **Result:** 25% latency reduction
-

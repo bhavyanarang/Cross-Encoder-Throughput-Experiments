@@ -56,7 +56,7 @@ Running benchmark...
 2025-12-23 03:34:34,847 | INFO | Description: Sequential packing (no padding, block-diagonal attention)
 2025-12-23 03:34:34,847 | INFO | Running experiments with 3 batch sizes and 1 concurrency levels
 2025-12-23 03:34:34,847 | INFO | Total experiments: 3
-2025-12-23 03:34:34,847 | INFO | 
+2025-12-23 03:34:34,847 | INFO |
 ============================================================
 2025-12-23 03:34:34,847 | INFO | Experiment 1/3: batch_size=32, concurrency=1
 2025-12-23 03:34:34,847 | INFO | ============================================================
@@ -216,7 +216,7 @@ Running benchmark...
 2025-12-23 03:35:05,913 | WARNING | Packed inference failed (too many indices for tensor of dimension 2), falling back to padded
 2025-12-23 03:35:06,037 | INFO | Processed 4800 queries (150 requests) | Latency: 143.42ms | QPS: 192.0
 2025-12-23 03:35:06,037 | INFO | Completed: 31.19s | 4800 pairs | 153.90 pairs/s
-2025-12-23 03:35:06,048 | INFO | 
+2025-12-23 03:35:06,048 | INFO |
 ============================================================
 2025-12-23 03:35:06,048 | INFO | Experiment 2/3: batch_size=64, concurrency=1
 2025-12-23 03:35:06,048 | INFO | ============================================================

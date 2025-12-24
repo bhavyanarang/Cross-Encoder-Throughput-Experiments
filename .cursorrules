@@ -30,4 +30,3 @@
 - Run linter before committing: `./lint.sh`
 - Verify quantization by checking model dtype after loading
 - Log actual precision being used (FP32, FP16, INT8)
-

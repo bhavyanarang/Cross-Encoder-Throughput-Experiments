@@ -39,4 +39,3 @@ experiment:
   concurrency_levels: [2, 4]
   warmup_iterations: 10
   benchmark_requests: 200
-

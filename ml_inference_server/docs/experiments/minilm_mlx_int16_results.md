@@ -26,4 +26,3 @@
 **Best Throughput:** batch=128, conc=8 → 1536.00 pairs/s
 
 **Best Latency:** batch=32, conc=4 → 214.34ms avg
-

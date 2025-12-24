@@ -1,7 +1,7 @@
 # Systematic Experiment Summary
 
-**Date**: December 23, 2025  
-**Model**: cross-encoder/ms-marco-MiniLM-L-6-v2  
+**Date**: December 23, 2025
+**Model**: cross-encoder/ms-marco-MiniLM-L-6-v2
 **Platform**: Apple Silicon (MPS)
 
 ---
@@ -134,7 +134,7 @@ Backends were optimized with `torch.inference_mode()`, shared utilities, and pre
 model:
   backend: "mps"  # or "mlx" (nearly identical performance)
   device: "mps"
-  
+
 batching:
   enabled: true
   max_batch_size: 64  # Optimal for throughput
@@ -162,7 +162,7 @@ server:
    - Removed redundant `np.array()` wrappers: minor improvement
    - Pre-allocated buffers in ONNX backend: helps small batches
 
-3. **Batch Size Trade-off**: 
+3. **Batch Size Trade-off**:
    - Larger batches → Higher throughput, but also higher latency
    - Sweet spot: batch=64-96 for ~700+ p/s with <200ms latency
 
@@ -197,4 +197,3 @@ server:
 | 07b | `07b_multi_model_mlx.yaml` | Stress test (MLX) |
 | 08a | `08a_dynamic_batch_mps.yaml` | Dynamic batching (MPS) |
 | 08b | `08b_dynamic_batch_mlx.yaml` | Dynamic batching (MLX) |
-

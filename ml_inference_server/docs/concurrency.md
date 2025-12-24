@@ -59,7 +59,7 @@
 
 ```
 Concurrency=1:                    Concurrency=4:
-                                  
+
 Client:  [Req1]----[Req2]----     Client:  [Req1][Req2][Req3][Req4]----
                                            ↓    ↓    ↓    ↓
 GPU:     [===]    [===]           GPU:     [===][===][===][===]
@@ -76,4 +76,3 @@ GPU:     [===]    [===]           GPU:     [===][===][===][===]
 | **Concurrency** (conc=8) | Send 8 requests simultaneously | Medium (overlap network I/O) | Queue waiting |
 
 **Best practice:** Combine moderate batching with moderate concurrency for optimal throughput without excessive latency.
-

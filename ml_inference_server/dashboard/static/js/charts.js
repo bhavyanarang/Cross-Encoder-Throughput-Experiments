@@ -39,7 +39,7 @@ function createChartConfig(color) {
             scales: {
                 x: {
                     display: true,
-                    grid: { 
+                    grid: {
                         color: 'rgba(110,118,129,0.08)',
                         drawBorder: false
                     },
@@ -58,7 +58,7 @@ function createChartConfig(color) {
                 },
                 y: {
                     display: true,
-                    grid: { 
+                    grid: {
                         color: 'rgba(110,118,129,0.08)',
                         drawBorder: false
                     },
@@ -160,7 +160,7 @@ function createMultiLineChartConfig(instanceNames) {
         pointRadius: 0,
         borderWidth: 2
     }));
-    
+
     return {
         type: 'line',
         data: {
@@ -178,7 +178,7 @@ function createMultiLineChartConfig(instanceNames) {
             scales: {
                 x: {
                     display: true,
-                    grid: { 
+                    grid: {
                         color: 'rgba(110,118,129,0.08)',
                         drawBorder: false
                     },
@@ -190,7 +190,7 @@ function createMultiLineChartConfig(instanceNames) {
                 },
                 y: {
                     display: true,
-                    grid: { 
+                    grid: {
                         color: 'rgba(110,118,129,0.08)',
                         drawBorder: false
                     },
@@ -210,7 +210,7 @@ function createMultiLineChartConfig(instanceNames) {
                 }
             },
             plugins: {
-                legend: { 
+                legend: {
                     display: true,
                     position: 'top',
                     labels: {
@@ -237,16 +237,16 @@ function createMultiLineChartConfig(instanceNames) {
 function initInstanceCharts(instanceNames) {
     const container = document.getElementById('instance_charts');
     const title = document.getElementById('instance_charts_title');
-    
+
     if (!instanceNames || instanceNames.length <= 1) {
         container.style.display = 'none';
         title.style.display = 'none';
         return;
     }
-    
+
     container.style.display = 'grid';
     title.style.display = 'block';
-    
+
     // Only create charts once
     if (instanceCharts.length === 0) {
         // Create utilization chart for all instances
@@ -268,13 +268,13 @@ function initInstanceCharts(instanceNames) {
                 </div>
             </div>
         `;
-        
+
         // Create multi-line chart for utilization
         instanceCharts.push(new Chart(
             document.getElementById('instanceUtilChart'),
             createMultiLineChartConfig(instanceNames)
         ));
-        
+
         // Create multi-line chart for idle time
         instanceCharts.push(new Chart(
             document.getElementById('instanceIdleChart'),
@@ -294,28 +294,28 @@ function updateChart(chart, labels, data) {
 // Update multi-line chart with per-instance data
 function updateMultiLineChart(chart, labels, dataArrays) {
     if (!chart || !dataArrays || dataArrays.length === 0) return;
-    
+
     chart.data.labels = labels;
-    
+
     // dataArrays is array of [time1, time2, ...] where each timeN is [inst0, inst1, ...]
     // We need to transpose to [inst0_values, inst1_values, ...]
     const numInstances = chart.data.datasets.length;
-    
+
     for (let i = 0; i < numInstances; i++) {
-        chart.data.datasets[i].data = dataArrays.map(timePoint => 
+        chart.data.datasets[i].data = dataArrays.map(timePoint =>
             timePoint && timePoint[i] !== undefined ? timePoint[i] : 0
         );
     }
-    
+
     chart.update('none');
 }
 
 // Update all charts with history data
 function updateAllCharts(history) {
     if (!history) return;
-    
+
     const labels = (history.timestamps || []).map(t => t.toFixed(0) + 's');
-    
+
     updateChart(charts.latency, labels, history.latencies);
     updateChart(charts.throughput, labels, history.throughput);
     updateChart(charts.queue, labels, history.queue_wait_ms);
@@ -325,11 +325,11 @@ function updateAllCharts(history) {
     updateChart(charts.gpu, labels, history.gpu_memory_mb);
     updateChart(charts.queries, labels, history.queries);
     updateChart(charts.padding, labels, history.padding_pct);
-    
+
     // Update per-instance charts if available
     if (history.instance_names && history.instance_names.length > 1) {
         initInstanceCharts(history.instance_names);
-        
+
         if (instanceCharts.length >= 2 && history.instance_utilization) {
             updateMultiLineChart(instanceCharts[0], labels, history.instance_utilization);
             updateMultiLineChart(instanceCharts[1], labels, history.instance_idle);
@@ -345,4 +345,3 @@ window.DashboardCharts = {
     instanceCharts: instanceCharts,
     initInstanceCharts: initInstanceCharts
 };
-

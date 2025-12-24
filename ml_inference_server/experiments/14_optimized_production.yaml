@@ -43,6 +43,5 @@ experiment:
 # Expected results (based on prior experiments):
 # batch=32: ~700 p/s, ~46ms latency  (best latency)
 # batch=48: ~750 p/s, ~60ms latency  (good balance)
-# batch=64: ~780 p/s, ~80ms latency  
+# batch=64: ~780 p/s, ~80ms latency
 # batch=96: ~800 p/s, ~120ms latency (best throughput)
-

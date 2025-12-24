@@ -22,45 +22,45 @@ graph TB
         C2[gRPC Client 2]
         CN[gRPC Client N]
     end
-    
+
     subgraph "Server Layer"
         GS[gRPC Server<br/>Port 50051]
         HTTP[HTTP Metrics<br/>Port 8080]
     end
-    
+
     subgraph "Request Processing"
         SCH[Scheduler<br/>Request Router]
         LAB[Length-Aware<br/>Batcher]
     end
-    
+
     subgraph "Model Pool - Process Based"
         MP[Model Pool<br/>Manager]
         W1[Worker Process 1<br/>MPS Context]
         W2[Worker Process 2<br/>MPS Context]
         WN[Worker Process N<br/>MPS Context]
     end
-    
+
     subgraph "Monitoring"
         MC[Metrics Collector]
         DASH[Dashboard<br/>Web UI]
     end
-    
+
     C1 --> GS
     C2 --> GS
     CN --> GS
-    
+
     GS --> SCH
     SCH --> LAB
     LAB --> MP
-    
+
     MP --> W1
     MP --> W2
     MP --> WN
-    
+
     SCH --> MC
     MC --> HTTP
     HTTP --> DASH
-    
+
     style GS fill:#e1f5ff
     style SCH fill:#fff4e1
     style MP fill:#ffe1e1
@@ -94,27 +94,27 @@ sequenceDiagram
     participant ModelPool
     participant Worker
     participant Metrics
-    
+
     Client->>gRPC: Infer(pairs)
     gRPC->>Scheduler: schedule(pairs)
-    
+
     alt Length-Aware Batching Enabled
         Scheduler->>Batcher: sort_by_length(pairs)
         Batcher-->>Scheduler: sorted_pairs + unsort_fn
     end
-    
+
     Scheduler->>ModelPool: infer(pairs)
     ModelPool->>Worker: WorkItem(req_id, pairs)
-    
+
     Note over Worker: Tokenize<br/>Model Inference<br/>Compute Scores
-    
+
     Worker-->>ModelPool: WorkResult(scores, timings)
     ModelPool-->>Scheduler: InferenceResult
-    
+
     alt Length-Aware Batching Enabled
         Scheduler->>Scheduler: unsort_fn(scores)
     end
-    
+
     Scheduler->>Metrics: record(latency, padding)
     Scheduler-->>gRPC: scores, latency_ms
     gRPC-->>Client: InferResponse
@@ -130,34 +130,34 @@ graph LR
         OQ[Output Queue]
         RT[Result Router Thread]
     end
-    
+
     subgraph "Worker Process 1"
         W1[Worker Main Loop]
         M1[Model + Tokenizer]
         MPS1[MPS Context 1]
     end
-    
+
     subgraph "Worker Process 2"
         W2[Worker Main Loop]
         M2[Model + Tokenizer]
         MPS2[MPS Context 2]
     end
-    
+
     MP --> IQ
     IQ --> W1
     IQ --> W2
-    
+
     W1 --> M1
     M1 --> MPS1
-    
+
     W2 --> M2
     M2 --> MPS2
-    
+
     W1 --> OQ
     W2 --> OQ
     OQ --> RT
     RT --> MP
-    
+
     style MP fill:#ffe1e1
     style W1 fill:#e1f5ff
     style W2 fill:#e1f5ff
@@ -184,32 +184,32 @@ classDiagram
         +warmup()
         +get_model_info() dict
     }
-    
+
     class MPSBackend {
         +device: "mps"
         +use_fp16: bool
         +load_model()
         +infer_with_timing()
     }
-    
+
     class MLXBackend {
         +quantization_bits: int
         +load_model()
         +infer_with_timing()
     }
-    
+
     class PyTorchBackend {
         +device: "cpu"/"cuda"
         +load_model()
         +infer_with_timing()
     }
-    
+
     class ONNXBackend {
         +use_coreml: bool
         +load_model()
         +infer_with_timing()
     }
-    
+
     BaseBackend <|-- MPSBackend
     BaseBackend <|-- MLXBackend
     BaseBackend <|-- PyTorchBackend
@@ -222,7 +222,7 @@ classDiagram
 graph TB
     subgraph "Metrics Collector"
         MC[MetricsCollector]
-        
+
         subgraph "Components"
             LAT[LatencyTracker<br/>P50/P95/P99]
             TP[ThroughputTracker<br/>QPS]
@@ -230,32 +230,32 @@ graph TB
             STAGE[StageMetrics<br/>Timing Breakdown]
         end
     end
-    
+
     subgraph "Data Flow"
         REQ[Request]
         SCH[Scheduler]
         WORKER[Worker]
     end
-    
+
     subgraph "Outputs"
         HTTP[HTTP /metrics]
         DASH[Dashboard UI]
         JSON[JSON Export]
     end
-    
+
     REQ --> SCH
     SCH --> WORKER
     WORKER --> MC
-    
+
     MC --> LAT
     MC --> TP
     MC --> PAD
     MC --> STAGE
-    
+
     MC --> HTTP
     MC --> DASH
     MC --> JSON
-    
+
     style MC fill:#e1ffe1
     style LAT fill:#fff4e1
     style TP fill:#fff4e1
@@ -276,7 +276,7 @@ class InferenceResult:
     t_tokenize_ms: float           # Tokenization time
     t_model_inference_ms: float    # Model forward pass time
     total_ms: float                # Total latency
-    
+
     # Padding analysis
     total_tokens: int              # Total tokens (with padding)
     real_tokens: int               # Actual content tokens
@@ -542,4 +542,3 @@ curl http://localhost:8080/metrics
 - **Best Config:** Experiment 08a (batch=64, conc=2, dynamic batching)
 - **Performance Analysis:** `docs/experiments/systematic_experiment_summary.md`
 - **Code:** `ml_inference_server/`
-

@@ -21,20 +21,20 @@ NC='\033[0m' # No Color
 # Cleanup function - called on exit or interrupt
 cleanup() {
     local exit_code=$?
-    
+
     if [ "$INTERRUPTED" = true ]; then
         echo -e "\n${YELLOW}=========================================="
         echo "Interrupt received - cleaning up..."
         echo -e "==========================================${NC}"
     fi
-    
+
     # Stop client if running
     if [ -n "$CLIENT_PID" ] && kill -0 "$CLIENT_PID" 2>/dev/null; then
         echo "Stopping client (PID: $CLIENT_PID)..."
         kill -TERM "$CLIENT_PID" 2>/dev/null || true
         wait "$CLIENT_PID" 2>/dev/null || true
     fi
-    
+
     # Stop server if running
     if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
         echo "Stopping server (PID: $SERVER_PID)..."
@@ -47,17 +47,17 @@ cleanup() {
         fi
         wait "$SERVER_PID" 2>/dev/null || true
     fi
-    
+
     # Also kill any orphaned python processes from this experiment
     pkill -f "python.*main.py.*$EXPERIMENT_CONFIG" 2>/dev/null || true
-    
+
     if [ "$INTERRUPTED" = true ]; then
         echo -e "${YELLOW}Cleanup complete.${NC}"
         if [ -f "$OUTPUT_FILE" ]; then
             echo -e "${GREEN}Partial results may have been saved to: $OUTPUT_FILE${NC}"
         fi
     fi
-    
+
     exit $exit_code
 }
 
@@ -119,13 +119,13 @@ while [ $WAIT_TIME -lt $MAX_WAIT ]; do
         echo -e "${RED}Error: Server process died during initialization${NC}"
         exit 1
     fi
-    
+
     # Try to connect to the server
     if curl -s http://localhost:8080/metrics > /dev/null 2>&1; then
         SERVER_READY=true
         break
     fi
-    
+
     sleep 2
     WAIT_TIME=$((WAIT_TIME + 2))
     echo "  Waiting... ${WAIT_TIME}s"
@@ -155,15 +155,15 @@ CLIENT_PID=""
 if [ $CLIENT_EXIT -eq 0 ]; then
     echo ""
     echo "Capturing dashboard screenshot..."
-    
+
     # Create screenshots directory
     SCREENSHOT_DIR="ml_inference_server/docs/experiments/screenshots"
     mkdir -p "$SCREENSHOT_DIR"
-    
+
     # Generate screenshot filename with timestamp
     TIMESTAMP=$(date +%Y%m%d_%H%M%S)
     SCREENSHOT_FILE="${SCREENSHOT_DIR}/${EXPERIMENT_NAME}_${TIMESTAMP}.png"
-    
+
     # Capture screenshot (with fallback if playwright not available)
     python ml_inference_server/utils/screenshot.py \
         --output "$SCREENSHOT_FILE" \
@@ -174,7 +174,7 @@ if [ $CLIENT_EXIT -eq 0 ]; then
         echo -e "${YELLOW}Note: Screenshot capture requires playwright. Install with:${NC}"
         echo "  uv pip install playwright && playwright install chromium"
     }
-    
+
     echo -e "\n${GREEN}=========================================="
     echo "Experiment completed successfully!"
     echo "Results: $OUTPUT_FILE"

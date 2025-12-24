@@ -2,15 +2,15 @@
 Server module - gRPC service and request scheduling.
 """
 
-from .scheduler import Scheduler
 from .model_pool import ModelPool
 from .routing import (
-    RoutingStrategy,
-    RoundRobinRouter,
-    LeastBusyRouter,
     FirstAvailableRouter,
+    LeastBusyRouter,
+    RoundRobinRouter,
+    RoutingStrategy,
     create_router,
 )
+from .scheduler import Scheduler
 
 __all__ = [
     "Scheduler",

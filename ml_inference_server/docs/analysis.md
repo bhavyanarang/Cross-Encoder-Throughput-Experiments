@@ -172,7 +172,7 @@ except Exception as e:
 **MLX is the clear winner for Apple Silicon:**
 
 - ✅ **22,200 pairs/s** peak throughput
-- ✅ **0.46ms** single request latency  
+- ✅ **0.46ms** single request latency
 - ✅ **7x faster** than PyTorch
 - ✅ Native quantization support
 - ✅ Unified memory (no transfer overhead)

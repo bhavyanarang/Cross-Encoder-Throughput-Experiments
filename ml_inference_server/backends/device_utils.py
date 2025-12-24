@@ -7,7 +7,7 @@ Provides device resolution, synchronization, memory management, and FP16 convers
 
 import logging
 import threading
-from typing import Tuple, Any
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +37,16 @@ def get_device_lock(device: str) -> threading.Lock:
 def resolve_device(requested_device: str) -> str:
     """
     Resolve the actual device to use, preferring MPS on Apple Silicon.
-    
+
     Args:
         requested_device: Requested device (mps, cuda, cpu)
-        
+
     Returns:
         Actual available device
     """
     try:
         import torch
+
         if requested_device == "mps" and torch.backends.mps.is_available():
             return "mps"
         elif requested_device == "cuda" and torch.cuda.is_available():
@@ -58,12 +59,13 @@ def resolve_device(requested_device: str) -> str:
 def sync_device(device: str) -> None:
     """
     Synchronize GPU operations for accurate timing.
-    
+
     Args:
         device: Device to synchronize (mps, cuda, cpu)
     """
     try:
         import torch
+
         if device == "mps":
             torch.mps.synchronize()
         elif device == "cuda":
@@ -75,12 +77,13 @@ def sync_device(device: str) -> None:
 def clear_memory(device: str) -> None:
     """
     Clear GPU memory cache to reduce fragmentation.
-    
+
     Args:
         device: Device to clear cache for (mps, cuda, cpu)
     """
     try:
         import torch
+
         if device == "mps":
             torch.mps.empty_cache()
         elif device == "cuda":
@@ -89,21 +92,21 @@ def clear_memory(device: str) -> None:
         pass
 
 
-def apply_fp16(model: Any, device: str) -> Tuple[bool, str]:
+def apply_fp16(model: Any, device: str) -> tuple[bool, str]:
     """
     Apply FP16 quantization to a CrossEncoder model.
-    
+
     Args:
         model: CrossEncoder model instance
         device: Target device
-        
+
     Returns:
         Tuple of (success: bool, actual_dtype: str)
     """
     if device != "mps":
         logger.info("FP16 only supported on MPS, using FP32")
         return False, "float32"
-    
+
     try:
         model.model = model.model.half()
         logger.info("Applied FP16 precision")
@@ -116,15 +119,16 @@ def apply_fp16(model: Any, device: str) -> Tuple[bool, str]:
 def get_gpu_memory_mb(device: str) -> float:
     """
     Get current GPU memory usage in MB.
-    
+
     Args:
         device: Device to query (mps, cuda)
-        
+
     Returns:
         Memory usage in MB, or 0.0 if unavailable
     """
     try:
         import torch
+
         if device == "mps" and torch.backends.mps.is_available():
             allocated = torch.mps.current_allocated_memory()
             return allocated / (1024 * 1024)
@@ -139,17 +143,18 @@ def get_gpu_memory_mb(device: str) -> float:
 def get_device_info(device: str) -> dict:
     """
     Get information about the specified device.
-    
+
     Args:
         device: Device to query
-        
+
     Returns:
         Dictionary with device information
     """
     info = {"device": device, "available": False}
-    
+
     try:
         import torch
+
         if device == "mps":
             info["available"] = torch.backends.mps.is_available()
             if info["available"]:
@@ -168,6 +173,5 @@ def get_device_info(device: str) -> dict:
             info["available"] = True
     except ImportError:
         pass
-    
-    return info
 
+    return info

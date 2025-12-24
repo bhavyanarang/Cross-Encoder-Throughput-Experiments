@@ -45,11 +45,14 @@ select = [
 ignore = [
     "E501",  # line too long (handled by formatter)
     "B008",  # do not perform function calls in argument defaults
+    "E402",  # Module level import not at top of file (allowed for TYPE_CHECKING imports)
+    "N802",  # Function name should be lowercase (gRPC methods match proto definitions)
 ]
 
 [tool.ruff.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+"server/grpc_server.py" = ["N802"]  # gRPC method names match proto definitions
+"metrics/http_server.py" = ["N802"]  # HTTP method names (do_GET, do_POST, etc.)
 
 [tool.ruff.isort]
 known-first-party = ["ml_inference_server"]
-

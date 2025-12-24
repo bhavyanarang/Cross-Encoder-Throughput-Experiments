@@ -2,13 +2,13 @@
 Metrics module - Metrics collection and HTTP dashboard.
 """
 
-from .collector import MetricsCollector, ExperimentInfo, get_cpu_percent
+from .collector import ExperimentInfo, MetricsCollector, get_cpu_percent
 from .components import (
     LatencyTracker,
-    ThroughputTracker,
     PaddingAnalyzer,
     StageMetrics,
     StageMetricsGroup,
+    ThroughputTracker,
 )
 
 __all__ = [

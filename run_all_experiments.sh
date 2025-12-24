@@ -41,7 +41,7 @@ print_summary() {
         echo -e "  ${YELLOW}Skipped (interrupted): $SKIPPED${NC}"
     fi
     echo ""
-    
+
     if [ ${#COMPLETED_EXPERIMENTS[@]} -gt 0 ]; then
         echo -e "${GREEN}Completed experiments:${NC}"
         for exp in "${COMPLETED_EXPERIMENTS[@]}"; do
@@ -49,7 +49,7 @@ print_summary() {
         done
         echo ""
     fi
-    
+
     if [ ${#FAILED_EXPERIMENTS[@]} -gt 0 ]; then
         echo -e "${RED}Failed experiments:${NC}"
         for exp in "${FAILED_EXPERIMENTS[@]}"; do
@@ -57,7 +57,7 @@ print_summary() {
         done
         echo ""
     fi
-    
+
     echo "Results directory: $OUTPUT_DIR"
     echo -e "${BLUE}==========================================${NC}"
 }
@@ -65,20 +65,20 @@ print_summary() {
 # Cleanup function
 cleanup() {
     local exit_code=$?
-    
+
     if [ "$INTERRUPTED" = true ]; then
         echo -e "\n${YELLOW}=========================================="
         echo "Interrupt received - cleaning up..."
         echo -e "==========================================${NC}"
     fi
-    
+
     # Stop client if running
     if [ -n "$CLIENT_PID" ] && kill -0 "$CLIENT_PID" 2>/dev/null; then
         echo "Stopping client (PID: $CLIENT_PID)..."
         kill -TERM "$CLIENT_PID" 2>/dev/null || true
         wait "$CLIENT_PID" 2>/dev/null || true
     fi
-    
+
     # Stop server if running
     if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
         echo "Stopping server (PID: $SERVER_PID)..."
@@ -89,27 +89,27 @@ cleanup() {
         fi
         wait "$SERVER_PID" 2>/dev/null || true
     fi
-    
+
     # Kill any orphaned python processes
     pkill -f "python.*main.py" 2>/dev/null || true
-    
+
     # Print summary
     print_summary
-    
+
     exit $exit_code
 }
 
 # Handle interrupt signals
 handle_interrupt() {
     INTERRUPTED=true
-    
+
     # Count remaining experiments as skipped
     # This is approximate since we're in the middle of iteration
     if [ -n "$CURRENT_EXPERIMENT" ]; then
         FAILED_EXPERIMENTS+=("$CURRENT_EXPERIMENT (interrupted)")
         FAILED=$((FAILED + 1))
     fi
-    
+
     cleanup
 }
 
@@ -148,63 +148,63 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
     if [[ "$(basename "$config")" == "base_config.yaml" ]]; then
         continue
     fi
-    
+
     CURRENT_NUM=$((CURRENT_NUM + 1))
     EXPERIMENT_NAME=$(basename "$config" .yaml)
     CURRENT_EXPERIMENT="$EXPERIMENT_NAME"
     OUTPUT_FILE="$OUTPUT_DIR/${EXPERIMENT_NAME}_results.md"
-    
+
     echo -e "${BLUE}=========================================="
     echo "Experiment $CURRENT_NUM/$TOTAL: $EXPERIMENT_NAME"
     echo "Config: $config"
     echo -e "==========================================${NC}"
-    
+
     # Start server in background
     echo "Starting server..."
     python ml_inference_server/main.py --experiment "$config" > "/tmp/server_${EXPERIMENT_NAME}.log" 2>&1 &
     SERVER_PID=$!
     echo "Server PID: $SERVER_PID"
-    
+
     # Wait for server to start
     echo "Waiting for server to initialize..."
     WAIT_TIME=0
     MAX_WAIT=60
     SERVER_READY=false
-    
+
     while [ $WAIT_TIME -lt $MAX_WAIT ]; do
         if ! kill -0 $SERVER_PID 2>/dev/null; then
             echo -e "${RED}Server process died during initialization${NC}"
             echo "Check logs: /tmp/server_${EXPERIMENT_NAME}.log"
             break
         fi
-        
+
         if curl -s http://localhost:8080/metrics > /dev/null 2>&1; then
             SERVER_READY=true
             break
         fi
-        
+
         sleep 2
         WAIT_TIME=$((WAIT_TIME + 2))
     done
-    
+
     if [ "$SERVER_READY" = false ]; then
         echo -e "${RED}✗ Server failed to start!${NC}"
         echo "Check logs: /tmp/server_${EXPERIMENT_NAME}.log"
         FAILED=$((FAILED + 1))
         FAILED_EXPERIMENTS+=("$EXPERIMENT_NAME (server startup failed)")
-        
+
         # Clean up server process
         if kill -0 $SERVER_PID 2>/dev/null; then
             kill -9 $SERVER_PID 2>/dev/null || true
         fi
         SERVER_PID=""
-        
+
         sleep 2
         continue
     fi
-    
+
     echo -e "${GREEN}Server ready!${NC}"
-    
+
     # Run client
     echo "Running benchmark..."
     python ml_inference_server/client.py \
@@ -212,21 +212,21 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
         --config "$config" \
         --output "$OUTPUT_FILE" &
     CLIENT_PID=$!
-    
+
     # Wait for client
     if wait $CLIENT_PID; then
         echo -e "${GREEN}✓ Experiment completed successfully!${NC}"
         echo "Results: $OUTPUT_FILE"
         SUCCESS=$((SUCCESS + 1))
         COMPLETED_EXPERIMENTS+=("$EXPERIMENT_NAME")
-        
+
         # Capture dashboard screenshot
         echo "Capturing dashboard screenshot..."
         SCREENSHOT_DIR="$OUTPUT_DIR/screenshots"
         mkdir -p "$SCREENSHOT_DIR"
         TIMESTAMP=$(date +%Y%m%d_%H%M%S)
         SCREENSHOT_FILE="${SCREENSHOT_DIR}/${EXPERIMENT_NAME}_${TIMESTAMP}.png"
-        
+
         python ml_inference_server/utils/screenshot.py \
             --output "$SCREENSHOT_FILE" \
             --url "http://localhost:8080" \
@@ -239,7 +239,7 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
         FAILED_EXPERIMENTS+=("$EXPERIMENT_NAME (benchmark failed)")
     fi
     CLIENT_PID=""
-    
+
     # Stop server
     echo "Stopping server..."
     if kill -0 $SERVER_PID 2>/dev/null; then
@@ -251,10 +251,10 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
     fi
     wait $SERVER_PID 2>/dev/null || true
     SERVER_PID=""
-    
+
     # Clear current experiment tracking
     CURRENT_EXPERIMENT=""
-    
+
     # Brief pause before next experiment
     echo ""
     sleep 2

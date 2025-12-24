@@ -8,68 +8,68 @@ Starts the gRPC server for cross-encoder inference with:
 - Optional screenshot capture
 """
 
-import yaml
+import argparse
+import logging
+import os
 import subprocess
 import sys
-import os
-import logging
-import argparse
+
+import yaml
 
 # Configure logging ONCE at entry point
-logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s | %(levelname)s | %(message)s'
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
 # Generate proto files if not present
 proto_dir = os.path.join(os.path.dirname(__file__), "proto")
 if not os.path.exists(os.path.join(proto_dir, "inference_pb2.py")):
     logger.info("Generating proto files...")
-    subprocess.run([
-        sys.executable, "-m", "grpc_tools.protoc",
-        f"-I{proto_dir}",
-        f"--python_out={proto_dir}",
-        f"--grpc_python_out={proto_dir}",
-        os.path.join(proto_dir, "inference.proto"),
-    ], check=True)
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "grpc_tools.protoc",
+            f"-I{proto_dir}",
+            f"--python_out={proto_dir}",
+            f"--grpc_python_out={proto_dir}",
+            os.path.join(proto_dir, "inference.proto"),
+        ],
+        check=True,
+    )
 
-from backends import create_backend
 from metrics import MetricsCollector
 from metrics.http_server import set_metrics_collector, start_metrics_server
-from server.scheduler import Scheduler
-from server.model_pool import ModelPool
 from server.grpc_server import serve
-from utils import load_experiment_config, configure_screenshots
+from server.model_pool import ModelPool
+from server.scheduler import Scheduler
+from utils import configure_screenshots, load_experiment_config
 
 
 def create_model_pool_from_config(config: dict) -> ModelPool:
     """
     Create ModelPool from config, supporting both new and legacy formats.
-    
+
     Args:
         config: Configuration dictionary
-        
+
     Returns:
         Configured ModelPool instance (process-based for true parallelism)
     """
-    from core.config import ModelPoolConfig, ModelInstanceConfig
-    
+    from core.config import ModelInstanceConfig, ModelPoolConfig
+
     # Check for new model_pool format
     if "model_pool" in config:
         pool_data = config["model_pool"]
-        instances = [
-            ModelInstanceConfig(**inst) 
-            for inst in pool_data.get("instances", [])
-        ]
+        instances = [ModelInstanceConfig(**inst) for inst in pool_data.get("instances", [])]
         pool_config = ModelPoolConfig(
             instances=instances,
             routing_strategy=pool_data.get("routing_strategy", "round_robin"),
         )
         return ModelPool(pool_config)
-    
+
     # Fall back to legacy single-model format
-    from core.config import ModelPoolConfig, ModelInstanceConfig
+    from core.config import ModelInstanceConfig, ModelPoolConfig
+
     model_data = config.get("model", {})
     instance = ModelInstanceConfig(
         name=model_data.get("name", "cross-encoder/ms-marco-MiniLM-L-6-v2"),
@@ -88,11 +88,17 @@ def create_model_pool_from_config(config: dict) -> ModelPool:
 def main():
     parser = argparse.ArgumentParser(description="ML Inference Server")
     parser.add_argument("--config", default="config.yaml", help="Path to config file (legacy)")
-    parser.add_argument("--experiment", help="Path to experiment config (e.g., experiments/minilm_baseline.yaml)")
-    parser.add_argument("--quantized", action="store_true", help="Enable quantization (overrides config)")
+    parser.add_argument(
+        "--experiment", help="Path to experiment config (e.g., experiments/minilm_baseline.yaml)"
+    )
+    parser.add_argument(
+        "--quantized", action="store_true", help="Enable quantization (overrides config)"
+    )
     parser.add_argument("--device", help="Device to use (overrides config: mps, cpu)")
     parser.add_argument("--model-name", help="Model name (overrides config)")
-    parser.add_argument("--multi-model", type=int, default=1, help="Number of model instances (default: 1)")
+    parser.add_argument(
+        "--multi-model", type=int, default=1, help="Number of model instances (default: 1)"
+    )
     args = parser.parse_args()
 
     # Load config
@@ -128,12 +134,12 @@ def main():
         logger.info(f"Quantization: {config['model'].get('quantization_mode', 'fp16').upper()}")
     else:
         logger.info("Quantization: DISABLED")
-    
+
     # Create model pool (always process-based for true parallelism)
     if args.multi_model > 1 and "model_pool" not in config:
         # Create pool config from legacy config with multiple instances
-        from core.config import ModelPoolConfig, ModelInstanceConfig
-        
+        from core.config import ModelInstanceConfig, ModelPoolConfig
+
         instance = ModelInstanceConfig(
             name=config["model"]["name"],
             device=config["model"].get("device", "mps"),
@@ -148,35 +154,37 @@ def main():
         model_pool = ModelPool(pool_config)
     else:
         model_pool = create_model_pool_from_config(config)
-    
+
     # Start the process pool
     model_pool.start()
-    
+
     # Log pool info
     pool_info = model_pool.get_pool_info()
-    logger.info(f"Model pool: {pool_info['num_instances']} instances, "
-                f"routing={pool_info.get('routing_strategy', 'N/A')}")
+    logger.info(
+        f"Model pool: {pool_info['num_instances']} instances, "
+        f"routing={pool_info.get('routing_strategy', 'N/A')}"
+    )
 
     # Initialize metrics and scheduler
     metrics = MetricsCollector()
     set_metrics_collector(metrics)
-    
+
     # Set model pool reference for per-instance metrics
     MetricsCollector.set_model_pool(model_pool)
-    
+
     # Set experiment info for dashboard display
     metrics.set_experiment_info(
-        name=config.get('_experiment_name', 'Manual Run'),
-        description=config.get('_experiment_description', ''),
-        backend=config['model'].get('backend', 'pytorch'),
-        device=config['model'].get('device', 'mps'),
+        name=config.get("_experiment_name", "Manual Run"),
+        description=config.get("_experiment_description", ""),
+        backend=config["model"].get("backend", "pytorch"),
+        device=config["model"].get("device", "mps"),
     )
-    
+
     # Check for length-aware batching option
     enable_length_aware = config.get("batching", {}).get("length_aware_batching", False)
     if enable_length_aware:
         logger.info("Length-aware batching: ENABLED (sorting pairs by length)")
-    
+
     # Create scheduler with model pool
     scheduler = Scheduler(
         model_pool=model_pool,

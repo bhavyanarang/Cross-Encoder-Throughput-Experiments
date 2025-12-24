@@ -17,4 +17,3 @@ experiment:
   batch_sizes: [4]
   concurrency_levels: [1]
   benchmark_requests: 5
-

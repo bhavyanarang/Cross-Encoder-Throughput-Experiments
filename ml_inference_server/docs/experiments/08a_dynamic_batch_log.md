@@ -52,7 +52,7 @@ Running benchmark...
 2025-12-23 02:51:43,763 | INFO | Description: Dynamic batching with MPS backend
 2025-12-23 02:51:43,763 | INFO | Running experiments with 4 batch sizes and 3 concurrency levels
 2025-12-23 02:51:43,763 | INFO | Total experiments: 12
-2025-12-23 02:51:43,763 | INFO | 
+2025-12-23 02:51:43,763 | INFO |
 ============================================================
 2025-12-23 02:51:43,763 | INFO | Experiment 1/12: batch_size=8, concurrency=2
 2025-12-23 02:51:43,763 | INFO | ============================================================
@@ -266,7 +266,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_message:"Socket closed", grpc_status:14}"
 >
 2025-12-23 02:51:43,895 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:43,895 | INFO | 
+2025-12-23 02:51:43,895 | INFO |
 ============================================================
 2025-12-23 02:51:43,895 | INFO | Experiment 2/12: batch_size=8, concurrency=4
 2025-12-23 02:51:43,895 | INFO | ============================================================
@@ -477,7 +477,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:51:43,917 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:43,917 | INFO | 
+2025-12-23 02:51:43,917 | INFO |
 ============================================================
 2025-12-23 02:51:43,917 | INFO | Experiment 3/12: batch_size=8, concurrency=8
 2025-12-23 02:51:43,917 | INFO | ============================================================
@@ -688,7 +688,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:51:43,947 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:43,947 | INFO | 
+2025-12-23 02:51:43,947 | INFO |
 ============================================================
 2025-12-23 02:51:43,947 | INFO | Experiment 4/12: batch_size=16, concurrency=2
 2025-12-23 02:51:43,947 | INFO | ============================================================
@@ -899,7 +899,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:51:43,969 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:43,969 | INFO | 
+2025-12-23 02:51:43,969 | INFO |
 ============================================================
 2025-12-23 02:51:43,969 | INFO | Experiment 5/12: batch_size=16, concurrency=4
 2025-12-23 02:51:43,969 | INFO | ============================================================
@@ -1110,7 +1110,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:51:43,992 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:43,992 | INFO | 
+2025-12-23 02:51:43,992 | INFO |
 ============================================================
 2025-12-23 02:51:43,992 | INFO | Experiment 6/12: batch_size=16, concurrency=8
 2025-12-23 02:51:43,992 | INFO | ============================================================
@@ -1321,7 +1321,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:51:44,017 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:44,017 | INFO | 
+2025-12-23 02:51:44,017 | INFO |
 ============================================================
 2025-12-23 02:51:44,017 | INFO | Experiment 7/12: batch_size=32, concurrency=2
 2025-12-23 02:51:44,017 | INFO | ============================================================
@@ -1532,7 +1532,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)", grpc_status:14}"
 >
 2025-12-23 02:51:44,041 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:44,041 | INFO | 
+2025-12-23 02:51:44,041 | INFO |
 ============================================================
 2025-12-23 02:51:44,041 | INFO | Experiment 8/12: batch_size=32, concurrency=4
 2025-12-23 02:51:44,041 | INFO | ============================================================
@@ -1743,7 +1743,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:51:44,066 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:44,066 | INFO | 
+2025-12-23 02:51:44,066 | INFO |
 ============================================================
 2025-12-23 02:51:44,066 | INFO | Experiment 9/12: batch_size=32, concurrency=8
 2025-12-23 02:51:44,066 | INFO | ============================================================
@@ -1954,7 +1954,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:51:44,116 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:44,116 | INFO | 
+2025-12-23 02:51:44,116 | INFO |
 ============================================================
 2025-12-23 02:51:44,116 | INFO | Experiment 10/12: batch_size=64, concurrency=2
 2025-12-23 02:51:44,116 | INFO | ============================================================
@@ -2165,7 +2165,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:51:44,146 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:44,146 | INFO | 
+2025-12-23 02:51:44,146 | INFO |
 ============================================================
 2025-12-23 02:51:44,146 | INFO | Experiment 11/12: batch_size=64, concurrency=4
 2025-12-23 02:51:44,146 | INFO | ============================================================
@@ -2376,7 +2376,7 @@ Running benchmark...
 	debug_error_string = "UNKNOWN:Error received from peer  {grpc_status:14, grpc_message:"failed to connect to all addresses; last error: UNKNOWN: ipv4:127.0.0.1:50051: Failed to connect to remote host: connect: Connection refused (61)"}"
 >
 2025-12-23 02:51:44,180 | ERROR | Continuing with next experiment...
-2025-12-23 02:51:44,180 | INFO | 
+2025-12-23 02:51:44,180 | INFO |
 ============================================================
 2025-12-23 02:51:44,180 | INFO | Experiment 12/12: batch_size=64, concurrency=8
 2025-12-23 02:51:44,180 | INFO | ============================================================
@@ -2593,20 +2593,20 @@ Running benchmark...
 ========================================================================================================================
 EXPERIMENT SUMMARY (Cross-Encoder)
 ========================================================================================================================
-Batch  Conc  Pairs    Time     Lat Avg    Lat P95    Lat P99    TP Avg       TP P99      
+Batch  Conc  Pairs    Time     Lat Avg    Lat P95    Lat P99    TP Avg       TP P99
 ------------------------------------------------------------------------------------------------------------------------
-8      2     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-8      4     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-8      8     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-16     2     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-16     4     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-16     8     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-32     2     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-32     4     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-32     8     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-64     2     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-64     4     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
-64     8     FAILED   N/A      N/A        N/A        N/A        N/A          N/A         
+8      2     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+8      4     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+8      8     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+16     2     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+16     4     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+16     8     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+32     2     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+32     4     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+32     8     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+64     2     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+64     4     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
+64     8     FAILED   N/A      N/A        N/A        N/A        N/A          N/A
 ========================================================================================================================
 
 Results saved to: ml_inference_server/docs/experiments/08a_dynamic_batch_mps_results.md
