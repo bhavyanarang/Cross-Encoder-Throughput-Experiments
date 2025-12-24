@@ -1,0 +1,1 @@
+"""Cross-encoder inference server."""

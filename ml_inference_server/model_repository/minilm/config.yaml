@@ -1,5 +1,0 @@
-name: "ms-marco-MiniLM-L6-v2"
-version: 1
-backend: pytorch
-device: mps
-max_batch_size: 8
