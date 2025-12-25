@@ -38,5 +38,4 @@ batching:
 experiment:
   batch_sizes: [32]
   concurrency_levels: [8]
-  benchmark_requests: 500
   warmup_iterations: 20

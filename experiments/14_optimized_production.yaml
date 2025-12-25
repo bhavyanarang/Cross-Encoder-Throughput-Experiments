@@ -38,7 +38,6 @@ scheduler:
 experiment:
   batch_sizes: [32, 48, 64, 96]
   concurrency_levels: [1]  # IMPORTANT: Keep at 1 to avoid MPS crashes
-  benchmark_requests: 200
 
 # Expected results (based on prior experiments):
 # batch=32: ~700 p/s, ~46ms latency  (best latency)

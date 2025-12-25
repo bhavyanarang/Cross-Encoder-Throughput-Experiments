@@ -44,5 +44,4 @@ server:
 experiment:
   batch_sizes: [64]
   concurrency_levels: [8]
-  benchmark_requests: 500
   warmup_iterations: 20

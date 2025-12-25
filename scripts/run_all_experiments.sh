@@ -6,8 +6,9 @@ set -e
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-EXPERIMENTS_DIR="ml_inference_server/experiments"
-OUTPUT_DIR="ml_inference_server/docs/experiments"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+EXPERIMENTS_DIR="$PROJECT_ROOT/experiments"
+OUTPUT_DIR="$PROJECT_ROOT/experiments/results"
 SERVER_PID=""
 CLIENT_PID=""
 INTERRUPTED=false
@@ -117,8 +118,12 @@ handle_interrupt() {
 trap handle_interrupt SIGINT SIGTERM
 trap cleanup EXIT
 
-cd "$SCRIPT_DIR"
-source venv/bin/activate
+cd "$PROJECT_ROOT"
+
+# Activate virtual environment if it exists
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+fi
 
 echo -e "${BLUE}=========================================="
 echo "Running All Experiments"
@@ -161,7 +166,7 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
 
     # Start server in background
     echo "Starting server..."
-    python ml_inference_server/main.py --experiment "$config" > "/tmp/server_${EXPERIMENT_NAME}.log" 2>&1 &
+    python -m src.main --experiment "$config" > "/tmp/server_${EXPERIMENT_NAME}.log" 2>&1 &
     SERVER_PID=$!
     echo "Server PID: $SERVER_PID"
 
@@ -205,9 +210,13 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
 
     echo -e "${GREEN}Server ready!${NC}"
 
+    # Reset metrics before running the benchmark
+    echo "Resetting metrics..."
+    curl -s http://localhost:8080/reset > /dev/null 2>&1 || true
+
     # Run client
     echo "Running benchmark..."
-    python ml_inference_server/client.py \
+    python -m src.run_client \
         --experiment \
         --config "$config" \
         --output "$OUTPUT_FILE" &
@@ -220,19 +229,7 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
         SUCCESS=$((SUCCESS + 1))
         COMPLETED_EXPERIMENTS+=("$EXPERIMENT_NAME")
 
-        # Capture dashboard screenshot
-        echo "Capturing dashboard screenshot..."
-        SCREENSHOT_DIR="$OUTPUT_DIR/screenshots"
-        mkdir -p "$SCREENSHOT_DIR"
-        TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-        SCREENSHOT_FILE="${SCREENSHOT_DIR}/${EXPERIMENT_NAME}_${TIMESTAMP}.png"
-
-        python ml_inference_server/utils/screenshot.py \
-            --output "$SCREENSHOT_FILE" \
-            --url "http://localhost:8080" \
-            --wait 1.5 2>&1 && {
-            echo "Screenshot: $SCREENSHOT_FILE"
-        } || true
+        # Screenshots disabled - latency vs throughput data is stored in results instead
     else
         echo -e "${RED}✗ Benchmark failed!${NC}"
         FAILED=$((FAILED + 1))

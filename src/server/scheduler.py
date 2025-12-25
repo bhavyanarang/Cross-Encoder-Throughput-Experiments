@@ -4,22 +4,15 @@ import logging
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from src.models import PendingRequest
 
 if TYPE_CHECKING:
     from src.models import InferenceResult
     from src.server.pool import ModelPool
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class PendingRequest:
-    pairs: list[tuple[str, str]]
-    result_future: threading.Event
-    result: "InferenceResult | None" = None
-    submit_time: float = 0.0
 
 
 class Scheduler:

@@ -12,6 +12,33 @@ from src.models import InferenceResult, PoolConfig, WorkItem, WorkResult
 logger = logging.getLogger(__name__)
 
 _STOP = "__STOP__"
+_GET_MEMORY = "__GET_MEMORY__"
+
+
+def _get_worker_gpu_memory() -> float:
+    """Get GPU memory usage from worker process.
+
+    Uses driver_allocated_memory() which aggregates memory across all processes
+    using the Metal GPU. This should capture memory from all worker processes.
+    """
+    try:
+        import torch
+
+        if torch.backends.mps.is_available():
+            # driver_allocated_memory() aggregates memory from ALL processes using Metal GPU
+            # This includes all worker processes, so each worker will report the total
+            driver_mem = torch.mps.driver_allocated_memory() / (1024 * 1024)
+            if driver_mem > 0:
+                return driver_mem
+
+            # Fallback: current_allocated_memory (process-local only)
+            # This only captures memory for this specific worker process
+            current_mem = torch.mps.current_allocated_memory() / (1024 * 1024)
+            if current_mem > 0:
+                return current_mem
+    except Exception as e:
+        logger.error(f"Error getting GPU memory in worker: {e}")
+    return 0.0
 
 
 def _worker_main(
@@ -20,6 +47,7 @@ def _worker_main(
     input_queue: mp.Queue,
     output_queue: mp.Queue,
     ready_event: mp.Event,
+    memory_queue: mp.Queue,
 ):
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
@@ -31,15 +59,31 @@ def _worker_main(
     backend.load_model()
     backend.warmup(3)
 
+    # Log initial GPU memory after model load
+    try:
+        initial_mem = _get_worker_gpu_memory()
+        logger.info(f"Worker {worker_id} ready - GPU memory: {initial_mem:.2f} MB")
+    except Exception:
+        pass
+
     ready_event.set()
-    logger.info(f"Worker {worker_id} ready")
 
     while True:
         try:
             item = input_queue.get()
             if item == _STOP:
                 break
+            if item == _GET_MEMORY:
+                # Respond immediately with GPU memory
+                memory_mb = _get_worker_gpu_memory()
+                try:
+                    memory_queue.put((worker_id, memory_mb), block=False)
+                except Exception:
+                    # Queue full, skip
+                    pass
+                continue
 
+            # Regular inference work
             result = backend.infer_with_timing(item.pairs)
             output_queue.put(
                 WorkResult(
@@ -69,6 +113,7 @@ class ModelPool:
         self._processes: list[mp.Process] = []
         self._input_queue = mp.Queue()
         self._output_queue = mp.Queue()
+        self._memory_queue = mp.Queue()
         self._ready_events: list[mp.Event] = []
         self._is_started = False
         self._next_req_id = 0
@@ -86,7 +131,14 @@ class ModelPool:
 
             p = mp.Process(
                 target=_worker_main,
-                args=(i, inst.model_dump(), self._input_queue, self._output_queue, ready),
+                args=(
+                    i,
+                    inst.model_dump(),
+                    self._input_queue,
+                    self._output_queue,
+                    ready,
+                    self._memory_queue,
+                ),
                 daemon=True,
             )
             p.start()
@@ -170,6 +222,63 @@ class ModelPool:
 
     def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
         return self.infer(pairs)
+
+    def get_gpu_memory_mb(self) -> float:
+        """Get total GPU memory usage from all worker processes.
+
+        Queries workers directly since they have models loaded and GPU memory allocated.
+        Workers use driver_allocated_memory() which aggregates across all processes.
+        """
+        if not self._is_started:
+            return 0.0
+
+        # Query workers directly - they have the models loaded
+        # Request memory info from all workers
+        for _ in range(self.num_workers):
+            try:
+                self._input_queue.put(_GET_MEMORY, block=True, timeout=1.0)
+            except Exception as e:
+                logger.debug(f"Error sending memory query to worker: {e}")
+                continue
+
+        # Collect responses (with timeout)
+        memory_values = []
+        deadline = time.time() + 2.0  # 2 second timeout
+
+        while len(memory_values) < self.num_workers and time.time() < deadline:
+            try:
+                worker_id, memory_mb = self._memory_queue.get(timeout=0.2)
+                memory_values.append(memory_mb)
+                logger.debug(f"Worker {worker_id} reported GPU memory: {memory_mb:.2f} MB")
+            except Exception:
+                # Timeout or queue empty - continue waiting
+                continue
+
+        if memory_values:
+            # driver_allocated_memory() aggregates across all processes,
+            # so we should get the same value from each worker
+            # Use the maximum to be safe (in case some workers report differently)
+            max_memory = max(memory_values)
+            logger.debug(
+                f"GPU memory from {len(memory_values)}/{self.num_workers} workers: {max_memory:.2f} MB"
+            )
+            return max_memory
+
+        # Fallback: try driver_allocated_memory from main process
+        # (might work if main process has initialized MPS)
+        try:
+            import torch
+
+            if torch.backends.mps.is_available():
+                driver_mem = torch.mps.driver_allocated_memory() / (1024 * 1024)
+                if driver_mem > 0:
+                    logger.debug(f"Fallback: GPU memory from main process: {driver_mem:.2f} MB")
+                    return driver_mem
+        except Exception as e:
+            logger.debug(f"Error getting GPU memory from main process: {e}")
+
+        logger.warning("Could not get GPU memory from any worker or main process")
+        return 0.0
 
     def get_info(self) -> dict:
         return {

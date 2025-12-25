@@ -30,7 +30,24 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
         self._request_count += 1
 
         if self._metrics:
+            # Record overall latency
             self._metrics.record(latency, len(pairs))
+
+            # Record stage timings if available
+            self._metrics.record_stage_timings(
+                t_tokenize=getattr(result, "t_tokenize_ms", 0),
+                t_model_inference=getattr(result, "t_model_inference_ms", 0),
+            )
+
+            # Record padding stats if available
+            if hasattr(result, "padding_ratio") and result.padding_ratio > 0:
+                self._metrics.record_padding_stats(
+                    padding_ratio=result.padding_ratio,
+                    padded_tokens=getattr(result, "padded_tokens", 0),
+                    total_tokens=getattr(result, "total_tokens", 0),
+                    max_seq_length=getattr(result, "max_seq_length", 0),
+                    avg_seq_length=getattr(result, "avg_seq_length", 0),
+                )
 
         scores = (
             result.scores.tolist() if isinstance(result.scores, np.ndarray) else list(result.scores)
@@ -39,10 +56,10 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
 
     def GetMetrics(self, request, context):
         if self._metrics:
-            stats = self._metrics.get_stats()
+            summary = self._metrics.summary()
             return inference_pb2.MetricsResponse(
-                qps=stats.get("qps", 0),
-                latency_avg_ms=stats.get("latency_avg_ms", 0),
+                qps=summary.get("throughput_qps", 0),
+                latency_avg_ms=summary.get("avg_ms", 0),
                 total_requests=self._request_count,
             )
         return inference_pb2.MetricsResponse(total_requests=self._request_count)

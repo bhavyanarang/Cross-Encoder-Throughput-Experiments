@@ -6,9 +6,7 @@ model:
   backend: "mlx"
   mlx:
     bits: 16
-    group_size: 64
 
 experiment:
   batch_sizes: [32]
   concurrency_levels: [1]
-  benchmark_requests: 200

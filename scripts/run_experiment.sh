@@ -1,11 +1,12 @@
 #!/bin/bash
 # Run a single experiment with graceful interrupt handling
-# Usage: ./run_experiment.sh experiments/minilm_baseline.yaml
+# Usage: ./run_experiment.sh experiments/02_backend_mps.yaml
 
 set -e
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SERVER_PID=""
 CLIENT_PID=""
 EXPERIMENT_NAME=""
@@ -39,9 +40,7 @@ cleanup() {
     if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
         echo "Stopping server (PID: $SERVER_PID)..."
         kill -TERM "$SERVER_PID" 2>/dev/null || true
-        # Give it time to shut down gracefully
         sleep 1
-        # Force kill if still running
         if kill -0 "$SERVER_PID" 2>/dev/null; then
             kill -9 "$SERVER_PID" 2>/dev/null || true
         fi
@@ -75,18 +74,23 @@ trap cleanup EXIT
 # Validate arguments
 if [ -z "$1" ]; then
     echo "Usage: $0 <experiment_config>"
-    echo "Example: $0 ml_inference_server/experiments/minilm_baseline.yaml"
+    echo "Example: $0 experiments/02_backend_mps.yaml"
     exit 1
 fi
 
 EXPERIMENT_CONFIG="$1"
 EXPERIMENT_NAME=$(basename "$EXPERIMENT_CONFIG" .yaml)
-OUTPUT_FILE="ml_inference_server/docs/experiments/${EXPERIMENT_NAME}_results.md"
+OUTPUT_FILE="$PROJECT_ROOT/experiments/results/${EXPERIMENT_NAME}_results.md"
 
 # Validate config file exists
-if [ ! -f "$EXPERIMENT_CONFIG" ]; then
+if [ ! -f "$PROJECT_ROOT/$EXPERIMENT_CONFIG" ] && [ ! -f "$EXPERIMENT_CONFIG" ]; then
     echo -e "${RED}Error: Config file not found: $EXPERIMENT_CONFIG${NC}"
     exit 1
+fi
+
+# Use absolute path if relative path given
+if [ -f "$PROJECT_ROOT/$EXPERIMENT_CONFIG" ]; then
+    EXPERIMENT_CONFIG="$PROJECT_ROOT/$EXPERIMENT_CONFIG"
 fi
 
 echo -e "${GREEN}=========================================="
@@ -98,12 +102,23 @@ echo ""
 echo "Press Ctrl+C to interrupt (results will be saved if possible)"
 echo ""
 
-cd "$SCRIPT_DIR"
-source venv/bin/activate
+cd "$PROJECT_ROOT"
+
+# Activate virtual environment
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+elif [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+else
+    echo -e "${YELLOW}Warning: No virtual environment found, using system Python${NC}"
+fi
+
+# Create output directory
+mkdir -p "$(dirname "$OUTPUT_FILE")"
 
 # Start server in background
 echo "Starting server..."
-python ml_inference_server/main.py --experiment "$EXPERIMENT_CONFIG" &
+python -m src.main --experiment "$EXPERIMENT_CONFIG" &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
@@ -138,10 +153,14 @@ fi
 
 echo -e "${GREEN}Server is ready!${NC}"
 
+# Reset metrics before running the benchmark
+echo "Resetting metrics..."
+curl -s http://localhost:8080/reset > /dev/null 2>&1 || true
+
 # Run client
 echo ""
 echo "Running benchmark..."
-python ml_inference_server/client.py \
+python -m src.run_client \
     --experiment \
     --config "$EXPERIMENT_CONFIG" \
     --output "$OUTPUT_FILE" &
@@ -153,34 +172,10 @@ CLIENT_EXIT=$?
 CLIENT_PID=""
 
 if [ $CLIENT_EXIT -eq 0 ]; then
-    echo ""
-    echo "Capturing dashboard screenshot..."
-
-    # Create screenshots directory
-    SCREENSHOT_DIR="ml_inference_server/docs/experiments/screenshots"
-    mkdir -p "$SCREENSHOT_DIR"
-
-    # Generate screenshot filename with timestamp
-    TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-    SCREENSHOT_FILE="${SCREENSHOT_DIR}/${EXPERIMENT_NAME}_${TIMESTAMP}.png"
-
-    # Capture screenshot (with fallback if playwright not available)
-    python ml_inference_server/utils/screenshot.py \
-        --output "$SCREENSHOT_FILE" \
-        --url "http://localhost:8080" \
-        --wait 1.5 \
-        --width 1400 \
-        --height 1200 2>&1 || {
-        echo -e "${YELLOW}Note: Screenshot capture requires playwright. Install with:${NC}"
-        echo "  uv pip install playwright && playwright install chromium"
-    }
-
     echo -e "\n${GREEN}=========================================="
     echo "Experiment completed successfully!"
     echo "Results: $OUTPUT_FILE"
-    if [ -f "$SCREENSHOT_FILE" ]; then
-        echo "Screenshot: $SCREENSHOT_FILE"
-    fi
+    echo "Latency vs Throughput data included in results"
     echo -e "==========================================${NC}"
 else
     echo -e "\n${RED}=========================================="

@@ -325,6 +325,7 @@ function updateAllCharts(history) {
     updateChart(charts.gpu, labels, history.gpu_memory_mb);
     updateChart(charts.queries, labels, history.queries);
     updateChart(charts.padding, labels, history.padding_pct);
+    updateChart(charts.utilization, labels, history.gpu_utilization_pct);
 
     // Update per-instance charts if available
     if (history.instance_names && history.instance_names.length > 1) {

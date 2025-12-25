@@ -10,4 +10,3 @@ model:
 experiment:
   batch_sizes: [32]
   concurrency_levels: [1]
-  benchmark_requests: 200

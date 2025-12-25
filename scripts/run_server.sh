@@ -3,7 +3,8 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SERVER_PID=""
 
 GREEN='\033[0;32m'
@@ -21,36 +22,22 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM EXIT
 
-cd "$SCRIPT_DIR"
-source venv/bin/activate
+cd "$PROJECT_ROOT"
+
+# Activate virtual environment if it exists
+if [ -f "venv/bin/activate" ]; then
+    source venv/bin/activate
+fi
 
 echo -e "${GREEN}Starting Inference Server...${NC}"
 echo "Press Ctrl+C to stop"
 echo ""
 
-export PYTHONPATH="$SCRIPT_DIR:$PYTHONPATH"
-python -c "
-from src.models import Config, ModelConfig, PoolConfig
-from src.server import ModelPool, Scheduler
-from src.frontend import start_dashboard
-from src.server.grpc import serve
+# Use experiment config if provided, otherwise use default
+CONFIG="${1:-experiments/02_backend_mps.yaml}"
 
-import logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
-
-config = Config(
-    model_pool=PoolConfig(
-        instances=[ModelConfig(name='cross-encoder/ms-marco-MiniLM-L-6-v2', device='mps', backend='mps')]
-    )
-)
-
-pool = ModelPool(config.model_pool)
-pool.start()
-scheduler = Scheduler(pool)
-start_dashboard(8080)
-print('Dashboard: http://localhost:8080')
-serve(scheduler, '0.0.0.0', 50051)
-" &
+export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
+python -m src.main --experiment "$CONFIG" &
 SERVER_PID=$!
 
 wait $SERVER_PID
