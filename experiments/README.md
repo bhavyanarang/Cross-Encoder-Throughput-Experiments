@@ -24,6 +24,18 @@ Using both MPS and MLX backends:
 | 07 | Multi-Model Sim | `07a_multi_model_mps` | `07b_multi_model_mlx` |
 | 08 | Dynamic Batching | `08a_dynamic_batch_mps` | `08b_dynamic_batch_mlx` |
 
+### Phase 3: Dynamic Batching Analysis (16)
+Optimized scheduler with queue.Queue and threading.Condition, tested with proper concurrency:
+
+| # | Experiment | Config | Result |
+|---|------------|--------|--------|
+| 16a | `16a_dynamic_batch_baseline` | No batching, conc=4 | 611.2 p/s |
+| 16b | `16b_dynamic_batch_enabled` | Batching, conc=4 | **664.5 p/s (+9%)** ✓ |
+| 16c | `16c_dynamic_batch_timeout_sweep` | timeout=10ms, conc=4 | **676.5 p/s (+11%)** ✓ |
+| 16d | `16d_dynamic_batch_high_concurrency` | conc=8, batch=16 | 644.1 p/s |
+
+**Key Finding:** With proper concurrency and optimized scheduler, dynamic batching **improves throughput by 9-11%**! The initial experiments showed degradation because of a bug that ran everything with concurrency=1.
+
 ## Running Experiments
 
 ### Run individual experiment:

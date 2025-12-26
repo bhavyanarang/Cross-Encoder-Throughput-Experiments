@@ -29,16 +29,19 @@ const elements = {
 
     // Stage percentages
     pctTokenize: document.getElementById('pct_tokenize'),
+    pctQueueWait: document.getElementById('pct_queue_wait'),
     pctInference: document.getElementById('pct_inference'),
     pctOther: document.getElementById('pct_other'),
 
     // Stage bar segments
     barTokenize: document.getElementById('bar_tokenize'),
+    barQueueWait: document.getElementById('bar_queue_wait'),
     barInference: document.getElementById('bar_inference'),
     barOther: document.getElementById('bar_other'),
 
     // P95 stats
     tokenizeP95: document.getElementById('tokenize_p95'),
+    queueWaitP95Breakdown: document.getElementById('queue_wait_p95_breakdown'),
     inferenceP95: document.getElementById('inference_p95'),
     totalP95: document.getElementById('total_p95'),
 
@@ -56,7 +59,11 @@ const elements = {
 
     // Instance metrics section
     instanceSectionTitle: document.getElementById('instance_section_title'),
-    instanceMetrics: document.getElementById('instance_metrics')
+    instanceMetrics: document.getElementById('instance_metrics'),
+
+    // Per-worker stats section
+    workerStatsTitle: document.getElementById('worker_stats_title'),
+    workerStatsSection: document.getElementById('worker_stats_section')
 };
 
 // Format number with fixed decimals
@@ -120,17 +127,22 @@ function updateMetrics(data) {
 function updateStageBreakdown(data) {
     const stagePct = data.stage_percentages || {};
     const pctTokenize = stagePct.tokenize_pct || 0;
+    const pctQueueWait = stagePct.queue_wait_pct || 0;
     const pctInference = stagePct.inference_pct || 0;
     const pctOther = stagePct.other_pct || 100;
 
     // Update percentage text
     elements.pctTokenize.textContent = fmt(pctTokenize, 0);
+    elements.pctQueueWait.textContent = fmt(pctQueueWait, 0);
     elements.pctInference.textContent = fmt(pctInference, 0);
     elements.pctOther.textContent = fmt(pctOther, 0);
 
     // Update bar widths
     elements.barTokenize.style.width = pctTokenize + '%';
     elements.barTokenize.textContent = pctTokenize > 8 ? fmt(pctTokenize, 0) + '%' : '';
+
+    elements.barQueueWait.style.width = pctQueueWait + '%';
+    elements.barQueueWait.textContent = pctQueueWait > 8 ? fmt(pctQueueWait, 0) + '%' : '';
 
     elements.barInference.style.width = pctInference + '%';
     elements.barInference.textContent = pctInference > 8 ? fmt(pctInference, 0) + '%' : '';
@@ -143,11 +155,19 @@ function updateStageBreakdown(data) {
 function updateP95Stats(data) {
     const stageBreakdown = data.stage_breakdown || {};
     const tokenizeStats = stageBreakdown.tokenize || {};
+    const queueWaitStats = stageBreakdown.queue_wait || {};
     const inferenceStats = stageBreakdown.model_inference || {};
 
-    elements.tokenizeP95.textContent = fmt(tokenizeStats.p95_ms) + ' ms';
-    elements.inferenceP95.textContent = fmt(inferenceStats.p95_ms) + ' ms';
-    elements.totalP95.textContent = fmt(data.p95_ms) + ' ms';
+    // Safely access p95_ms with fallback to 0 if undefined
+    const tokenizeP95 = tokenizeStats.p95_ms !== undefined ? tokenizeStats.p95_ms : 0;
+    const queueWaitP95 = queueWaitStats.p95_ms !== undefined ? queueWaitStats.p95_ms : 0;
+    const inferenceP95 = inferenceStats.p95_ms !== undefined ? inferenceStats.p95_ms : 0;
+    const totalP95 = data.p95_ms !== undefined ? data.p95_ms : 0;
+
+    elements.tokenizeP95.textContent = fmt(tokenizeP95) + ' ms';
+    elements.queueWaitP95Breakdown.textContent = fmt(queueWaitP95) + ' ms';
+    elements.inferenceP95.textContent = fmt(inferenceP95) + ' ms';
+    elements.totalP95.textContent = fmt(totalP95) + ' ms';
 }
 
 // Update chart live values
@@ -210,6 +230,52 @@ function getInstanceColor(index) {
     return colors[index % colors.length];
 }
 
+// Update per-worker/per-model statistics
+function updateWorkerStats(data) {
+    const workerStats = data.worker_stats || [];
+
+    if (workerStats.length === 0) {
+        elements.workerStatsTitle.style.display = 'none';
+        elements.workerStatsSection.style.display = 'none';
+        return;
+    }
+
+    elements.workerStatsTitle.style.display = 'block';
+    elements.workerStatsSection.style.display = 'grid';
+
+    // Build HTML for worker stat cards
+    const cardsHtml = workerStats.map((ws, i) => {
+        const color = getInstanceColor(i);
+        return `
+            <div class="worker-card" style="border-color: ${color}">
+                <div class="worker-title">
+                    <span class="worker-id" style="color: ${color}">Worker ${ws.worker_id}</span>
+                </div>
+                <div class="worker-metrics">
+                    <div class="worker-metric">
+                        <div class="worker-metric-label">Avg Latency</div>
+                        <div class="worker-metric-value">${fmt(ws.avg_ms)} ms</div>
+                    </div>
+                    <div class="worker-metric">
+                        <div class="worker-metric-label">P95 Latency</div>
+                        <div class="worker-metric-value">${fmt(ws.p95_ms)} ms</div>
+                    </div>
+                    <div class="worker-metric">
+                        <div class="worker-metric-label">Throughput</div>
+                        <div class="worker-metric-value">${fmt(ws.throughput_qps)} q/s</div>
+                    </div>
+                    <div class="worker-metric">
+                        <div class="worker-metric-label">Queries</div>
+                        <div class="worker-metric-value">${ws.query_count}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    elements.workerStatsSection.innerHTML = cardsHtml;
+}
+
 // Fetch metrics and update dashboard
 async function fetchAndUpdate() {
     try {
@@ -223,6 +289,7 @@ async function fetchAndUpdate() {
         updateP95Stats(data);
         updateChartValues(data);
         updateInstanceMetrics(data);
+        updateWorkerStats(data);
 
         if (data.history) {
             window.DashboardCharts.updateAll(data.history);

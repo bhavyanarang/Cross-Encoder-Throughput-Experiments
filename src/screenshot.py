@@ -1,192 +1,348 @@
 #!/usr/bin/env python3
-"""Dashboard Screenshot Utility - captures screenshots of the metrics dashboard."""
+"""Generate static HTML dashboard from timeseries data."""
 
 import argparse
+import json
 import logging
-import os
+import re
 import sys
-import time
-from datetime import datetime
+from pathlib import Path
+
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
+FRONTEND_DIR = Path(__file__).parent / "frontend"
+TEMPLATES_DIR = FRONTEND_DIR / "templates"
+STATIC_DIR = FRONTEND_DIR / "static"
 
-def capture_dashboard_screenshot(
-    output_path: str,
-    dashboard_url: str = "http://localhost:8080",
-    wait_seconds: float = 3.0,
-    width: int = 1400,
-    height: int = 1200,
-    timeout_ms: int = 120000,
-    retries: int = 3,
-    require_playwright: bool = True,
-) -> bool:
-    """Capture a screenshot of the metrics dashboard using Playwright."""
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        if require_playwright:
-            logger.error("Playwright is required for PNG screenshots!")
-            logger.error("Install with: pip install playwright && playwright install chromium")
-            return False
-        logger.warning(
-            "Playwright not installed. Install with: pip install playwright && playwright install chromium"
-        )
-        return _fallback_screenshot(output_path, dashboard_url)
 
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+def parse_timeseries_markdown(markdown_path: Path) -> dict:
+    """Parse timeseries markdown file and extract data."""
+    with open(markdown_path) as f:
+        content = f.read()
 
-    for attempt in range(retries):
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch(headless=True, timeout=timeout_ms)
-                context = browser.new_context(viewport={"width": width, "height": height})
-                page = context.new_page()
-                page.set_default_timeout(timeout_ms)
-                page.set_default_navigation_timeout(timeout_ms)
+    # Extract experiment name
+    exp_match = re.search(r"\*\*Experiment:\*\* (.+)", content)
+    experiment_name = exp_match.group(1).strip() if exp_match else "Unknown Experiment"
 
-                logger.info(f"Navigating to {dashboard_url} (attempt {attempt + 1}/{retries})...")
-                page.goto(dashboard_url, wait_until="load", timeout=timeout_ms)
+    # Find the table
+    lines = content.split("\n")
+    table_start = None
+    headers = None
 
-                logger.info("Waiting for page to be fully loaded...")
-                page.wait_for_load_state("networkidle", timeout=timeout_ms)
+    for i, line in enumerate(lines):
+        if line.startswith("| Index |"):
+            headers = [h.strip() for h in line.split("|")[1:-1]]
+            table_start = i + 2  # Skip header and separator
+            break
 
-                logger.info(f"Waiting {wait_seconds}s for charts to render...")
-                time.sleep(wait_seconds)
+    if not headers or table_start is None:
+        raise ValueError("Could not find timeseries table in markdown file")
 
-                logger.info(f"Taking screenshot: {output_path}")
-                page.screenshot(path=output_path, full_page=True, timeout=timeout_ms)
-
-                browser.close()
-
-            logger.info(f"Dashboard screenshot saved: {output_path}")
-            return True
-
-        except Exception as e:
-            logger.warning(f"Screenshot attempt {attempt + 1}/{retries} failed: {e}")
-            if attempt < retries - 1:
-                logger.info("Retrying in 2 seconds...")
-                time.sleep(2)
+    # Parse data rows
+    data = {h: [] for h in headers}
+    for line in lines[table_start:]:
+        if not line.strip() or not line.startswith("|"):
+            break
+        values = [v.strip() for v in line.split("|")[1:-1]]
+        if len(values) != len(headers):
+            continue
+        for header, value in zip(headers, values, strict=False):
+            if value == "-":
+                data[header].append(None)
             else:
-                logger.error(f"All {retries} screenshot attempts failed")
-                return _fallback_screenshot(output_path, dashboard_url)
+                try:
+                    data[header].append(float(value))
+                except ValueError:
+                    data[header].append(value)
 
-    return False
+    # Convert to arrays, filtering None values
+    max_len = max(len(v) for v in data.values() if v)
+    timestamps = [float(i) for i in range(max_len)]
+
+    return {
+        "experiment_name": experiment_name,
+        "timestamps": timestamps,
+        "gpu_memory_mb": [v for v in data.get("GPU Mem (MB)", []) if v is not None],
+        "gpu_utilization_pct": [v for v in data.get("GPU Util (%)", []) if v is not None],
+        "cpu_percent": [v for v in data.get("CPU (%)", []) if v is not None],
+        "latencies": [v for v in data.get("Latency (ms)", []) if v is not None],
+        "throughput": [v for v in data.get("Throughput", []) if v is not None],
+        "tokenize_ms": [v for v in data.get("Tokenize (ms)", []) if v is not None],
+        "inference_ms": [v for v in data.get("Inference (ms)", []) if v is not None],
+        "queue_wait_ms": [v for v in data.get("Queue (ms)", []) if v is not None],
+        "padding_pct": [v for v in data.get("Padding (%)", []) if v is not None],
+    }
 
 
-def _fallback_screenshot(output_path: str, dashboard_url: str) -> bool:
-    """Fallback: save HTML snapshot of the dashboard metrics."""
+def compute_summary_stats(timeseries_data: dict) -> dict:
+    """Compute summary statistics from timeseries data."""
+
+    def stats(arr):
+        if not arr:
+            return {"avg": 0, "min": 0, "max": 0, "p50": 0, "p95": 0, "count": 0}
+        a = np.array(arr)
+        return {
+            "avg": float(np.mean(a)),
+            "min": float(np.min(a)),
+            "max": float(np.max(a)),
+            "p50": float(np.percentile(a, 50)),
+            "p95": float(np.percentile(a, 95)),
+            "count": len(a),
+        }
+
+    latencies = timeseries_data.get("latencies", [])
+    if not latencies:
+        return {}
+
+    # Compute stage breakdown percentages
+    tokenize_total = sum(timeseries_data.get("tokenize_ms", []))
+    queue_total = sum(timeseries_data.get("queue_wait_ms", []))
+    inference_total = sum(timeseries_data.get("inference_ms", []))
+    total_latency = sum(latencies)
+
+    if total_latency > 0:
+        tokenize_pct = (tokenize_total / total_latency) * 100
+        queue_pct = (queue_total / total_latency) * 100
+        inference_pct = (inference_total / total_latency) * 100
+        other_pct = 100 - tokenize_pct - queue_pct - inference_pct
+    else:
+        tokenize_pct = queue_pct = inference_pct = other_pct = 0
+
+    return {
+        "count": len(latencies),
+        "query_count": len(latencies),  # Approximate
+        "instant_latency_ms": latencies[-1] if latencies else 0,
+        "avg_ms": stats(latencies)["avg"],
+        "p50_ms": stats(latencies)["p50"],
+        "p95_ms": stats(latencies)["p95"],
+        "p99_ms": float(np.percentile(np.array(latencies), 99)) if latencies else 0,
+        "throughput_qps": timeseries_data.get("throughput", [0])[-1]
+        if timeseries_data.get("throughput")
+        else 0,
+        "avg_throughput_qps": stats(timeseries_data.get("throughput", []))["avg"],
+        "cpu_percent": stats(timeseries_data.get("cpu_percent", []))["avg"],
+        "gpu_memory_mb": stats(timeseries_data.get("gpu_memory_mb", []))["avg"],
+        "gpu_utilization_pct": stats(timeseries_data.get("gpu_utilization_pct", []))["avg"],
+        "last_tokenize_ms": timeseries_data.get("tokenize_ms", [0])[-1]
+        if timeseries_data.get("tokenize_ms")
+        else 0,
+        "last_inference_ms": timeseries_data.get("inference_ms", [0])[-1]
+        if timeseries_data.get("inference_ms")
+        else 0,
+        "last_queue_wait_ms": timeseries_data.get("queue_wait_ms", [0])[-1]
+        if timeseries_data.get("queue_wait_ms")
+        else 0,
+        "stage_breakdown": {
+            "tokenize": stats(timeseries_data.get("tokenize_ms", [])),
+            "queue_wait": stats(timeseries_data.get("queue_wait_ms", [])),
+            "model_inference": stats(timeseries_data.get("inference_ms", [])),
+        },
+        "stage_percentages": {
+            "tokenize_pct": round(tokenize_pct, 1),
+            "queue_wait_pct": round(queue_pct, 1),
+            "inference_pct": round(inference_pct, 1),
+            "other_pct": round(other_pct, 1),
+        },
+        "queue_wait_analysis": {
+            "avg_ms": stats(timeseries_data.get("queue_wait_ms", []))["avg"],
+            "p95_ms": stats(timeseries_data.get("queue_wait_ms", []))["p95"],
+        },
+        "padding_analysis": {
+            "last_padding_pct": timeseries_data.get("padding_pct", [0])[-1]
+            if timeseries_data.get("padding_pct")
+            else 0,
+            "avg_padding_pct": stats(timeseries_data.get("padding_pct", []))["avg"],
+        },
+    }
+
+
+def generate_static_dashboard(
+    timeseries_path: Path,
+    output_path: Path,
+    experiment_config: dict | None = None,
+) -> bool:
+    """Generate static HTML dashboard from timeseries data."""
     try:
-        import urllib.request
+        # Parse timeseries data
+        timeseries_data = parse_timeseries_markdown(timeseries_path)
 
-        html_path = output_path.replace(".png", ".html")
+        # Compute summary statistics
+        summary = compute_summary_stats(timeseries_data)
 
-        # Try to fetch the actual dashboard HTML with current metrics
-        try:
-            with urllib.request.urlopen(dashboard_url, timeout=5) as response:
-                response.read().decode("utf-8")
+        # Build metrics response structure
+        metrics_data = {
+            "experiment_name": timeseries_data["experiment_name"],
+            "experiment_description": experiment_config.get("description", "")
+            if experiment_config
+            else "",
+            "backend_type": experiment_config.get("model", {}).get("backend", "pytorch")
+            if experiment_config
+            else "pytorch",
+            "device": experiment_config.get("model", {}).get("device", "cpu")
+            if experiment_config
+            else "cpu",
+            "is_running": False,  # Static dashboard is always not running
+            **summary,
+            "history": {
+                "timestamps": timeseries_data["timestamps"],
+                "latencies": timeseries_data["latencies"],
+                "throughput": timeseries_data["throughput"],
+                "queries": list(range(len(timeseries_data["latencies"]))),
+                "cpu_percent": timeseries_data["cpu_percent"],
+                "gpu_memory_mb": timeseries_data["gpu_memory_mb"],
+                "gpu_utilization_pct": timeseries_data["gpu_utilization_pct"],
+                "queue_wait_ms": timeseries_data["queue_wait_ms"],
+                "tokenize_ms": timeseries_data["tokenize_ms"],
+                "inference_ms": timeseries_data["inference_ms"],
+                "padding_pct": timeseries_data["padding_pct"],
+            },
+            "worker_stats": [],  # Empty for now, can be enhanced later
+        }
 
-            # Also fetch metrics to embed
-            metrics_url = dashboard_url.rstrip("/") + "/metrics"
-            with urllib.request.urlopen(metrics_url, timeout=5) as response:
-                metrics_json = response.read().decode("utf-8")
+        # Read HTML template
+        html_template = (TEMPLATES_DIR / "index.html").read_text()
 
-            # Create HTML with embedded metrics
-            with open(html_path, "w") as f:
-                f.write(
-                    f"""<!DOCTYPE html>
-<html>
+        # Read CSS
+        css_content = (STATIC_DIR / "css" / "styles.css").read_text()
+
+        # Read JS files
+        charts_js = (STATIC_DIR / "js" / "charts.js").read_text()
+        main_js = (STATIC_DIR / "js" / "main.js").read_text()
+
+        # Modify main.js to use embedded data instead of polling
+        # Replace the fetchAndUpdate function and init function
+        modified_main_js = main_js.replace(
+            "// Fetch metrics and update dashboard\nasync function fetchAndUpdate() {",
+            "// Fetch metrics from embedded data\nasync function fetchAndUpdate() {",
+        )
+        modified_main_js = modified_main_js.replace(
+            "        const response = await fetch('/metrics');\n        const data = await response.json();",
+            "        // Use embedded data instead of fetching\n        const data = window.embeddedMetricsData;",
+        )
+        modified_main_js = modified_main_js.replace(
+            "// Initialize dashboard\nfunction init() {\n    window.DashboardCharts.init();\n    fetchAndUpdate();\n    setInterval(fetchAndUpdate, 500);\n}",
+            "// Initialize dashboard\nfunction init() {\n    window.DashboardCharts.init();\n    fetchAndUpdate();\n    // No polling for static dashboard\n}",
+        )
+
+        # Replace Chart.js CDN link with embedded version or keep CDN
+        # For now, keep CDN link in template
+
+        # Extract body content from template (everything between <body> and <!-- Scripts -->)
+        body_match = re.search(r"<body>(.*?)<!-- Scripts -->", html_template, re.DOTALL)
+        if body_match:
+            body_content = body_match.group(1)
+        else:
+            # Fallback: extract everything between body tags, excluding scripts
+            body_match = re.search(r"<body>(.*?)</body>", html_template, re.DOTALL)
+            if body_match:
+                body_content = body_match.group(1)
+                # Remove script tags
+                body_content = re.sub(
+                    r"<script[^>]*>.*?</script>", "", body_content, flags=re.DOTALL
+                )
+            else:
+                body_content = ""
+
+        # Generate static HTML
+        static_html = f"""<!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>Dashboard Snapshot - {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{metrics_data["experiment_name"]} - Static Dashboard</title>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 20px; background: #0d1117; color: #c9d1d9; }}
-        pre {{ background: #161b22; padding: 15px; border-radius: 6px; overflow-x: auto; border: 1px solid #30363d; }}
-        .header {{ margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #30363d; }}
-        a {{ color: #58a6ff; }}
+{css_content}
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-    <div class="header">
-        <h1>Dashboard Snapshot</h1>
-        <p>Captured: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
-        <p><a href="{dashboard_url}">View Live Dashboard</a></p>
-    </div>
-    <h2>Metrics JSON</h2>
-    <pre>{metrics_json}</pre>
-    <p style="margin-top: 20px; color: #8b949e;">
-        To enable PNG screenshots, install Playwright:<br>
-        <code>pip install playwright && playwright install chromium</code>
-    </p>
-</body>
-</html>"""
-                )
-            logger.info(f"Saved HTML snapshot: {html_path}")
-            return True
-        except Exception as e:
-            logger.warning(f"Could not fetch dashboard: {e}")
+    {body_content}
 
-            # Create simple redirect HTML
-            with open(html_path, "w") as f:
-                f.write(
-                    f"""<!DOCTYPE html>
-<html>
-<head>
-    <meta http-equiv="refresh" content="0; url={dashboard_url}">
-    <title>Dashboard Link</title>
-</head>
-<body>
-    <p>Screenshot not available. <a href="{dashboard_url}">View Dashboard</a></p>
+    <!-- Embedded Metrics Data -->
+    <script>
+        window.embeddedMetricsData = {json.dumps(metrics_data, indent=2)};
+    </script>
+
+    <!-- Charts JS -->
+    <script>
+{charts_js}
+    </script>
+
+    <!-- Main JS (modified) -->
+    <script>
+{modified_main_js}
+    </script>
 </body>
 </html>"""
-                )
-            logger.info(f"Created dashboard link: {html_path}")
-            return False
+
+        # Write output
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(static_html)
+
+        logger.info(f"Generated static dashboard: {output_path}")
+        return True
 
     except Exception as e:
-        logger.error(f"Fallback screenshot failed: {e}")
+        logger.error(f"Failed to generate static dashboard: {e}", exc_info=True)
         return False
 
 
-def capture_experiment_screenshot(
-    experiment_name: str,
-    output_dir: str = "experiments/results/screenshots",
-) -> str:
-    """Capture screenshot for a specific experiment."""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_name = experiment_name.replace(" ", "_").replace("/", "_")
-    filename = f"{safe_name}_{timestamp}.png"
-    output_path = os.path.join(output_dir, filename)
+def find_timeseries_file(experiment_name: str, distribution_dir: Path) -> Path | None:
+    """Find timeseries markdown file for an experiment."""
+    # Try different naming patterns
+    patterns = [
+        f"{experiment_name}_timeseries.md",
+        f"{experiment_name.replace('_results', '')}_timeseries.md",
+    ]
 
-    success = capture_dashboard_screenshot(output_path)
-    return output_path if success else ""
+    for pattern in patterns:
+        path = distribution_dir / pattern
+        if path.exists():
+            return path
+
+    return None
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Capture dashboard screenshot")
-    parser.add_argument(
-        "--output", "-o", default="dashboard_screenshot.png", help="Output file path"
+    parser = argparse.ArgumentParser(
+        description="Generate static HTML dashboard from timeseries data"
     )
-    parser.add_argument("--url", default="http://localhost:8080", help="Dashboard URL")
-    parser.add_argument("--wait", type=float, default=3.0, help="Seconds to wait for rendering")
-    parser.add_argument("--width", type=int, default=1400, help="Screenshot width")
-    parser.add_argument("--height", type=int, default=1200, help="Screenshot height")
-    parser.add_argument("--timeout", type=int, default=120000, help="Timeout in milliseconds")
-    parser.add_argument("--retries", type=int, default=3, help="Number of retry attempts")
+    parser.add_argument("--timeseries", "-t", type=Path, help="Path to timeseries markdown file")
+    parser.add_argument(
+        "--experiment", "-e", help="Experiment name (to find timeseries file in distribution/)"
+    )
+    parser.add_argument("--output", "-o", type=Path, required=True, help="Output HTML file path")
+    parser.add_argument(
+        "--distribution-dir",
+        "-d",
+        type=Path,
+        default=Path("experiments/distribution"),
+        help="Directory containing timeseries files",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
-    success = capture_dashboard_screenshot(
-        args.output,
-        dashboard_url=args.url,
-        wait_seconds=args.wait,
-        width=args.width,
-        height=args.height,
-        timeout_ms=args.timeout,
-        retries=args.retries,
-        require_playwright=True,  # Require Playwright for PNG screenshots
-    )
+    # Determine timeseries file path
+    if args.timeseries:
+        timeseries_path = args.timeseries
+    elif args.experiment:
+        timeseries_path = find_timeseries_file(args.experiment, args.distribution_dir)
+        if not timeseries_path:
+            logger.error(f"Could not find timeseries file for experiment: {args.experiment}")
+            sys.exit(1)
+    else:
+        logger.error("Must provide either --timeseries or --experiment")
+        sys.exit(1)
 
+    if not timeseries_path.exists():
+        logger.error(f"Timeseries file not found: {timeseries_path}")
+        sys.exit(1)
+
+    success = generate_static_dashboard(timeseries_path, args.output)
     sys.exit(0 if success else 1)
 
 

@@ -1,0 +1,37 @@
+# Experiment 16c: Dynamic Batching - Timeout Sensitivity Analysis
+# Test different timeout values to find optimal configuration
+#
+# Purpose: The timeout_ms parameter controls how long the scheduler waits
+# to collect requests before processing a batch. Too high = latency overhead,
+# too low = may not aggregate enough requests to benefit from batching.
+#
+# HYPOTHESIS: Lower timeouts should reduce overhead but may not aggregate
+# enough requests under low load. Higher timeouts help under bursty load
+# but add unnecessary latency under sustained load.
+
+name: "16c_dynamic_batch_timeout_sweep"
+description: "Timeout sensitivity analysis for dynamic batching"
+
+model:
+  backend: "mps"
+  mps:
+    fp16: true
+
+# Dynamic batching with baseline timeout
+batching:
+  enabled: true
+  max_batch_size: 64
+  timeout_ms: 10  # Will be varied in experiment
+  length_aware_batching: false
+
+# Scheduler settings
+scheduler:
+  enable_stage_timing: true
+
+experiment:
+  # Fixed batch size to isolate timeout impact
+  batch_sizes: [32]
+  # Higher concurrency to simulate realistic load
+  concurrency_levels: [4]
+  # Run for ~1 minute+ with 1000 requests
+  benchmark_requests: 1000

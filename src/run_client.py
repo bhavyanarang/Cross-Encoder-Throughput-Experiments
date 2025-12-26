@@ -16,6 +16,7 @@ from threading import Lock
 import numpy as np
 import requests
 import yaml
+from tqdm import tqdm
 
 from src.client.grpc_client import InferenceClient
 from src.models import BenchmarkState, DashboardMetrics
@@ -97,7 +98,7 @@ class DashboardCollector:
             return {}
 
     def collect_history(self) -> DashboardMetrics:
-        """Collect all history data from dashboard."""
+        """Collect all history data from dashboard (built up by frontend polling)."""
         try:
             data = self.fetch_metrics()
             history = data.get("history", {})
@@ -111,6 +112,8 @@ class DashboardCollector:
                 inference_ms=history.get("inference_ms", []),
                 queue_wait_ms=history.get("queue_wait_ms", []),
                 padding_pct=history.get("padding_pct", []),
+                worker_stats=data.get("worker_stats", []),
+                stage_percentages=data.get("stage_percentages", {}),
             )
         except Exception as e:
             logger.warning(f"Failed to collect dashboard metrics: {e}")
@@ -149,6 +152,13 @@ class BenchmarkRunner:
         def run_batch(batch):
             if self.state.interrupted:
                 return None
+            # Check if we've exceeded 1 minute
+            elapsed = time.perf_counter() - start
+            if elapsed > 60.0:  # 1 minute timeout
+                logger.info(
+                    f"Reached 1-minute timeout, stopping benchmark (completed {completed[0]}/{num_requests} requests)"
+                )
+                return None
             _, latency_ms = self.client.infer(batch)
             throughput = batch_size / (latency_ms / 1000)
             with lock:
@@ -158,7 +168,7 @@ class BenchmarkRunner:
                 completed[0] += 1
             return latency_ms
 
-        self._execute_batches(batches, run_batch, concurrency, completed, num_requests)
+        self._execute_batches(batches, run_batch, concurrency, completed, num_requests, start)
 
         elapsed = time.perf_counter() - start
 
@@ -192,21 +202,50 @@ class BenchmarkRunner:
         concurrency: int,
         completed: list,
         num_requests: int,
+        start_time: float = None,
     ):
         """Execute batches with specified concurrency."""
-        if concurrency == 1:
-            for batch in batches:
-                if self.state.interrupted:
-                    break
-                run_batch(batch)
-                if completed[0] % 50 == 0:
-                    logger.info(f"Progress: {completed[0]}/{num_requests}")
-        else:
-            with ThreadPoolExecutor(max_workers=concurrency) as executor:
-                futures = [executor.submit(run_batch, batch) for batch in batches]
-                for _f in as_completed(futures):
+        if start_time is None:
+            start_time = time.perf_counter()
+
+        # Use tqdm for progress bar
+        pbar = tqdm(total=num_requests, desc="Benchmarking", unit="req", ncols=80, leave=False)
+        last_completed = 0
+
+        try:
+            if concurrency == 1:
+                for batch in batches:
                     if self.state.interrupted:
                         break
+                    # Check timeout
+                    if time.perf_counter() - start_time > 60.0:
+                        break
+                    run_batch(batch)
+                    # Update progress bar based on actual completed count
+                    current = completed[0]
+                    if current > last_completed:
+                        pbar.update(current - last_completed)
+                        last_completed = current
+            else:
+                with ThreadPoolExecutor(max_workers=concurrency) as executor:
+                    futures = [executor.submit(run_batch, batch) for batch in batches]
+                    for _f in as_completed(futures):
+                        if self.state.interrupted:
+                            break
+                        # Check timeout
+                        if time.perf_counter() - start_time > 60.0:
+                            break
+                        # Update progress bar based on actual completed count
+                        current = completed[0]
+                        if current > last_completed:
+                            pbar.update(current - last_completed)
+                            last_completed = current
+        finally:
+            # Ensure progress bar shows final state
+            final = completed[0]
+            if final > last_completed:
+                pbar.update(final - last_completed)
+            pbar.close()
 
     def _compute_results(
         self,
@@ -258,8 +297,19 @@ class ResultsWriter:
         config: dict,
         output_file: str,
         dashboard_metrics: DashboardMetrics = None,
+        append: bool = False,
+        timeseries_file: str = None,
     ):
-        """Save experiment results to markdown with detailed metrics."""
+        """Save experiment results to markdown with detailed metrics.
+
+        Args:
+            results: List of benchmark results
+            config: Experiment config dictionary
+            output_file: Path to output markdown file
+            dashboard_metrics: Optional dashboard metrics
+            append: If True, append to existing file with separator
+            timeseries_file: Optional separate file for timeseries (for sweep consolidation)
+        """
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -268,16 +318,43 @@ class ResultsWriter:
         model_config = self._get_model_config(config)
         batching = config.get("batching", {})
 
-        with open(output_file, "w") as f:
+        # Create distribution directory for tables
+        output_path = Path(output_file)
+        distribution_dir = output_path.parent.parent / "distribution"
+        distribution_dir.mkdir(exist_ok=True)
+        experiment_basename = output_path.stem.replace("_results", "")
+
+        # Determine write mode
+        mode = "a" if append else "w"
+
+        with open(output_file, mode) as f:
+            # Add separator before appending new config results
+            if append:
+                f.write("\n\n---\n\n")
+
             self._write_header(f, experiment_name, description, timestamp, model_config, batching)
             self._write_summary_table(f, results)
             self._write_detailed_metrics(f, results)
             self._write_overall_summary(f, results)
 
             if dashboard_metrics:
-                self._write_dashboard_metrics(f, dashboard_metrics)
+                # Pass the first result for per-config timeseries identification
+                result = None
+                if results and len(results) > 0:
+                    result = results[0]
 
-        logger.info(f"Results saved to {output_file}")
+                self._write_dashboard_metrics(
+                    f,
+                    dashboard_metrics,
+                    distribution_dir,
+                    experiment_basename,
+                    timeseries_file=timeseries_file,
+                    append=append,
+                    config=config,
+                    result=result,
+                )
+
+        logger.info(f"Results {'appended to' if append else 'saved to'} {output_file}")
 
     def _get_model_config(self, config: dict) -> dict:
         """Extract model config from experiment config."""
@@ -449,8 +526,29 @@ class ResultsWriter:
         f.write(f"| Avg Throughput | {avg_tp:.2f} p/s | all configs |\n")
         f.write(f"| Avg Latency | {avg_lat:.2f}ms | all configs |\n")
 
-    def _write_dashboard_metrics(self, f, metrics: DashboardMetrics):
-        """Write dashboard metrics summary and full time-series data."""
+    def _write_dashboard_metrics(
+        self,
+        f,
+        metrics: DashboardMetrics,
+        distribution_dir: Path,
+        experiment_basename: str,
+        timeseries_file: str = None,
+        append: bool = False,
+        config: dict = None,
+        result: dict = None,
+    ):
+        """Write dashboard metrics summary and full time-series data.
+
+        Args:
+            f: File object to write to
+            metrics: Dashboard metrics containing timeseries data
+            distribution_dir: Directory for distribution files
+            experiment_basename: Base name for experiment files
+            timeseries_file: Optional separate file for timeseries
+            append: Whether to append to existing file
+            config: Full experiment configuration
+            result: Individual benchmark result (for per-config timeseries)
+        """
         summary = metrics.get_summary()
 
         # Summary statistics table
@@ -473,11 +571,124 @@ class ResultsWriter:
             f.write(f"| {display_name} | {s.get('avg', 0):.1f} | {s.get('min', 0):.1f} | ")
             f.write(f"{s.get('max', 0):.1f} | {s.get('p50', 0):.1f} | {s.get('p95', 0):.1f} |\n")
 
-        # Full time-series data table
-        self._write_dashboard_timeseries(f, metrics)
+        # Stage breakdown percentages
+        self._write_stage_breakdown(f, metrics)
 
-    def _write_dashboard_timeseries(self, f, metrics: DashboardMetrics):
-        """Write full time-series data from dashboard."""
+        # Per-worker stats (for multi-model experiments)
+        self._write_worker_stats(f, metrics)
+
+        # Create per-sweep config from result and full config
+        sweep_config = self._extract_sweep_config(config, result)
+
+        # Full time-series data - write to specified file or default location
+        if timeseries_file:
+            ts_path = Path(timeseries_file)
+            ts_path.parent.mkdir(exist_ok=True)
+            self._write_dashboard_timeseries(ts_path, metrics, append=append, config=sweep_config)
+            f.write(
+                f"\n## Dashboard Time-Series Data\n\n"
+                f"Full time-series data is available in: `distribution/{ts_path.name}`\n"
+            )
+        else:
+            ts_path = distribution_dir / f"{experiment_basename}_timeseries.md"
+            self._write_dashboard_timeseries(ts_path, metrics, append=False, config=sweep_config)
+            f.write(
+                f"\n## Dashboard Time-Series Data\n\n"
+                f"Full time-series data is available in: `distribution/{experiment_basename}_timeseries.md`\n"
+            )
+
+    def _extract_sweep_config(self, config: dict, result: dict) -> dict:
+        """Extract per-sweep configuration from full config and individual result.
+
+        Args:
+            config: Full experiment configuration
+            result: Individual benchmark result containing batch_size, concurrency, etc.
+
+        Returns:
+            Dictionary with per-sweep configuration details
+        """
+        sweep_config = {}
+
+        if result:
+            # Add per-sweep parameters from result
+            if "batch_size" in result:
+                sweep_config["batch_size"] = result["batch_size"]
+            if "concurrency" in result:
+                sweep_config["concurrency"] = result["concurrency"]
+
+        if config:
+            # Add model configuration
+            model_config = self._get_model_config(config)
+            if model_config:
+                if "backend" in model_config:
+                    sweep_config["backend"] = model_config["backend"]
+                if "device" in model_config:
+                    sweep_config["device"] = model_config["device"]
+                if "name" in model_config:
+                    sweep_config["model"] = model_config["name"]
+
+            # Add batching configuration if enabled
+            batching = config.get("batching", {})
+            if batching.get("enabled"):
+                sweep_config["batching_enabled"] = True
+                if "max_batch_size" in batching:
+                    sweep_config["max_batch_size"] = batching["max_batch_size"]
+                if "timeout_ms" in batching:
+                    sweep_config["timeout_ms"] = batching["timeout_ms"]
+
+        return sweep_config
+
+    def _write_stage_breakdown(self, f, metrics: DashboardMetrics):
+        """Write stage breakdown percentages."""
+        stage_pct = metrics.stage_percentages
+        if not stage_pct:
+            return
+
+        f.write("\n### Stage Breakdown\n\n")
+        f.write("| Stage | Percentage |\n")
+        f.write("|-------|------------|\n")
+        f.write(f"| Tokenization | {stage_pct.get('tokenize_pct', 0):.1f}% |\n")
+        f.write(f"| Queue Wait | {stage_pct.get('queue_wait_pct', 0):.1f}% |\n")
+        f.write(f"| Model Inference | {stage_pct.get('inference_pct', 0):.1f}% |\n")
+        f.write(f"| Other/gRPC | {stage_pct.get('other_pct', 0):.1f}% |\n")
+
+    def _write_worker_stats(self, f, metrics: DashboardMetrics):
+        """Write per-worker/per-model statistics."""
+        worker_stats = metrics.worker_stats
+        if not worker_stats:
+            return
+
+        f.write("\n### Per-Worker Statistics\n\n")
+        f.write(
+            "| Worker ID | Avg Latency (ms) | P95 Latency (ms) | Throughput (q/s) | Queries |\n"
+        )
+        f.write("|-----------|------------------|------------------|------------------|--------|\n")
+
+        for ws in worker_stats:
+            f.write(f"| {ws.get('worker_id', '-')} | ")
+            f.write(f"{ws.get('avg_ms', 0):.1f} | ")
+            f.write(f"{ws.get('p95_ms', 0):.1f} | ")
+            f.write(f"{ws.get('throughput_qps', 0):.1f} | ")
+            f.write(f"{ws.get('query_count', 0)} |\n")
+
+    def _write_dashboard_timeseries(
+        self,
+        output_file: Path,
+        metrics: DashboardMetrics,
+        append: bool = False,
+        config: dict = None,
+    ):
+        """Write full time-series data from dashboard to separate file.
+
+        Optimized to avoid slow file reading when appending by tracking
+        the index in a companion file.
+
+        Args:
+            output_file: Path to output markdown file
+            metrics: Dashboard metrics containing timeseries data
+            append: If True, append to existing file with separator and config
+            config: Optional configuration dict (for sweep identification in distribution files)
+        """
         # Get all lists and find the longest one
         data_lists = {
             "GPU Mem (MB)": metrics.gpu_memory_mb,
@@ -496,23 +707,117 @@ class ResultsWriter:
         if max_len == 0:
             return
 
-        f.write("\n## Dashboard Time-Series Data\n\n")
+        # Use companion index file to track last written index (O(1) read instead of O(n))
+        index_file = output_file.with_suffix(".idx")
+        file_exists = output_file.exists() and output_file.stat().st_size > 0
 
-        # Header
-        headers = ["Index"] + list(data_lists.keys())
-        f.write("| " + " | ".join(headers) + " |\n")
-        f.write("|" + "|".join(["-----"] * len(headers)) + "|\n")
-
-        # Data rows
-        for i in range(max_len):
-            row = [str(i)]
-            for _key, data in data_lists.items():
-                if i < len(data):
-                    val = data[i]
-                    row.append(f"{val:.1f}" if isinstance(val, float) else str(val))
+        # Get starting index efficiently
+        start_idx = 0
+        if append and file_exists:
+            try:
+                if index_file.exists():
+                    with open(index_file) as f:
+                        start_idx = int(f.read().strip()) + 1
                 else:
-                    row.append("-")
-            f.write("| " + " | ".join(row) + " |\n")
+                    # Fallback: read last line only (faster than full file read)
+                    with open(output_file, "rb") as f:
+                        # Seek to end and read backwards
+                        f.seek(0, 2)
+                        file_size = f.tell()
+                        # Read last 500 bytes to find last line
+                        read_size = min(500, file_size)
+                        f.seek(-read_size, 2)
+                        last_chunk = f.read(read_size).decode("utf-8", errors="ignore")
+                        last_line = last_chunk.rstrip().split("\n")[-1]
+
+                        if last_line.startswith("| ") and "|--" not in last_line:
+                            parts = last_line.split("|")
+                            if len(parts) > 1:
+                                try:
+                                    start_idx = int(parts[1].strip()) + 1
+                                except ValueError:
+                                    start_idx = 0
+            except Exception:
+                start_idx = 0
+
+        # Write data rows
+        mode = "a" if append else "w"
+        with open(output_file, mode) as f:
+            # For first write or non-append, write header
+            if not append or not file_exists:
+                f.write("# Dashboard Time-Series Data\n\n")
+                f.write(f"**Experiment:** {output_file.stem.replace('_timeseries', '')}\n\n")
+                f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+                # Header row
+                headers = ["Index"] + list(data_lists.keys())
+                f.write("| " + " | ".join(headers) + " |\n")
+                f.write("|" + "|".join(["-----"] * len(headers)) + "|\n")
+            else:
+                # When appending, add separator and configuration metadata
+                f.write("\n---\n\n")
+                if config:
+                    f.write("## Configuration\n\n")
+
+                    # Order of keys to display (in priority order)
+                    key_order = [
+                        "batch_size",
+                        "concurrency",
+                        "backend",
+                        "device",
+                        "model",
+                        "batching_enabled",
+                        "max_batch_size",
+                        "timeout_ms",
+                    ]
+
+                    # Display relevant config parameters
+                    config_items = []
+                    for key in key_order:
+                        if key in config:
+                            val = config[key]
+                            # Format the value appropriately
+                            if isinstance(val, bool):
+                                display_val = "Yes" if val else "No"
+                            else:
+                                display_val = str(val)
+                            config_items.append(f"{key}: {display_val}")
+
+                    # Write configuration as inline text
+                    if config_items:
+                        f.write("**Parameters:** " + " | ".join(config_items) + "\n\n")
+
+                f.write("**Data rows:**\n\n")
+                headers = ["Index"] + list(data_lists.keys())
+                f.write("| " + " | ".join(headers) + " |\n")
+                f.write("|" + "|".join(["-----"] * len(headers)) + "|\n")
+
+            # Data rows - use buffering for faster writes
+            buffer = []
+            for i in range(max_len):
+                row = [str(start_idx + i)]
+                for _key, data in data_lists.items():
+                    if i < len(data):
+                        val = data[i]
+                        row.append(f"{val:.1f}" if isinstance(val, float) else str(val))
+                    else:
+                        row.append("-")
+                buffer.append("| " + " | ".join(row) + " |\n")
+
+                # Flush buffer every 1000 rows to avoid memory buildup
+                if len(buffer) >= 1000:
+                    f.writelines(buffer)
+                    buffer.clear()
+
+            # Flush remaining buffer
+            if buffer:
+                f.writelines(buffer)
+
+        # Update index file for fast lookups on next append
+        try:
+            with open(index_file, "w") as f:
+                f.write(str(start_idx + max_len - 1))
+        except Exception:
+            pass  # Non-critical, continue anyway
 
 
 def main():
@@ -522,6 +827,12 @@ def main():
     parser.add_argument("--experiment", "-e", action="store_true", help="Experiment mode")
     parser.add_argument("--config", "-c", help="Experiment config YAML")
     parser.add_argument("--output", "-o", help="Output file for results")
+    parser.add_argument(
+        "--timeseries-file", help="Separate file for timeseries data (for sweep consolidation)"
+    )
+    parser.add_argument(
+        "--append", action="store_true", help="Append to output file instead of overwriting"
+    )
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
     parser.add_argument("--num-requests", type=int, default=100, help="Number of requests")
     parser.add_argument("--concurrency", type=int, default=1, help="Concurrency level")
@@ -533,23 +844,38 @@ def main():
     signal.signal(signal.SIGINT, state.handle_interrupt)
     signal.signal(signal.SIGTERM, state.handle_interrupt)
 
-    # Load config if provided
+    # Load config if provided (merge with base_config.yaml)
     config = {}
     if args.config:
+        # Load base config first
+        base_config_path = Path(__file__).parent.parent / "experiments" / "base_config.yaml"
+        base_config = {}
+        if base_config_path.exists():
+            with open(base_config_path) as f:
+                base_config = yaml.safe_load(f) or {}
+
+        # Load experiment config
         with open(args.config) as f:
-            config = yaml.safe_load(f)
+            exp_config = yaml.safe_load(f) or {}
+
+        # Deep merge: base_config values are defaults, exp_config overrides
+        def deep_merge(base, override):
+            """Deep merge two dictionaries, with override taking precedence."""
+            result = base.copy()
+            for key, value in override.items():
+                if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                    result[key] = deep_merge(result[key], value)
+                else:
+                    result[key] = value
+            return result
+
+        config = deep_merge(base_config, exp_config)
 
         exp = config.get("experiment", config.get("benchmark", {}))
-        if "batch_sizes" in exp:
-            args.batch_size = exp["batch_sizes"][0] if exp["batch_sizes"] else args.batch_size
         if "benchmark_requests" in exp:
             args.num_requests = exp["benchmark_requests"]
-        if "batch_size" in exp:
-            args.batch_size = exp["batch_size"]
         if "num_requests" in exp:
             args.num_requests = exp["num_requests"]
-        if "concurrency" in exp:
-            args.concurrency = exp["concurrency"]
 
     # Load test pairs
     loader = DatasetLoader()
@@ -559,51 +885,234 @@ def main():
     # Create client
     client = InferenceClient(args.host, args.port)
 
-    # Warmup
+    # Determine all combinations to test
+    exp = config.get("experiment", config.get("benchmark", {})) if config else {}
+    batch_sizes = exp.get("batch_sizes", [args.batch_size])
+    concurrency_levels = exp.get("concurrency_levels", [args.concurrency])
+
+    # If single values provided, convert to lists
+    if "batch_size" in exp and "batch_sizes" not in exp:
+        batch_sizes = [exp["batch_size"]]
+    if "concurrency" in exp and "concurrency_levels" not in exp:
+        concurrency_levels = [exp["concurrency"]]
+
+    total_combinations = len(batch_sizes) * len(concurrency_levels)
+    logger.info(
+        f"Running {total_combinations} configuration(s): {len(batch_sizes)} batch size(s) × {len(concurrency_levels)} concurrency level(s)"
+    )
+
+    # Warmup with first batch size
     logger.info("Warming up...")
+    warmup_batch_size = batch_sizes[0] if batch_sizes else args.batch_size
     for _ in range(5):
-        client.infer(pairs[: args.batch_size])
+        client.infer(pairs[:warmup_batch_size])
 
     try:
         runner = BenchmarkRunner(client, state)
-        results = [
-            runner.run(
-                pairs,
-                args.batch_size,
-                args.num_requests,
-                args.concurrency,
-            )
-        ]
+        results = []
 
-        # Collect dashboard metrics
+        # Iterate through all combinations
+        config_num = 0
+        for batch_size in batch_sizes:
+            for concurrency in concurrency_levels:
+                if state.interrupted:
+                    logger.warning("Experiment interrupted, stopping...")
+                    break
+
+                config_num += 1
+                logger.info(f"\n{'=' * 60}")
+                logger.info(
+                    f"Config {config_num}/{total_combinations}: batch_size={batch_size}, concurrency={concurrency}"
+                )
+                logger.info(f"Requests per config: {args.num_requests} (fixed for all configs)")
+                logger.info(f"{'=' * 60}")
+
+                # Reset metrics before each config for clean per-config metrics
+                try:
+                    requests.post("http://localhost:8080/reset", timeout=2)
+                except Exception:
+                    pass  # Dashboard might not be available, continue anyway
+
+                result = runner.run(
+                    pairs,
+                    batch_size,
+                    args.num_requests,  # Fixed number of requests per combination
+                    concurrency,
+                )
+                result["batch_size"] = batch_size
+                result["concurrency"] = concurrency
+                results.append(result)
+
+                if "error" not in result:
+                    logger.info(
+                        f"✓ Completed: {result['total_pairs']} pairs in {result['total_time_s']:.2f}s"
+                    )
+                    logger.info(
+                        f"  Throughput: {result['throughput_avg']:.1f} p/s, Latency: {result['latency_avg_ms']:.1f}ms"
+                    )
+                else:
+                    logger.error(f"✗ Failed: {result.get('error', 'Unknown error')}")
+
+                # Brief pause between configs
+                time.sleep(0.5)
+
+            if state.interrupted:
+                break
+
+        # Collect dashboard metrics (after all configs)
         dashboard_collector = DashboardCollector()
         dashboard_metrics = dashboard_collector.collect_history()
 
         # Print summary
-        r = results[0]
-        if "error" not in r:
+        successful = [r for r in results if "error" not in r]
+        if successful:
             print("\n" + "=" * 80)
-            print("BENCHMARK RESULTS")
+            print("EXPERIMENT SUMMARY")
             print("=" * 80)
-            print(f"Total Pairs: {r['total_pairs']} in {r['total_time_s']:.2f}s")
-            print("\nLatency (ms):")
-            print(f"  Average: {r['latency_avg_ms']:.2f}")
-            print(
-                f"  P50: {r['latency_p50_ms']:.2f} | P95: {r['latency_p95_ms']:.2f} | "
-                f"P99: {r['latency_p99_ms']:.2f}"
-            )
-            print("\nThroughput (pairs/s):")
-            print(f"  Average: {r['throughput_avg']:.2f}")
-            print(
-                f"  P50: {r['throughput_p50']:.2f} | P95: {r['throughput_p95']:.2f} | "
-                f"P99: {r['throughput_p99']:.2f}"
-            )
-            print("=" * 80 + "\n")
+            print(f"Total configurations tested: {len(results)}")
+            print(f"Successful: {len(successful)}")
+            print(f"Failed: {len(results) - len(successful)}")
+
+            if successful:
+                # If only one configuration, show per-request statistics instead
+                if len(successful) == 1:
+                    r = successful[0]
+                    print("\n" + "-" * 80)
+                    print(f"CONFIGURATION: batch={r['batch_size']}, concurrency={r['concurrency']}")
+                    print("-" * 80)
+
+                    # Show per-request statistics
+                    print("\nPER-REQUEST THROUGHPUT STATISTICS (pairs/s)")
+                    print("-" * 80)
+                    print(f"  Average: {r['throughput_avg']:.1f}")
+                    print(f"  Min:     {r['throughput_min']:.1f}")
+                    print(f"  Max:     {r['throughput_max']:.1f}")
+                    print(f"  Std Dev: {r['throughput_std']:.1f}")
+                    print(f"  P50:     {r['throughput_p50']:.1f}")
+                    print(f"  P95:     {r['throughput_p95']:.1f}")
+
+                    print("\nPER-REQUEST LATENCY STATISTICS (ms)")
+                    print("-" * 80)
+                    print(f"  Average: {r['latency_avg_ms']:.1f}")
+                    print(f"  Min:     {r['latency_min_ms']:.1f}")
+                    print(f"  Max:     {r['latency_max_ms']:.1f}")
+                    print(f"  Std Dev: {r['latency_std_ms']:.1f}")
+                    print(f"  P50:     {r['latency_p50_ms']:.1f}")
+                    print(f"  P95:     {r['latency_p95_ms']:.1f}")
+                    print(f"  P99:     {r['latency_p99_ms']:.1f}")
+                else:
+                    # Multiple configurations - show per-configuration statistics
+                    all_throughputs = [r["throughput_avg"] for r in successful]
+                    all_latencies = [r["latency_avg_ms"] for r in successful]
+
+                    best_tp = max(successful, key=lambda x: x["throughput_avg"])
+                    worst_tp = min(successful, key=lambda x: x["throughput_avg"])
+                    best_lat = min(successful, key=lambda x: x["latency_avg_ms"])
+                    worst_lat = max(successful, key=lambda x: x["latency_avg_ms"])
+
+                    avg_tp = sum(all_throughputs) / len(all_throughputs)
+                    avg_lat = sum(all_latencies) / len(all_latencies)
+
+                    # Calculate percentiles
+                    tp_sorted = sorted(all_throughputs)
+                    lat_sorted = sorted(all_latencies)
+                    tp_p50 = tp_sorted[len(tp_sorted) // 2]
+                    tp_p95 = (
+                        tp_sorted[int(len(tp_sorted) * 0.95)]
+                        if len(tp_sorted) > 1
+                        else tp_sorted[0]
+                    )
+                    lat_p50 = lat_sorted[len(lat_sorted) // 2]
+                    lat_p95 = (
+                        lat_sorted[int(len(lat_sorted) * 0.95)]
+                        if len(lat_sorted) > 1
+                        else lat_sorted[0]
+                    )
+
+                    print("\n" + "-" * 80)
+                    print("PER-CONFIGURATION THROUGHPUT STATISTICS (pairs/s)")
+                    print("-" * 80)
+                    print(f"  Average: {avg_tp:.1f}")
+                    print(
+                        f"  Min:     {worst_tp['throughput_avg']:.1f} (batch={worst_tp['batch_size']}, conc={worst_tp['concurrency']})"
+                    )
+                    print(
+                        f"  Max:     {best_tp['throughput_avg']:.1f} (batch={best_tp['batch_size']}, conc={best_tp['concurrency']})"
+                    )
+                    print(f"  P50:     {tp_p50:.1f}")
+                    print(f"  P95:     {tp_p95:.1f}")
+
+                    print("\n" + "-" * 80)
+                    print("PER-CONFIGURATION LATENCY STATISTICS (ms)")
+                    print("-" * 80)
+                    print(f"  Average: {avg_lat:.1f}")
+                    print(
+                        f"  Min:     {best_lat['latency_avg_ms']:.1f} (batch={best_lat['batch_size']}, conc={best_lat['concurrency']})"
+                    )
+                    print(
+                        f"  Max:     {worst_lat['latency_avg_ms']:.1f} (batch={worst_lat['batch_size']}, conc={worst_lat['concurrency']})"
+                    )
+                    print(f"  P50:     {lat_p50:.1f}")
+                    print(f"  P95:     {lat_p95:.1f}")
+
+                print("\n" + "-" * 80)
+                print("PER-CONFIGURATION RESULTS")
+                print("-" * 80)
+                print(
+                    f"{'Batch':<8} {'Conc':<6} {'Throughput':<12} {'Latency':<10} {'Pairs':<8} {'Time(s)':<10}"
+                )
+                print("-" * 80)
+                for r in sorted(successful, key=lambda x: (x["batch_size"], x["concurrency"])):
+                    print(
+                        f"{r['batch_size']:<8} {r['concurrency']:<6} "
+                        f"{r['throughput_avg']:<12.1f} {r['latency_avg_ms']:<10.1f} "
+                        f"{r['total_pairs']:<8} {r['total_time_s']:<10.2f}"
+                    )
+                print("=" * 80 + "\n")
 
         # Save results
         if args.output:
             writer = ResultsWriter()
-            writer.save(results, config, args.output, dashboard_metrics)
+
+            # For sweep experiments, we need to track per-configuration metrics separately
+            # Create a mapping of results to their configurations
+            for idx, result in enumerate(results):
+                # Create per-config data if doing timeseries_file (sweep mode)
+                if args.timeseries_file and idx == 0:
+                    # First config - don't append
+                    writer.save(
+                        [result],  # Just this config
+                        config,
+                        args.output,
+                        dashboard_metrics
+                        if idx == len(results) - 1
+                        else None,  # Only attach metrics to last
+                        append=False,
+                        timeseries_file=args.timeseries_file,
+                    )
+                elif args.timeseries_file:
+                    # Subsequent configs - append with config metadata
+                    writer.save(
+                        [result],  # Just this config
+                        config,
+                        args.output,
+                        dashboard_metrics
+                        if idx == len(results) - 1
+                        else None,  # Only attach metrics to last
+                        append=True,
+                        timeseries_file=args.timeseries_file,
+                    )
+                elif idx == 0:
+                    # Non-sweep mode - save all at once
+                    writer.save(
+                        results,
+                        config,
+                        args.output,
+                        dashboard_metrics,
+                        append=False,
+                        timeseries_file=args.timeseries_file,
+                    )
+                    break  # Exit loop since we saved everything
 
     finally:
         client.close()

@@ -25,3 +25,5 @@ ENV/
 Thumbs.db
 
 .cache/
+.gitignore
+images/

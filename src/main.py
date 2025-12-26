@@ -25,13 +25,34 @@ logger = logging.getLogger(__name__)
 
 
 def load_config(config_path: str) -> Config:
-    """Load configuration from YAML file."""
+    """Load configuration from YAML file, merging with base_config.yaml."""
     path = Path(config_path)
     if not path.exists():
         raise FileNotFoundError(f"Config not found: {config_path}")
 
+    # Load base config first
+    base_config_path = path.parent / "base_config.yaml"
+    base_config = {}
+    if base_config_path.exists():
+        with open(base_config_path) as f:
+            base_config = yaml.safe_load(f) or {}
+
+    # Load experiment config
     with open(path) as f:
-        data = yaml.safe_load(f)
+        exp_config = yaml.safe_load(f) or {}
+
+    # Deep merge: base_config values are defaults, exp_config overrides
+    def deep_merge(base, override):
+        """Deep merge two dictionaries, with override taking precedence."""
+        result = base.copy()
+        for key, value in override.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = deep_merge(result[key], value)
+            else:
+                result[key] = value
+        return result
+
+    data = deep_merge(base_config, exp_config)
 
     # Handle experiment format with models list
     instances = []
@@ -115,7 +136,14 @@ def main():
     args = parser.parse_args()
 
     config = load_config(args.experiment)
-    logger.info(f"Loaded config: {config.name or args.experiment}")
+
+    # Use experiment filename as fallback if name is not set
+    experiment_name = config.name
+    if not experiment_name:
+        # Extract name from filename (e.g., "experiments/07a_test.yaml" -> "07a_test")
+        experiment_name = Path(args.experiment).stem
+
+    logger.info(f"Loaded config: {experiment_name}")
 
     if args.grpc_port:
         config.server.grpc_port = args.grpc_port
@@ -129,7 +157,7 @@ def main():
     metrics = MetricsCollector()
     metrics.set_pool(pool)  # Pass pool reference for GPU memory queries
     metrics.set_experiment_info(
-        name=config.name,
+        name=experiment_name,
         description=config.description,
         backend=config.model_pool.instances[0].backend
         if config.model_pool.instances

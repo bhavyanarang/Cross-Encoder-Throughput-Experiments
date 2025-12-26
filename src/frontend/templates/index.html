@@ -89,6 +89,7 @@
     <section class="stage-breakdown">
         <div class="stage-bar">
             <div class="stage-bar-segment tokenize" id="bar_tokenize" style="width: 0%"></div>
+            <div class="stage-bar-segment queue-wait" id="bar_queue_wait" style="width: 0%"></div>
             <div class="stage-bar-segment inference" id="bar_inference" style="width: 0%"></div>
             <div class="stage-bar-segment other" id="bar_other" style="width: 100%"></div>
         </div>
@@ -98,18 +99,26 @@
                 <span>Tokenization (<span id="pct_tokenize">0</span>%)</span>
             </div>
             <div class="legend-item">
+                <div class="legend-dot queue-wait"></div>
+                <span>Queue Wait (<span id="pct_queue_wait">0</span>%)</span>
+            </div>
+            <div class="legend-item">
                 <div class="legend-dot inference"></div>
                 <span>Model Inference (<span id="pct_inference">0</span>%)</span>
             </div>
             <div class="legend-item">
                 <div class="legend-dot other"></div>
-                <span>Other (<span id="pct_other">100</span>%)</span>
+                <span>Other/gRPC (<span id="pct_other">100</span>%)</span>
             </div>
         </div>
         <div class="stats-grid">
             <div class="stat-item">
                 <div class="stat-label">Tokenize P95</div>
                 <div class="stat-value" id="tokenize_p95">0 ms</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">Queue Wait P95</div>
+                <div class="stat-value" id="queue_wait_p95_breakdown">0 ms</div>
             </div>
             <div class="stat-item">
                 <div class="stat-label">Inference P95</div>
@@ -120,6 +129,12 @@
                 <div class="stat-value" id="total_p95">0 ms</div>
             </div>
         </div>
+    </section>
+
+    <!-- Per-Worker/Per-Model Stats (for multi-model experiments) -->
+    <div class="section-title" id="worker_stats_title" style="display: none;">Per-Model Statistics</div>
+    <section class="metrics-row worker-stats" id="worker_stats_section" style="display: none;">
+        <!-- Dynamically populated with per-worker/per-model stats -->
     </section>
 
     <!-- Charts Grid -->

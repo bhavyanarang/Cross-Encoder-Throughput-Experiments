@@ -1,0 +1,21 @@
+# Experiment 11: Quantization Comparison - Sweep quantization modes
+name: "11_quantization_sweep"
+description: "Compare FP32, FP16, and INT8 quantization on MPS backend"
+# Note: quantization_mode list will be expanded, and each config will need
+# different settings (quantized: true for int8, fp16: true/false for fp16/fp32)
+# The sweep handler should handle this, but if not, we may need custom logic
+
+model:
+  backend: "mps"
+  device: "mps"
+  quantized: false  # Will be set to true for int8 in sweep handler
+  quantization_mode: ["fp32", "fp16", "int8"]
+  mps:
+    fp16: false  # Will be overridden: false for fp32, true for fp16, N/A for int8
+
+batching:
+  enabled: false
+
+experiment:
+  batch_sizes: [96]
+  concurrency_levels: [1]

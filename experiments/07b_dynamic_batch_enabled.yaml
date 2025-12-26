@@ -1,0 +1,19 @@
+# Experiment 07b: Dynamic Batching Enabled
+name: "07b_dynamic_batch_enabled"
+description: "Dynamic batching enabled with max_batch=96, timeout=50ms"
+
+model:
+  backend: "mps"
+  device: "mps"
+  mps:
+    fp16: true
+
+batching:
+  enabled: true
+  max_batch_size: 96
+  timeout_ms: 50
+  length_aware_batching: false
+
+experiment:
+  batch_sizes: [32]
+  concurrency_levels: [4]

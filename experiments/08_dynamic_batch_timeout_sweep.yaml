@@ -1,0 +1,21 @@
+# Experiment 08: Dynamic Batching Timeout Sweep - All backends and timeout values
+name: "08_dynamic_batch_timeout_sweep"
+description: "Dynamic batching timeout sweep across backends and timeout values"
+
+model:
+  backend: ["mps", "mlx"]
+  device: "mps"
+  mps:
+    fp16: true
+  mlx:
+    bits: 16
+
+batching:
+  enabled: true
+  max_batch_size: 96
+  timeout_ms: [5, 10, 20, 50, 100, 200]
+  length_aware_batching: false
+
+experiment:
+  batch_sizes: [32]
+  concurrency_levels: [4]

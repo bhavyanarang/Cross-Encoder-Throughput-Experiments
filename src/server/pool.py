@@ -92,6 +92,7 @@ def _worker_main(
                     worker_id=worker_id,
                     t_tokenize_ms=result.t_tokenize_ms,
                     t_model_inference_ms=result.t_model_inference_ms,
+                    t_queue_wait_ms=0.0,  # Worker doesn't know queue wait, set by scheduler
                     total_ms=result.total_ms,
                     total_tokens=result.total_tokens,
                     real_tokens=result.real_tokens,
@@ -207,6 +208,7 @@ class ModelPool:
                 scores=result.scores,
                 t_tokenize_ms=result.t_tokenize_ms,
                 t_model_inference_ms=result.t_model_inference_ms,
+                t_queue_wait_ms=result.t_queue_wait_ms,
                 total_ms=result.total_ms,
                 total_tokens=result.total_tokens,
                 real_tokens=result.real_tokens,
@@ -215,6 +217,7 @@ class ModelPool:
                 max_seq_length=result.max_seq_length,
                 avg_seq_length=result.avg_seq_length,
                 batch_size=result.batch_size,
+                worker_id=result.worker_id,
             )
         except Exception:
             self._pending.pop(req_id, None)

@@ -1,0 +1,17 @@
+# Experiment 14: Compilation Mode - Sweep compile modes
+name: "14_compile_mode_sweep"
+description: "Compare torch.compile modes (default, reduce-overhead, max-autotune)"
+
+model:
+  backend: "compiled"
+  device: "mps"
+  compiled:
+    mode: ["default", "reduce-overhead", "max-autotune"]
+    fp16: true
+
+batching:
+  enabled: false
+
+experiment:
+  batch_sizes: [64]
+  concurrency_levels: [1]

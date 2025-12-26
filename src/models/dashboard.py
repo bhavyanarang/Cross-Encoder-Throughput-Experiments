@@ -63,6 +63,8 @@ class DashboardMetrics:
     inference_ms: list = field(default_factory=list)
     queue_wait_ms: list = field(default_factory=list)
     padding_pct: list = field(default_factory=list)
+    worker_stats: list = field(default_factory=list)  # Per-worker/per-model stats
+    stage_percentages: dict = field(default_factory=dict)  # Stage breakdown percentages
 
     def get_summary(self) -> dict:
         """Get summary statistics for all metrics."""

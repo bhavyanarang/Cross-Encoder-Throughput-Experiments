@@ -1,0 +1,34 @@
+# Experiment 16d: Dynamic Batching - High Concurrency Analysis
+# Test if dynamic batching provides benefit under high concurrent load
+#
+# Purpose: Dynamic batching should theoretically help when:
+# 1. Many concurrent requests arrive faster than they can be processed
+# 2. Aggregating requests reduces per-request overhead
+# 3. GPU can handle larger batches efficiently
+#
+# HYPOTHESIS: At high concurrency, dynamic batching may show benefit
+# by aggregating requests that would otherwise compete for resources.
+# Low concurrency may not see benefit due to queue waiting overhead.
+
+name: "16d_dynamic_batch_high_concurrency"
+description: "Dynamic batching under high concurrency load"
+
+model:
+  backend: "mps"
+  mps:
+    fp16: true
+
+# Dynamic batching optimized for high throughput
+batching:
+  enabled: true
+  max_batch_size: 128  # Larger batch to maximize GPU utilization
+  timeout_ms: 5        # Very short timeout to minimize waiting
+  length_aware_batching: true  # Reduce padding waste
+
+experiment:
+  # Small client batches, let server aggregate
+  batch_sizes: [16]
+  # High concurrency to stress test
+  concurrency_levels: [8]
+  # Run for ~1 minute+ with 1000 requests
+  benchmark_requests: 1000

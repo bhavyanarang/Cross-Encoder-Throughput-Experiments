@@ -7,6 +7,7 @@ from src.models.inference import InferenceResult, WorkItem, WorkResult
 from src.models.metrics import LatencyStats, PaddingStats, StageStats, ThroughputStats
 from src.models.scheduler import PendingRequest
 from src.models.server_metrics import MetricsCollector, ProcessMonitor, StageMetrics
+from src.models.sweep import expand_sweep_config, get_sweep_name
 
 __all__ = [
     # Inference

@@ -1,0 +1,24 @@
+# Experiment 15: Combined Optimizations - Sweep across backends
+name: "15_optimal_sweep"
+description: "Optimal settings from previous phases combined, tested on all backends"
+
+model:
+  backend: ["mps", "mlx", "compiled"]
+  device: "mps"
+  mps:
+    fp16: true
+  mlx:
+    bits: 16
+  compiled:
+    mode: "reduce-overhead"
+    fp16: true
+
+batching:
+  enabled: true
+  max_batch_size: 96  # Optimal from Phase 6
+  timeout_ms: 50  # Optimal from Phase 5
+  length_aware_batching: true  # Optimal from Phase 7
+
+experiment:
+  batch_sizes: [96]  # Optimal from Phase 2
+  concurrency_levels: [4]  # Optimal from Phase 3

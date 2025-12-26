@@ -11,14 +11,27 @@
 name: "14_optimized_production"
 description: "Production-optimized config: MLX + Length-Aware Batching"
 
-model:
-  name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
-  device: "mps"
-  backend: "mlx"
-  max_length: 256
-  mlx:
-    bits: 16
-    group_size: 64
+# model:
+#   name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+#   device: "mps"
+#   backend: "mlx"
+#   max_length: 256
+#   mlx:
+#     bits: 16
+#     group_size: 64
+
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: "mps"
+      device: "mps"
+      use_fp16: true
+      max_length: 175
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: "mps"
+      device: "mps"
+      use_fp16: true
+      max_length: 175
 
 # Single-model mode (no pool) - pools are counter-productive on single GPU
 # model_pool: not used

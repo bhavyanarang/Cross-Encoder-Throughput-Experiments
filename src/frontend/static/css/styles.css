@@ -245,6 +245,7 @@ body {
 }
 
 .stage-bar-segment.tokenize { background: var(--accent-red); }
+.stage-bar-segment.queue-wait { background: var(--accent-orange); }
 .stage-bar-segment.inference { background: var(--accent-green); }
 .stage-bar-segment.other { background: var(--text-muted); }
 
@@ -269,12 +270,13 @@ body {
 }
 
 .legend-dot.tokenize { background: var(--accent-red); }
+.legend-dot.queue-wait { background: var(--accent-orange); }
 .legend-dot.inference { background: var(--accent-green); }
 .legend-dot.other { background: var(--text-muted); }
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 8px;
     margin-top: 10px;
     padding-top: 10px;
@@ -416,6 +418,65 @@ body {
     grid-template-columns: 1fr;
     gap: 12px;
     margin-bottom: 12px;
+}
+
+/* Per-Worker Stats Section */
+.worker-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 20px;
+    max-width: 1000px;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.worker-card {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-primary);
+}
+
+.worker-card .worker-title {
+    color: var(--accent-blue);
+    font-size: 0.8em;
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.worker-card .worker-title .worker-id {
+    background: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+
+.worker-card .worker-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+.worker-card .worker-metric {
+    text-align: center;
+}
+
+.worker-card .worker-metric-label {
+    color: var(--text-muted);
+    font-size: 0.55em;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.worker-card .worker-metric-value {
+    color: var(--text-primary);
+    font-size: 0.9em;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Padding chart value */

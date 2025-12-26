@@ -164,90 +164,34 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
     echo "Config: $config"
     echo -e "==========================================${NC}"
 
-    # Start server in background
-    echo "Starting server..."
-    python -m src.main --experiment "$config" > "/tmp/server_${EXPERIMENT_NAME}.log" 2>&1 &
-    SERVER_PID=$!
-    echo "Server PID: $SERVER_PID"
-
-    # Wait for server to start
-    echo "Waiting for server to initialize..."
-    WAIT_TIME=0
-    MAX_WAIT=60
-    SERVER_READY=false
-
-    while [ $WAIT_TIME -lt $MAX_WAIT ]; do
-        if ! kill -0 $SERVER_PID 2>/dev/null; then
-            echo -e "${RED}Server process died during initialization${NC}"
-            echo "Check logs: /tmp/server_${EXPERIMENT_NAME}.log"
-            break
-        fi
-
-        if curl -s http://localhost:8080/metrics > /dev/null 2>&1; then
-            SERVER_READY=true
-            break
-        fi
-
-        sleep 2
-        WAIT_TIME=$((WAIT_TIME + 2))
-    done
-
-    if [ "$SERVER_READY" = false ]; then
-        echo -e "${RED}✗ Server failed to start!${NC}"
-        echo "Check logs: /tmp/server_${EXPERIMENT_NAME}.log"
-        FAILED=$((FAILED + 1))
-        FAILED_EXPERIMENTS+=("$EXPERIMENT_NAME (server startup failed)")
-
-        # Clean up server process
-        if kill -0 $SERVER_PID 2>/dev/null; then
-            kill -9 $SERVER_PID 2>/dev/null || true
-        fi
-        SERVER_PID=""
-
-        sleep 2
-        continue
-    fi
-
-    echo -e "${GREEN}Server ready!${NC}"
-
-    # Reset metrics before running the benchmark
-    echo "Resetting metrics..."
-    curl -s http://localhost:8080/reset > /dev/null 2>&1 || true
-
-    # Run client
-    echo "Running benchmark..."
-    python -m src.run_client \
-        --experiment \
-        --config "$config" \
-        --output "$OUTPUT_FILE" &
-    CLIENT_PID=$!
-
-    # Wait for client
-    if wait $CLIENT_PID; then
+    # Use run_experiment.sh which handles sweep detection automatically
+    # This ensures sweep configs are properly expanded before server starts
+    if "$SCRIPT_DIR/run_experiment.sh" "$config"; then
         echo -e "${GREEN}✓ Experiment completed successfully!${NC}"
-        echo "Results: $OUTPUT_FILE"
         SUCCESS=$((SUCCESS + 1))
         COMPLETED_EXPERIMENTS+=("$EXPERIMENT_NAME")
 
-        # Screenshots disabled - latency vs throughput data is stored in results instead
-    else
-        echo -e "${RED}✗ Benchmark failed!${NC}"
-        FAILED=$((FAILED + 1))
-        FAILED_EXPERIMENTS+=("$EXPERIMENT_NAME (benchmark failed)")
-    fi
-    CLIENT_PID=""
+        # Generate static dashboard from timeseries data
+        echo "Generating static dashboard from timeseries data..."
+        SNAPSHOT_DIR="$PROJECT_ROOT/images"
+        mkdir -p "$SNAPSHOT_DIR"
+        SNAPSHOT_FILE="$SNAPSHOT_DIR/${EXPERIMENT_NAME}.html"
 
-    # Stop server
-    echo "Stopping server..."
-    if kill -0 $SERVER_PID 2>/dev/null; then
-        kill -TERM $SERVER_PID 2>/dev/null || true
-        sleep 1
-        if kill -0 $SERVER_PID 2>/dev/null; then
-            kill -9 $SERVER_PID 2>/dev/null || true
+        # Generate static dashboard from timeseries markdown
+        if python -m src.screenshot --experiment "$EXPERIMENT_NAME" --output "$SNAPSHOT_FILE" 2>&1 | grep -v "Warning\|Error" || true; then
+            if [ -f "$SNAPSHOT_FILE" ]; then
+                echo -e "${GREEN}  Static dashboard saved: $SNAPSHOT_FILE${NC}"
+            else
+                echo -e "${YELLOW}  Warning: Dashboard file not created${NC}"
+            fi
+        else
+            echo -e "${YELLOW}  Warning: Dashboard generation had issues${NC}"
         fi
+    else
+        echo -e "${RED}✗ Experiment failed!${NC}"
+        FAILED=$((FAILED + 1))
+        FAILED_EXPERIMENTS+=("$EXPERIMENT_NAME (experiment failed)")
     fi
-    wait $SERVER_PID 2>/dev/null || true
-    SERVER_PID=""
 
     # Clear current experiment tracking
     CURRENT_EXPERIMENT=""

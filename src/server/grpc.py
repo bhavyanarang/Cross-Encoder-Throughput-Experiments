@@ -33,20 +33,31 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
             # Record overall latency
             self._metrics.record(latency, len(pairs))
 
-            # Record stage timings if available
+            # Record stage timings if available (including queue wait)
             self._metrics.record_stage_timings(
                 t_tokenize=getattr(result, "t_tokenize_ms", 0),
+                t_queue_wait=getattr(result, "t_queue_wait_ms", 0),
                 t_model_inference=getattr(result, "t_model_inference_ms", 0),
             )
 
-            # Record padding stats if available
-            if hasattr(result, "padding_ratio") and result.padding_ratio > 0:
+            # Record padding stats if available (use >= 0 to catch 0.0 padding ratios)
+            padding_ratio = getattr(result, "padding_ratio", -1)
+            if padding_ratio >= 0:
                 self._metrics.record_padding_stats(
-                    padding_ratio=result.padding_ratio,
+                    padding_ratio=padding_ratio,
                     padded_tokens=getattr(result, "padded_tokens", 0),
                     total_tokens=getattr(result, "total_tokens", 0),
                     max_seq_length=getattr(result, "max_seq_length", 0),
                     avg_seq_length=getattr(result, "avg_seq_length", 0),
+                )
+
+            # Record per-worker/per-model stats if available
+            worker_id = getattr(result, "worker_id", -1)
+            if worker_id >= 0:
+                self._metrics.record_worker_stats(
+                    worker_id=worker_id,
+                    latency_ms=latency,
+                    num_queries=len(pairs),
                 )
 
         scores = (

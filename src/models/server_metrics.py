@@ -41,6 +41,53 @@ class StageMetrics:
         self.latencies = []
 
 
+@dataclass
+class WorkerMetrics:
+    """Per-worker/per-model metrics tracking."""
+
+    worker_id: int
+    latencies: list = field(default_factory=list)
+    query_count: int = 0
+    request_count: int = 0
+    start_time: float = field(default_factory=time.time)
+
+    def record(self, latency_ms: float, num_queries: int = 1) -> None:
+        self.latencies.append(latency_ms)
+        self.query_count += num_queries
+        self.request_count += 1
+
+    def get_stats(self) -> dict:
+        if not self.latencies:
+            return {
+                "worker_id": self.worker_id,
+                "avg_ms": 0,
+                "p50_ms": 0,
+                "p95_ms": 0,
+                "p99_ms": 0,
+                "query_count": 0,
+                "request_count": 0,
+                "throughput_qps": 0,
+            }
+        arr = np.array(self.latencies)
+        elapsed = time.time() - self.start_time
+        return {
+            "worker_id": self.worker_id,
+            "avg_ms": float(np.mean(arr)),
+            "p50_ms": float(np.percentile(arr, 50)),
+            "p95_ms": float(np.percentile(arr, 95)),
+            "p99_ms": float(np.percentile(arr, 99)),
+            "query_count": self.query_count,
+            "request_count": self.request_count,
+            "throughput_qps": self.query_count / elapsed if elapsed > 0 else 0,
+        }
+
+    def reset(self) -> None:
+        self.latencies = []
+        self.query_count = 0
+        self.request_count = 0
+        self.start_time = time.time()
+
+
 class ProcessMonitor:
     """Encapsulates process monitoring to avoid global state."""
 
@@ -116,6 +163,9 @@ class MetricsCollector:
     last_max_seq_length: int = 0
     last_avg_seq_length: float = 0.0
 
+    # Per-worker/per-model stats (dict keyed by worker_id)
+    _worker_stats: dict[int, WorkerMetrics] = field(default_factory=dict)
+
     # Thread lock
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -139,7 +189,31 @@ class MetricsCollector:
         logger.info(f"Experiment: {name} | Backend: {backend} | Device: {device}")
 
     def is_active(self) -> bool:
-        return (time.time() - self.last_update_time) < 2.0 and self.request_count > 0
+        """Check if experiment is currently active.
+
+        An experiment is considered active if:
+        1. There have been requests recorded, AND
+        2. Either:
+           - Last update was within 10 seconds (recent activity), OR
+           - There are recent latencies in the deque (ongoing activity)
+        """
+        if self.request_count == 0:
+            return False
+
+        time_since_update = time.time() - self.last_update_time
+
+        # If we have recent activity (within 10 seconds), definitely active
+        if time_since_update < 10.0:
+            return True
+
+        # If we have recent latencies in the deque, still consider active
+        # (this handles cases where requests come in bursts with gaps)
+        if self.recent_latencies:
+            most_recent_time, _ = self.recent_latencies[-1]
+            if (time.time() - most_recent_time) < 30.0:
+                return True
+
+        return False
 
     def get_gpu_memory_mb(self) -> float:
         """Get GPU memory usage in MB.
@@ -238,10 +312,10 @@ class MetricsCollector:
         avg_seq_length: float = 0.0,
     ) -> None:
         with self._lock:
-            if padding_ratio > 0:
-                self.padding_ratios.append(padding_ratio)
-                self.last_padding_ratio = padding_ratio
-            if padded_tokens > 0:
+            # Record padding stats even if padding_ratio is 0 (valid case with no padding)
+            self.padding_ratios.append(padding_ratio)
+            self.last_padding_ratio = padding_ratio
+            if padded_tokens >= 0:
                 self.padded_tokens_total += padded_tokens
                 self.real_tokens_total += total_tokens - padded_tokens
             if max_seq_length > 0:
@@ -250,6 +324,23 @@ class MetricsCollector:
             if avg_seq_length > 0:
                 self.avg_seq_lengths.append(avg_seq_length)
                 self.last_avg_seq_length = avg_seq_length
+
+    def record_worker_stats(
+        self,
+        worker_id: int,
+        latency_ms: float,
+        num_queries: int = 1,
+    ) -> None:
+        """Record per-worker/per-model statistics."""
+        with self._lock:
+            if worker_id not in self._worker_stats:
+                self._worker_stats[worker_id] = WorkerMetrics(worker_id=worker_id)
+            self._worker_stats[worker_id].record(latency_ms, num_queries)
+
+    def _get_worker_stats(self) -> list[dict]:
+        """Get stats for all workers."""
+        with self._lock:
+            return [ws.get_stats() for ws in self._worker_stats.values()]
 
     def _compute_instant_qps(self) -> float:
         if not self.recent_queries:
@@ -302,12 +393,19 @@ class MetricsCollector:
 
         tokenize_stats = self.stage_tokenize.get_stats()
         inference_stats = self.stage_model_inference.get_stats()
+        queue_wait_stats = self.stage_queue_wait.get_stats()
         total_avg = float(np.mean(arr)) if len(arr) > 0 else 1.0
 
+        # Calculate stage percentages including queue wait
         tokenize_pct = (tokenize_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
         inference_pct = (inference_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
+        queue_wait_pct = (queue_wait_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
+        other_pct = max(0, 100 - tokenize_pct - inference_pct - queue_wait_pct)
 
         gpu_util = self.get_gpu_utilization_pct()
+
+        # Get per-worker stats for multi-model experiments
+        worker_stats = self._get_worker_stats()
 
         return {
             "experiment_name": self.experiment_name,
@@ -332,22 +430,24 @@ class MetricsCollector:
             },
             "stage_breakdown": {
                 "tokenize": tokenize_stats,
-                "queue_wait": self.stage_queue_wait.get_stats(),
+                "queue_wait": queue_wait_stats,
                 "model_inference": inference_stats,
             },
             "stage_percentages": {
                 "tokenize_pct": round(tokenize_pct, 1),
+                "queue_wait_pct": round(queue_wait_pct, 1),
                 "inference_pct": round(inference_pct, 1),
-                "other_pct": round(100 - tokenize_pct - inference_pct, 1),
+                "other_pct": round(other_pct, 1),
             },
             "last_tokenize_ms": self.last_stage_tokenize_ms,
             "last_inference_ms": self.last_stage_inference_ms,
             "last_queue_wait_ms": self.last_queue_wait_ms,
             "queue_wait_analysis": {
-                "avg_ms": self.stage_queue_wait.get_stats()["avg_ms"],
-                "p95_ms": self.stage_queue_wait.get_stats()["p95_ms"],
+                "avg_ms": queue_wait_stats["avg_ms"],
+                "p95_ms": queue_wait_stats["p95_ms"],
             },
             "padding_analysis": self._compute_padding_stats(),
+            "worker_stats": worker_stats,
         }
 
     def reset(self):
@@ -371,6 +471,9 @@ class MetricsCollector:
         self.last_queue_wait_ms = 0.0
         self.padding_ratios = []
         self.padded_tokens_total = 0
+        # Reset worker stats
+        for ws in self._worker_stats.values():
+            ws.reset()
         self.real_tokens_total = 0
         self.max_seq_lengths = []
         self.avg_seq_lengths = []
