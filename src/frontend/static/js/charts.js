@@ -146,6 +146,10 @@ function initCharts() {
         document.getElementById('utilizationChart'),
         createChartConfig(COLORS.green)
     );
+    charts.overhead = new Chart(
+        document.getElementById('overheadChart'),
+        createChartConfig(COLORS.orange)
+    );
 }
 
 // Create multi-line chart config for instance utilization
@@ -326,6 +330,7 @@ function updateAllCharts(history) {
     updateChart(charts.queries, labels, history.queries);
     updateChart(charts.padding, labels, history.padding_pct);
     updateChart(charts.utilization, labels, history.gpu_utilization_pct);
+    updateChart(charts.overhead, labels, history.overhead_ms || []);
 
     // Update per-instance charts if available
     if (history.instance_names && history.instance_names.length > 1) {

@@ -4,12 +4,15 @@ import logging
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
 from src.models import InferenceResult
 from src.server.backends.device import clear_memory, resolve_device, sync_device
+
+if TYPE_CHECKING:
+    from src.server.tokenizer_pool import TokenizerPool
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +26,7 @@ class BaseBackend(ABC):
         device: str = "mps",
         quantization: QuantizationType = "fp16",
         max_length: int = 512,
+        tokenizer_pool: "TokenizerPool | None" = None,
     ):
         self.model_name = model_name
         self.device = resolve_device(device)
@@ -34,6 +38,7 @@ class BaseBackend(ABC):
         self._is_busy = False
         self._pending = 0
         self._pending_lock = threading.Lock()
+        self._tokenizer_pool = tokenizer_pool
 
     @abstractmethod
     def load_model(self) -> None:
@@ -44,14 +49,67 @@ class BaseBackend(ABC):
         pass
 
     def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
+        """Run inference with timing, optionally using tokenizer pool."""
         self._acquire()
         try:
+            # Tokenize using pool if available, otherwise inline
+            if self._tokenizer_pool is not None:
+                tokenize_start = time.perf_counter()
+                tokenized_batch = self._tokenizer_pool.tokenize(pairs)
+                t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+                features = tokenized_batch.features
+                batch_size = tokenized_batch.batch_size
+                max_seq_length = tokenized_batch.max_seq_length
+                total_tokens = tokenized_batch.total_tokens
+                real_tokens = tokenized_batch.real_tokens
+                padded_tokens = tokenized_batch.padded_tokens
+                padding_ratio = tokenized_batch.padding_ratio
+                avg_seq_length = tokenized_batch.avg_seq_length
+            else:
+                # Fallback: inline tokenization (backward compatible)
+                from src.server.services.tokenizer import TokenizerService
+
+                if not hasattr(self, "_tokenizer"):
+                    self._tokenizer = TokenizerService(self.model_name, self.max_length)
+
+                tokenize_start = time.perf_counter()
+                tokenized_batch = self._tokenizer.tokenize(pairs, device=self.device)
+                t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+                features = tokenized_batch.features
+                batch_size = tokenized_batch.batch_size
+                max_seq_length = tokenized_batch.max_seq_length
+                total_tokens = tokenized_batch.total_tokens
+                real_tokens = tokenized_batch.real_tokens
+                padded_tokens = tokenized_batch.padded_tokens
+                padding_ratio = tokenized_batch.padding_ratio
+                avg_seq_length = tokenized_batch.avg_seq_length
+
+            # Move features to device if using tokenizer pool (which tokenizes on CPU)
+            if self._tokenizer_pool is not None:
+                features = {k: v.to(self.device) for k, v in features.items()}
+
+            # Run model inference
             start = time.perf_counter()
             sync_device(self.device)
             scores = self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
             sync_device(self.device)
-            total_ms = (time.perf_counter() - start) * 1000
-            return InferenceResult(scores=scores, total_ms=total_ms, batch_size=len(pairs))
+            t_model_inference_ms = (time.perf_counter() - start) * 1000
+
+            total_ms = t_tokenize_ms + t_model_inference_ms
+
+            return InferenceResult(
+                scores=scores,
+                t_tokenize_ms=t_tokenize_ms,
+                t_model_inference_ms=t_model_inference_ms,
+                total_ms=total_ms,
+                batch_size=batch_size,
+                max_seq_length=max_seq_length,
+                total_tokens=total_tokens,
+                real_tokens=real_tokens,
+                padded_tokens=padded_tokens,
+                padding_ratio=padding_ratio,
+                avg_seq_length=avg_seq_length,
+            )
         finally:
             self._release()
 

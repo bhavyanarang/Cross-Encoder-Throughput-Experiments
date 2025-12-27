@@ -11,11 +11,19 @@ from pathlib import Path
 import yaml
 
 from src.frontend.server import start_dashboard
-from src.models import BatchConfig, Config, ModelConfig, PoolConfig, ServerConfig
+from src.models import (
+    BatchConfig,
+    Config,
+    ModelConfig,
+    PoolConfig,
+    ServerConfig,
+    TokenizerPoolConfig,
+)
 from src.server.grpc import serve
 from src.server.metrics import MetricsCollector
 from src.server.pool import ModelPool
 from src.server.scheduler import Scheduler
+from src.server.tokenizer_pool import TokenizerPool
 
 logging.basicConfig(
     level=logging.INFO,
@@ -109,6 +117,15 @@ def load_config(config_path: str) -> Config:
             length_aware=b.get("length_aware", False),
         )
 
+    tokenizer_pool = TokenizerPoolConfig()
+    if "tokenizer_pool" in data:
+        tp = data["tokenizer_pool"]
+        tokenizer_pool = TokenizerPoolConfig(
+            enabled=tp.get("enabled", False),
+            num_workers=tp.get("num_workers", 1),
+            model_name=tp.get("model_name", ""),
+        )
+
     server = ServerConfig()
     if "server" in data:
         s = data["server"]
@@ -121,6 +138,7 @@ def load_config(config_path: str) -> Config:
 
     return Config(
         model_pool=PoolConfig(instances=instances),
+        tokenizer_pool=tokenizer_pool,
         batching=batching,
         server=server,
         name=data.get("name", ""),
@@ -150,6 +168,29 @@ def main():
     if args.http_port:
         config.server.http_port = args.http_port
 
+    # Create tokenizer pool if enabled
+    tokenizer_pool = None
+    if config.tokenizer_pool.enabled:
+        tokenizer_model = config.tokenizer_pool.model_name
+        if not tokenizer_model:
+            # Use same model as first instance if not specified
+            tokenizer_model = (
+                config.model_pool.instances[0].name
+                if config.model_pool.instances
+                else "cross-encoder/ms-marco-MiniLM-L-6-v2"
+            )
+        tokenizer_pool = TokenizerPool(
+            model_name=tokenizer_model,
+            num_workers=config.tokenizer_pool.num_workers,
+            max_length=(
+                config.model_pool.instances[0].max_length if config.model_pool.instances else 512
+            ),
+        )
+        logger.info(
+            f"Tokenizer pool created: {config.tokenizer_pool.num_workers} workers, "
+            f"model: {tokenizer_model}"
+        )
+
     # Create model pool
     pool = ModelPool(config.model_pool)
 
@@ -172,22 +213,30 @@ def main():
         logger.info("Shutdown signal received")
         shutdown_event.set()
         pool.stop()
+        if tokenizer_pool:
+            tokenizer_pool.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
 
-    # Start pool
+    # Start tokenizer pool if enabled
+    if tokenizer_pool:
+        logger.info("Starting tokenizer pool...")
+        tokenizer_pool.start()
+
+    # Start model pool
     logger.info(f"Starting pool with {len(config.model_pool.instances)} instances...")
     pool.start()
 
-    # Create scheduler
+    # Create scheduler with tokenizer pool
     scheduler = Scheduler(
         pool,
         batching_enabled=config.batching.enabled,
         max_batch_size=config.batching.max_batch_size,
         timeout_ms=config.batching.timeout_ms,
         length_aware=config.batching.length_aware,
+        tokenizer_pool=tokenizer_pool,
     )
 
     # Start dashboard

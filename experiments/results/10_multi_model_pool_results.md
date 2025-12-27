@@ -2,7 +2,7 @@
 
 _Two MPS model instances with round-robin routing for parallel inference_
 
-**Timestamp:** 2025-12-26 16:35:28
+**Timestamp:** 2025-12-28 02:34:32
 
 **Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2`
 
@@ -12,205 +12,205 @@ _Two MPS model instances with round-robin routing for parallel inference_
 
 | Batch | Conc | Pairs | Time(s) | Lat Avg | Lat P95 | Lat P99 | TP Avg | TP P95 |
 |-------|------|-------|---------|---------|---------|---------|--------|--------|
-| 16 | 2 | 8000 | 10.08 | 40.2ms | 69.5ms | 80.0ms | 793.4 | 669.1 |
-| 16 | 4 | 8000 | 8.26 | 65.8ms | 93.4ms | 105.4ms | 968.8 | 317.3 |
-| 32 | 2 | 16000 | 16.70 | 66.7ms | 98.7ms | 126.6ms | 958.2 | 746.2 |
-| 32 | 4 | 16000 | 15.82 | 126.1ms | 169.5ms | 206.0ms | 1011.6 | 323.3 |
+| 16 | 2 | 8000 | 11.73 | 46.7ms | 79.3ms | 93.3ms | 681.8 | 604.7 |
+| 16 | 4 | 8000 | 10.91 | 87.0ms | 114.7ms | 135.4ms | 733.2 | 264.4 |
+| 32 | 2 | 16000 | 24.96 | 99.7ms | 145.3ms | 172.3ms | 641.0 | 504.1 |
+| 32 | 4 | 16000 | 26.27 | 209.6ms | 284.3ms | 318.7ms | 609.1 | 237.5 |
 
 ## Detailed Metrics
 
 ### Config 1: batch=16, concurrency=2
 
-**Total:** 8000 pairs in 10.08s
+**Total:** 8000 pairs in 11.73s
 
 #### Latency (ms)
 | Metric | Value |
 |--------|-------|
-| Average | 40.24 |
-| Min | 21.31 |
-| Max | 86.82 |
-| Std Dev | 15.81 |
-| P50 | 33.53 |
-| P90 | 65.56 |
-| P95 | 69.54 |
-| P99 | 79.98 |
+| Average | 46.75 |
+| Min | 21.40 |
+| Max | 118.56 |
+| Std Dev | 17.05 |
+| P50 | 42.03 |
+| P90 | 70.76 |
+| P95 | 79.29 |
+| P99 | 93.34 |
 
 #### Throughput (pairs/s)
 | Metric | Value |
 |--------|-------|
-| Average | 793.41 |
-| Min | 184.30 |
-| Max | 750.71 |
-| Std Dev | 146.29 |
-| P50 | 477.25 |
-| P90 | 638.39 |
-| P95 | 669.06 |
-| P99 | 724.98 |
+| Average | 681.78 |
+| Min | 134.96 |
+| Max | 747.81 |
+| Std Dev | 128.72 |
+| P50 | 380.65 |
+| P90 | 563.83 |
+| P95 | 604.67 |
+| P99 | 675.89 |
 
 #### Latency vs Throughput Analysis
 
 | Latency Range | Avg Throughput | Min Throughput | Max Throughput | Count |
 |---------------|----------------|----------------|----------------|-------|
-| < 33.5ms (P50) | 574.58 | 478.09 | 750.71 | 250 |
-| 33.5-54.6ms (P50-P75) | 410.75 | 292.90 | 476.40 | 125 |
-| 54.6-65.6ms (P75-P90) | 267.55 | 244.17 | 292.62 | 75 |
-| >= 65.6ms (P90+) | 224.79 | 184.30 | 242.94 | 50 |
+| < 42.0ms (P50) | 493.75 | 381.00 | 747.81 | 250 |
+| 42.0-57.9ms (P50-P75) | 326.97 | 276.53 | 380.30 | 125 |
+| 57.9-70.8ms (P75-P90) | 251.16 | 226.19 | 275.60 | 75 |
+| >= 70.8ms (P90+) | 197.81 | 134.96 | 225.38 | 50 |
 
-**Correlation:** -0.957 (negative correlation expected: lower latency = higher throughput)
+**Correlation:** -0.933 (negative correlation expected: lower latency = higher throughput)
 
 ### Config 2: batch=16, concurrency=4
 
-**Total:** 8000 pairs in 8.26s
+**Total:** 8000 pairs in 10.91s
 
 #### Latency (ms)
 | Metric | Value |
 |--------|-------|
-| Average | 65.83 |
-| Min | 44.00 |
-| Max | 139.96 |
-| Std Dev | 12.91 |
-| P50 | 63.75 |
-| P90 | 83.35 |
-| P95 | 93.44 |
-| P99 | 105.35 |
+| Average | 87.00 |
+| Min | 47.47 |
+| Max | 209.63 |
+| Std Dev | 17.55 |
+| P50 | 86.63 |
+| P90 | 105.72 |
+| P95 | 114.73 |
+| P99 | 135.45 |
 
 #### Throughput (pairs/s)
 | Metric | Value |
 |--------|-------|
-| Average | 968.79 |
-| Min | 114.32 |
-| Max | 363.62 |
-| Std Dev | 41.79 |
-| P50 | 250.98 |
-| P90 | 302.12 |
-| P95 | 317.28 |
-| P99 | 347.89 |
+| Average | 733.24 |
+| Min | 76.32 |
+| Max | 337.08 |
+| Std Dev | 37.56 |
+| P50 | 184.70 |
+| P90 | 244.84 |
+| P95 | 264.38 |
+| P99 | 295.39 |
 
 #### Latency vs Throughput Analysis
 
 | Latency Range | Avg Throughput | Min Throughput | Max Throughput | Count |
 |---------------|----------------|----------------|----------------|-------|
-| < 63.7ms (P50) | 282.64 | 251.21 | 363.62 | 250 |
-| 63.7-69.6ms (P50-P75) | 240.27 | 230.04 | 250.75 | 125 |
-| 69.6-83.3ms (P75-P90) | 217.51 | 192.16 | 230.01 | 75 |
-| >= 83.3ms (P90+) | 168.86 | 114.32 | 190.22 | 50 |
+| < 86.6ms (P50) | 219.49 | 184.88 | 337.08 | 250 |
+| 86.6-97.1ms (P50-P75) | 175.65 | 164.75 | 184.52 | 125 |
+| 97.1-105.7ms (P75-P90) | 158.87 | 151.36 | 164.63 | 75 |
+| >= 105.7ms (P90+) | 135.62 | 76.32 | 151.24 | 50 |
 
-**Correlation:** -0.958 (negative correlation expected: lower latency = higher throughput)
+**Correlation:** -0.941 (negative correlation expected: lower latency = higher throughput)
 
 ### Config 3: batch=32, concurrency=2
 
-**Total:** 16000 pairs in 16.70s
+**Total:** 16000 pairs in 24.96s
 
 #### Latency (ms)
 | Metric | Value |
 |--------|-------|
-| Average | 66.65 |
-| Min | 37.88 |
-| Max | 206.16 |
-| Std Dev | 19.91 |
-| P50 | 61.92 |
-| P90 | 91.17 |
-| P95 | 98.68 |
-| P99 | 126.59 |
+| Average | 99.71 |
+| Min | 39.88 |
+| Max | 311.12 |
+| Std Dev | 27.04 |
+| P50 | 97.10 |
+| P90 | 132.58 |
+| P95 | 145.29 |
+| P99 | 172.27 |
 
 #### Throughput (pairs/s)
 | Metric | Value |
 |--------|-------|
-| Average | 958.23 |
-| Min | 155.22 |
-| Max | 844.84 |
-| Std Dev | 127.52 |
-| P50 | 516.78 |
-| P90 | 691.72 |
-| P95 | 746.23 |
-| P99 | 792.85 |
+| Average | 641.02 |
+| Min | 102.85 |
+| Max | 802.32 |
+| Std Dev | 90.24 |
+| P50 | 329.56 |
+| P90 | 464.05 |
+| P95 | 504.11 |
+| P99 | 613.94 |
 
 #### Latency vs Throughput Analysis
 
 | Latency Range | Avg Throughput | Min Throughput | Max Throughput | Count |
 |---------------|----------------|----------------|----------------|-------|
-| < 61.9ms (P50) | 617.73 | 516.81 | 844.84 | 250 |
-| 61.9-76.5ms (P50-P75) | 471.13 | 418.44 | 516.75 | 125 |
-| 76.5-91.2ms (P75-P90) | 382.66 | 351.03 | 417.79 | 75 |
-| >= 91.2ms (P90+) | 308.22 | 155.22 | 350.54 | 50 |
+| < 97.1ms (P50) | 409.50 | 329.60 | 802.32 | 250 |
+| 97.1-112.4ms (P50-P75) | 309.54 | 284.66 | 329.52 | 125 |
+| 112.4-132.6ms (P75-P90) | 264.67 | 241.47 | 284.44 | 75 |
+| >= 132.6ms (P90+) | 211.81 | 102.85 | 240.50 | 50 |
 
-**Correlation:** -0.913 (negative correlation expected: lower latency = higher throughput)
+**Correlation:** -0.902 (negative correlation expected: lower latency = higher throughput)
 
 ### Config 4: batch=32, concurrency=4
 
-**Total:** 16000 pairs in 15.82s
+**Total:** 16000 pairs in 26.27s
 
 #### Latency (ms)
 | Metric | Value |
 |--------|-------|
-| Average | 126.09 |
-| Min | 77.55 |
-| Max | 240.06 |
-| Std Dev | 21.27 |
-| P50 | 122.20 |
-| P90 | 149.30 |
-| P95 | 169.49 |
-| P99 | 206.01 |
+| Average | 209.57 |
+| Min | 95.09 |
+| Max | 368.36 |
+| Std Dev | 43.04 |
+| P50 | 208.33 |
+| P90 | 260.33 |
+| P95 | 284.28 |
+| P99 | 318.74 |
 
 #### Throughput (pairs/s)
 | Metric | Value |
 |--------|-------|
-| Average | 1011.55 |
-| Min | 133.30 |
-| Max | 412.66 |
-| Std Dev | 37.82 |
-| P50 | 261.87 |
-| P90 | 301.21 |
-| P95 | 323.31 |
-| P99 | 356.47 |
+| Average | 609.14 |
+| Min | 86.87 |
+| Max | 336.53 |
+| Std Dev | 36.72 |
+| P50 | 153.60 |
+| P90 | 201.33 |
+| P95 | 237.47 |
+| P99 | 271.83 |
 
 #### Latency vs Throughput Analysis
 
 | Latency Range | Avg Throughput | Min Throughput | Max Throughput | Count |
 |---------------|----------------|----------------|----------------|-------|
-| < 122.2ms (P50) | 287.26 | 261.88 | 412.66 | 250 |
-| 122.2-132.4ms (P50-P75) | 252.75 | 241.71 | 261.85 | 125 |
-| 132.4-149.3ms (P75-P90) | 230.32 | 214.39 | 241.31 | 75 |
-| >= 149.3ms (P90+) | 185.46 | 133.30 | 213.81 | 50 |
+| < 208.3ms (P50) | 185.92 | 153.65 | 336.53 | 250 |
+| 208.3-232.7ms (P50-P75) | 144.53 | 137.54 | 153.55 | 125 |
+| 232.7-260.3ms (P75-P90) | 131.11 | 122.94 | 137.53 | 75 |
+| >= 260.3ms (P90+) | 110.57 | 86.87 | 122.75 | 50 |
 
-**Correlation:** -0.959 (negative correlation expected: lower latency = higher throughput)
+**Correlation:** -0.944 (negative correlation expected: lower latency = higher throughput)
 
 ## Overall Summary
 
 | Metric | Value | Config |
 |--------|-------|--------|
-| Best Throughput | 1011.55 p/s | batch=32, conc=4 |
-| Best Latency | 40.24ms | batch=16, conc=2 |
-| Avg Throughput | 933.00 p/s | all configs |
-| Avg Latency | 74.70ms | all configs |
+| Best Throughput | 733.24 p/s | batch=16, conc=4 |
+| Best Latency | 46.75ms | batch=16, conc=2 |
+| Avg Throughput | 666.29 p/s | all configs |
+| Avg Latency | 110.75ms | all configs |
 
 ## Dashboard Metrics Summary
 
 | Metric | Avg | Min | Max | P50 | P95 |
 |--------|-----|-----|-----|-----|-----|
-| GPU Memory (MB) | 1206.7 | 1076.6 | 1308.8 | 1186.7 | 1268.8 |
-| GPU Utilization (%) | 98.7 | 31.8 | 100.0 | 100.0 | 100.0 |
-| CPU Usage (%) | 2.7 | 1.1 | 4.0 | 2.5 | 3.8 |
-| Tokenization (ms) | 10.7 | 5.4 | 56.3 | 11.4 | 13.9 |
-| Inference (ms) | 42.6 | 16.1 | 88.2 | 43.3 | 69.6 |
+| GPU Memory (MB) | 1196.9 | 1076.6 | 1298.8 | 1186.8 | 1254.8 |
+| GPU Utilization (%) | 98.7 | 23.8 | 100.0 | 100.0 | 100.0 |
+| CPU Usage (%) | 2.6 | 0.8 | 5.4 | 2.4 | 3.8 |
+| Tokenization (ms) | 12.1 | 5.6 | 26.2 | 12.9 | 21.8 |
+| Inference (ms) | 69.5 | 16.8 | 188.7 | 72.9 | 123.7 |
 | Queue Wait (ms) | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
-| Padding Waste (%) | 39.6 | 24.2 | 57.0 | 39.5 | 49.9 |
+| Padding Waste (%) | 39.9 | 25.6 | 57.0 | 40.0 | 50.4 |
 
 ### Stage Breakdown
 
 | Stage | Percentage |
 |-------|------------|
-| Tokenization | 12.9% |
+| Tokenization | 10.5% |
 | Queue Wait | 0.0% |
-| Model Inference | 54.5% |
-| Other/gRPC | 32.6% |
+| Model Inference | 55.6% |
+| Other/gRPC | 0.5% |
 
 ### Per-Worker Statistics
 
 | Worker ID | Avg Latency (ms) | P95 Latency (ms) | Throughput (q/s) | Queries |
 |-----------|------------------|------------------|------------------|--------|
-| 0 | 74.0 | 134.2 | 450.3 | 23904 |
-| 1 | 73.6 | 136.5 | 456.4 | 24176 |
+| 1 | 109.4 | 235.6 | 316.7 | 24128 |
+| 0 | 110.1 | 236.6 | 314.9 | 23952 |
 
 ## Dashboard Time-Series Data
 

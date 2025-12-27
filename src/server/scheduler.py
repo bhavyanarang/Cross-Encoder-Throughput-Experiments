@@ -18,6 +18,7 @@ from src.models import PendingRequest
 if TYPE_CHECKING:
     from src.models import InferenceResult
     from src.server.pool import ModelPool
+    from src.server.tokenizer_pool import TokenizerPool
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +33,18 @@ class Scheduler:
         max_batch_size: int = 8,
         timeout_ms: float = 100,
         length_aware: bool = False,
+        tokenizer_pool: "TokenizerPool | None" = None,
     ):
         self._pool = model_pool
+        self._tokenizer_pool = tokenizer_pool
+        # Tokenizer pool is used in main process (before sending to workers)
+        # Workers don't use tokenizer pool (they're separate processes)
+        # Set tokenizer pool on model pool for main-process tokenization
+        if tokenizer_pool:
+            self._pool.set_tokenizer_pool(tokenizer_pool)
+            logger.info(
+                f"Tokenizer pool enabled: {tokenizer_pool.num_workers} workers for main-process tokenization"
+            )
         self._batching = batching_enabled
         self._max_batch = max_batch_size
         self._timeout_ms = timeout_ms

@@ -88,6 +88,53 @@ class WorkerMetrics:
         self.start_time = time.time()
 
 
+@dataclass
+class TokenizerWorkerMetrics:
+    """Per-tokenizer-worker metrics tracking."""
+
+    worker_id: int
+    latencies: list = field(default_factory=list)
+    request_count: int = 0
+    total_tokens_processed: int = 0
+    start_time: float = field(default_factory=time.time)
+
+    def record(self, latency_ms: float, total_tokens: int = 0) -> None:
+        self.latencies.append(latency_ms)
+        self.request_count += 1
+        self.total_tokens_processed += total_tokens
+
+    def get_stats(self) -> dict:
+        if not self.latencies:
+            return {
+                "worker_id": self.worker_id,
+                "avg_ms": 0,
+                "p50_ms": 0,
+                "p95_ms": 0,
+                "p99_ms": 0,
+                "request_count": 0,
+                "throughput_tokens_per_sec": 0,
+            }
+        arr = np.array(self.latencies)
+        elapsed = time.time() - self.start_time
+        return {
+            "worker_id": self.worker_id,
+            "avg_ms": float(np.mean(arr)),
+            "p50_ms": float(np.percentile(arr, 50)),
+            "p95_ms": float(np.percentile(arr, 95)),
+            "p99_ms": float(np.percentile(arr, 99)),
+            "request_count": self.request_count,
+            "throughput_tokens_per_sec": (
+                self.total_tokens_processed / elapsed if elapsed > 0 else 0
+            ),
+        }
+
+    def reset(self) -> None:
+        self.latencies = []
+        self.request_count = 0
+        self.total_tokens_processed = 0
+        self.start_time = time.time()
+
+
 class ProcessMonitor:
     """Encapsulates process monitoring to avoid global state."""
 
@@ -141,6 +188,12 @@ class MetricsCollector:
     stage_tokenize: StageMetrics = field(default_factory=StageMetrics)
     stage_queue_wait: StageMetrics = field(default_factory=StageMetrics)
     stage_model_inference: StageMetrics = field(default_factory=StageMetrics)
+    stage_overhead: StageMetrics = field(default_factory=StageMetrics)  # Tokenizer pool overhead
+    stage_mp_queue_send: StageMetrics = field(default_factory=StageMetrics)  # MP queue send
+    stage_mp_queue_receive: StageMetrics = field(default_factory=StageMetrics)  # MP queue receive
+    stage_grpc_serialize: StageMetrics = field(default_factory=StageMetrics)  # gRPC serialize
+    stage_grpc_deserialize: StageMetrics = field(default_factory=StageMetrics)  # gRPC deserialize
+    stage_scheduler: StageMetrics = field(default_factory=StageMetrics)  # Scheduler overhead
 
     # Recent stage timings for charts
     recent_stage_tokenize: deque = field(default_factory=lambda: deque(maxlen=200))
@@ -152,6 +205,12 @@ class MetricsCollector:
     last_stage_tokenize_ms: float = 0.0
     last_stage_inference_ms: float = 0.0
     last_queue_wait_ms: float = 0.0
+    last_overhead_ms: float = 0.0  # Tokenizer pool overhead
+    last_mp_queue_send_ms: float = 0.0
+    last_mp_queue_receive_ms: float = 0.0
+    last_grpc_serialize_ms: float = 0.0
+    last_grpc_deserialize_ms: float = 0.0
+    last_scheduler_ms: float = 0.0
 
     # Padding analysis
     padding_ratios: list = field(default_factory=list)
@@ -165,6 +224,9 @@ class MetricsCollector:
 
     # Per-worker/per-model stats (dict keyed by worker_id)
     _worker_stats: dict[int, WorkerMetrics] = field(default_factory=dict)
+
+    # Per-tokenizer-worker stats (dict keyed by worker_id)
+    _tokenizer_worker_stats: dict[int, TokenizerWorkerMetrics] = field(default_factory=dict)
 
     # Thread lock
     _lock: threading.Lock = field(default_factory=threading.Lock)
@@ -287,6 +349,12 @@ class MetricsCollector:
         t_tokenize: float = 0.0,
         t_queue_wait: float = 0.0,
         t_model_inference: float = 0.0,
+        t_overhead: float = 0.0,
+        t_mp_queue_send: float = 0.0,
+        t_mp_queue_receive: float = 0.0,
+        t_grpc_serialize: float = 0.0,
+        t_grpc_deserialize: float = 0.0,
+        t_scheduler: float = 0.0,
     ) -> None:
         now = time.time()
         with self._lock:
@@ -302,6 +370,24 @@ class MetricsCollector:
                 self.stage_model_inference.record(t_model_inference)
                 self.last_stage_inference_ms = t_model_inference
                 self.recent_stage_inference.append((now, t_model_inference))
+            if t_overhead > 0:
+                self.stage_overhead.record(t_overhead)
+                self.last_overhead_ms = t_overhead
+            if t_mp_queue_send > 0:
+                self.stage_mp_queue_send.record(t_mp_queue_send)
+                self.last_mp_queue_send_ms = t_mp_queue_send
+            if t_mp_queue_receive > 0:
+                self.stage_mp_queue_receive.record(t_mp_queue_receive)
+                self.last_mp_queue_receive_ms = t_mp_queue_receive
+            if t_grpc_serialize > 0:
+                self.stage_grpc_serialize.record(t_grpc_serialize)
+                self.last_grpc_serialize_ms = t_grpc_serialize
+            if t_grpc_deserialize > 0:
+                self.stage_grpc_deserialize.record(t_grpc_deserialize)
+                self.last_grpc_deserialize_ms = t_grpc_deserialize
+            if t_scheduler > 0:
+                self.stage_scheduler.record(t_scheduler)
+                self.last_scheduler_ms = t_scheduler
 
     def record_padding_stats(
         self,
@@ -337,10 +423,29 @@ class MetricsCollector:
                 self._worker_stats[worker_id] = WorkerMetrics(worker_id=worker_id)
             self._worker_stats[worker_id].record(latency_ms, num_queries)
 
+    def record_tokenizer_worker_stats(
+        self,
+        worker_id: int,
+        latency_ms: float,
+        total_tokens: int = 0,
+    ) -> None:
+        """Record per-tokenizer-worker statistics."""
+        with self._lock:
+            if worker_id not in self._tokenizer_worker_stats:
+                self._tokenizer_worker_stats[worker_id] = TokenizerWorkerMetrics(
+                    worker_id=worker_id
+                )
+            self._tokenizer_worker_stats[worker_id].record(latency_ms, total_tokens)
+
     def _get_worker_stats(self) -> list[dict]:
         """Get stats for all workers."""
         with self._lock:
             return [ws.get_stats() for ws in self._worker_stats.values()]
+
+    def _get_tokenizer_worker_stats(self) -> list[dict]:
+        """Get stats for all tokenizer workers."""
+        with self._lock:
+            return [ws.get_stats() for ws in self._tokenizer_worker_stats.values()]
 
     def _compute_instant_qps(self) -> float:
         if not self.recent_queries:
@@ -394,18 +499,55 @@ class MetricsCollector:
         tokenize_stats = self.stage_tokenize.get_stats()
         inference_stats = self.stage_model_inference.get_stats()
         queue_wait_stats = self.stage_queue_wait.get_stats()
+        overhead_stats = self.stage_overhead.get_stats()
+        mp_queue_send_stats = self.stage_mp_queue_send.get_stats()
+        mp_queue_receive_stats = self.stage_mp_queue_receive.get_stats()
+        grpc_serialize_stats = self.stage_grpc_serialize.get_stats()
+        grpc_deserialize_stats = self.stage_grpc_deserialize.get_stats()
+        scheduler_stats = self.stage_scheduler.get_stats()
         total_avg = float(np.mean(arr)) if len(arr) > 0 else 1.0
 
-        # Calculate stage percentages including queue wait
+        # Calculate stage percentages including all overhead components
         tokenize_pct = (tokenize_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
         inference_pct = (inference_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
         queue_wait_pct = (queue_wait_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
-        other_pct = max(0, 100 - tokenize_pct - inference_pct - queue_wait_pct)
+        overhead_pct = (overhead_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
+        mp_queue_send_pct = (
+            (mp_queue_send_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
+        )
+        mp_queue_receive_pct = (
+            (mp_queue_receive_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
+        )
+        grpc_serialize_pct = (
+            (grpc_serialize_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
+        )
+        grpc_deserialize_pct = (
+            (grpc_deserialize_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
+        )
+        scheduler_pct = (scheduler_stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
+
+        # Other is what's left after accounting for all tracked components
+        other_pct = max(
+            0,
+            100
+            - tokenize_pct
+            - inference_pct
+            - queue_wait_pct
+            - overhead_pct
+            - mp_queue_send_pct
+            - mp_queue_receive_pct
+            - grpc_serialize_pct
+            - grpc_deserialize_pct
+            - scheduler_pct,
+        )
 
         gpu_util = self.get_gpu_utilization_pct()
 
         # Get per-worker stats for multi-model experiments
         worker_stats = self._get_worker_stats()
+
+        # Get per-tokenizer-worker stats
+        tokenizer_worker_stats = self._get_tokenizer_worker_stats()
 
         return {
             "experiment_name": self.experiment_name,
@@ -432,22 +574,54 @@ class MetricsCollector:
                 "tokenize": tokenize_stats,
                 "queue_wait": queue_wait_stats,
                 "model_inference": inference_stats,
+                "overhead": overhead_stats,
+                "mp_queue_send": mp_queue_send_stats,
+                "mp_queue_receive": mp_queue_receive_stats,
+                "grpc_serialize": grpc_serialize_stats,
+                "grpc_deserialize": grpc_deserialize_stats,
+                "scheduler": scheduler_stats,
             },
             "stage_percentages": {
                 "tokenize_pct": round(tokenize_pct, 1),
                 "queue_wait_pct": round(queue_wait_pct, 1),
                 "inference_pct": round(inference_pct, 1),
+                "overhead_pct": round(overhead_pct, 1),
+                "mp_queue_send_pct": round(mp_queue_send_pct, 1),
+                "mp_queue_receive_pct": round(mp_queue_receive_pct, 1),
+                "grpc_serialize_pct": round(grpc_serialize_pct, 1),
+                "grpc_deserialize_pct": round(grpc_deserialize_pct, 1),
+                "scheduler_pct": round(scheduler_pct, 1),
+                # Calculate other_pct as truly unaccounted time, and also calculate
+                # a combined "other" that includes all overhead for frontend display
                 "other_pct": round(other_pct, 1),
+                # Combined overhead for frontend (all overhead components + truly unaccounted)
+                "other_combined_pct": round(
+                    overhead_pct
+                    + mp_queue_send_pct
+                    + mp_queue_receive_pct
+                    + grpc_serialize_pct
+                    + grpc_deserialize_pct
+                    + scheduler_pct
+                    + other_pct,
+                    1,
+                ),
             },
             "last_tokenize_ms": self.last_stage_tokenize_ms,
             "last_inference_ms": self.last_stage_inference_ms,
             "last_queue_wait_ms": self.last_queue_wait_ms,
+            "last_overhead_ms": self.last_overhead_ms,
+            "last_mp_queue_send_ms": self.last_mp_queue_send_ms,
+            "last_mp_queue_receive_ms": self.last_mp_queue_receive_ms,
+            "last_grpc_serialize_ms": self.last_grpc_serialize_ms,
+            "last_grpc_deserialize_ms": self.last_grpc_deserialize_ms,
+            "last_scheduler_ms": self.last_scheduler_ms,
             "queue_wait_analysis": {
                 "avg_ms": queue_wait_stats["avg_ms"],
                 "p95_ms": queue_wait_stats["p95_ms"],
             },
             "padding_analysis": self._compute_padding_stats(),
             "worker_stats": worker_stats,
+            "tokenizer_worker_stats": tokenizer_worker_stats,
         }
 
     def reset(self):
@@ -463,17 +637,32 @@ class MetricsCollector:
         self.stage_tokenize.reset()
         self.stage_queue_wait.reset()
         self.stage_model_inference.reset()
+        self.stage_overhead.reset()
+        self.stage_mp_queue_send.reset()
+        self.stage_mp_queue_receive.reset()
+        self.stage_grpc_serialize.reset()
+        self.stage_grpc_deserialize.reset()
+        self.stage_scheduler.reset()
         self.recent_stage_tokenize.clear()
         self.recent_stage_inference.clear()
         self.recent_queue_wait.clear()
         self.last_stage_tokenize_ms = 0.0
         self.last_stage_inference_ms = 0.0
         self.last_queue_wait_ms = 0.0
+        self.last_overhead_ms = 0.0
+        self.last_mp_queue_send_ms = 0.0
+        self.last_mp_queue_receive_ms = 0.0
+        self.last_grpc_serialize_ms = 0.0
+        self.last_grpc_deserialize_ms = 0.0
+        self.last_scheduler_ms = 0.0
         self.padding_ratios = []
         self.padded_tokens_total = 0
         # Reset worker stats
         for ws in self._worker_stats.values():
             ws.reset()
+        # Reset tokenizer worker stats
+        for tws in self._tokenizer_worker_stats.values():
+            tws.reset()
         self.real_tokens_total = 0
         self.max_seq_lengths = []
         self.avg_seq_lengths = []

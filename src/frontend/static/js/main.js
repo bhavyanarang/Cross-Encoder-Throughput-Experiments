@@ -19,6 +19,7 @@ const elements = {
     queueWaitMs: document.getElementById('queue_wait_ms'),
     tokenizeMs: document.getElementById('tokenize_ms'),
     inferenceMs: document.getElementById('inference_ms'),
+    overheadMs: document.getElementById('overhead_ms'),
     throughputQps: document.getElementById('throughput_qps'),
 
     // Padding analysis
@@ -31,12 +32,24 @@ const elements = {
     pctTokenize: document.getElementById('pct_tokenize'),
     pctQueueWait: document.getElementById('pct_queue_wait'),
     pctInference: document.getElementById('pct_inference'),
+    pctOverhead: document.getElementById('pct_overhead'),
+    pctMpQueueSend: document.getElementById('pct_mp_queue_send'),
+    pctMpQueueReceive: document.getElementById('pct_mp_queue_receive'),
+    pctGrpcSerialize: document.getElementById('pct_grpc_serialize'),
+    pctGrpcDeserialize: document.getElementById('pct_grpc_deserialize'),
+    pctScheduler: document.getElementById('pct_scheduler'),
     pctOther: document.getElementById('pct_other'),
 
     // Stage bar segments
     barTokenize: document.getElementById('bar_tokenize'),
     barQueueWait: document.getElementById('bar_queue_wait'),
     barInference: document.getElementById('bar_inference'),
+    barOverhead: document.getElementById('bar_overhead'),
+    barMpQueueSend: document.getElementById('bar_mp_queue_send'),
+    barMpQueueReceive: document.getElementById('bar_mp_queue_receive'),
+    barGrpcSerialize: document.getElementById('bar_grpc_serialize'),
+    barGrpcDeserialize: document.getElementById('bar_grpc_deserialize'),
+    barScheduler: document.getElementById('bar_scheduler'),
     barOther: document.getElementById('bar_other'),
 
     // P95 stats
@@ -51,6 +64,7 @@ const elements = {
     queueLive: document.getElementById('queue_live'),
     tokenizeLive: document.getElementById('tokenize_live'),
     inferenceLive: document.getElementById('inference_live'),
+    overheadLive: document.getElementById('overhead_live'),
     cpuLive: document.getElementById('cpu_live'),
     gpuLive: document.getElementById('gpu_live'),
     queriesLive: document.getElementById('queries_live'),
@@ -63,7 +77,11 @@ const elements = {
 
     // Per-worker stats section
     workerStatsTitle: document.getElementById('worker_stats_title'),
-    workerStatsSection: document.getElementById('worker_stats_section')
+    workerStatsSection: document.getElementById('worker_stats_section'),
+
+    // Per-tokenizer-worker stats section
+    tokenizerWorkerStatsTitle: document.getElementById('tokenizer_worker_stats_title'),
+    tokenizerWorkerStatsSection: document.getElementById('tokenizer_worker_stats_section')
 };
 
 // Format number with fixed decimals
@@ -110,6 +128,7 @@ function updateMetrics(data) {
     elements.queueWaitMs.textContent = fmt(data.last_queue_wait_ms);
     elements.tokenizeMs.textContent = fmt(data.last_tokenize_ms);
     elements.inferenceMs.textContent = fmt(data.last_inference_ms);
+    elements.overheadMs.textContent = fmt(data.last_overhead_ms || 0);
     elements.throughputQps.textContent = fmt(data.throughput_qps);
 
     // Padding analysis
@@ -126,29 +145,71 @@ function updateMetrics(data) {
 // Update stage breakdown bar and percentages
 function updateStageBreakdown(data) {
     const stagePct = data.stage_percentages || {};
-    const pctTokenize = stagePct.tokenize_pct || 0;
-    const pctQueueWait = stagePct.queue_wait_pct || 0;
-    const pctInference = stagePct.inference_pct || 0;
-    const pctOther = stagePct.other_pct || 100;
 
-    // Update percentage text
-    elements.pctTokenize.textContent = fmt(pctTokenize, 0);
-    elements.pctQueueWait.textContent = fmt(pctQueueWait, 0);
-    elements.pctInference.textContent = fmt(pctInference, 0);
-    elements.pctOther.textContent = fmt(pctOther, 0);
+    // Collect all components with their names and percentages
+    const components = [
+        { name: 'tokenize', label: 'Tokenization', pct: stagePct.tokenize_pct || 0, element: elements.barTokenize, pctElement: elements.pctTokenize },
+        { name: 'queue_wait', label: 'Queue Wait', pct: stagePct.queue_wait_pct || 0, element: elements.barQueueWait, pctElement: elements.pctQueueWait },
+        { name: 'inference', label: 'Model Inference', pct: stagePct.inference_pct || 0, element: elements.barInference, pctElement: elements.pctInference },
+        { name: 'overhead', label: 'Tokenizer Overhead', pct: stagePct.overhead_pct || 0, element: elements.barOverhead, pctElement: elements.pctOverhead },
+        { name: 'mp_queue_send', label: 'MP Queue Send', pct: stagePct.mp_queue_send_pct || 0, element: elements.barMpQueueSend, pctElement: elements.pctMpQueueSend },
+        { name: 'mp_queue_receive', label: 'MP Queue Receive', pct: stagePct.mp_queue_receive_pct || 0, element: elements.barMpQueueReceive, pctElement: elements.pctMpQueueReceive },
+        { name: 'grpc_serialize', label: 'gRPC Serialize', pct: stagePct.grpc_serialize_pct || 0, element: elements.barGrpcSerialize, pctElement: elements.pctGrpcSerialize },
+        { name: 'grpc_deserialize', label: 'gRPC Deserialize', pct: stagePct.grpc_deserialize_pct || 0, element: elements.barGrpcDeserialize, pctElement: elements.pctGrpcDeserialize },
+        { name: 'scheduler', label: 'Scheduler', pct: stagePct.scheduler_pct || 0, element: elements.barScheduler, pctElement: elements.pctScheduler },
+        { name: 'other', label: 'Other', pct: stagePct.other_pct || 0, element: elements.barOther, pctElement: elements.pctOther },
+    ];
 
-    // Update bar widths
-    elements.barTokenize.style.width = pctTokenize + '%';
-    elements.barTokenize.textContent = pctTokenize > 8 ? fmt(pctTokenize, 0) + '%' : '';
+    // Sort by percentage (descending) and get top 3
+    const sorted = components.filter(c => c.pct > 0).sort((a, b) => b.pct - a.pct);
+    const top3 = sorted.slice(0, 3);
+    const rest = sorted.slice(3);
 
-    elements.barQueueWait.style.width = pctQueueWait + '%';
-    elements.barQueueWait.textContent = pctQueueWait > 8 ? fmt(pctQueueWait, 0) + '%' : '';
+    // Calculate "Other" as sum of all non-top-3 components
+    // If "other" is already in top3, don't add it again
+    const otherInTop3 = top3.some(c => c.name === 'other');
+    const restComponents = rest.filter(c => c.name !== 'other');
+    const otherPct = restComponents.reduce((sum, c) => sum + c.pct, 0) + (otherInTop3 ? 0 : (stagePct.other_pct || 0));
 
-    elements.barInference.style.width = pctInference + '%';
-    elements.barInference.textContent = pctInference > 8 ? fmt(pctInference, 0) + '%' : '';
+    // Hide all legend items and bar segments first
+    const allLegendItems = document.querySelectorAll('.legend-item');
+    allLegendItems.forEach(item => item.style.display = 'none');
+    components.forEach(c => {
+        c.element.style.display = 'none';
+        c.pctElement.textContent = '0';
+    });
 
-    elements.barOther.style.width = pctOther + '%';
-    elements.barOther.textContent = pctOther > 8 ? fmt(pctOther, 0) + '%' : '';
+    // Show top 3 + Other (if Other > 0 and not already in top3)
+    const displayComponents = [...top3];
+    if (otherPct > 0 && !otherInTop3) {
+        displayComponents.push({
+            name: 'other',
+            label: 'Other',
+            pct: otherPct,
+            element: elements.barOther,
+            pctElement: elements.pctOther
+        });
+    }
+
+    // Update bar segments and legend for displayed components
+    let cumulative = 0;
+    displayComponents.forEach((comp) => {
+        // Show bar segment
+        comp.element.style.display = 'flex';
+        comp.element.style.width = comp.pct + '%';
+        comp.element.style.left = cumulative + '%';
+        comp.element.textContent = comp.pct > 2 ? fmt(comp.pct, 1) + '%' : '';
+        cumulative += comp.pct;
+
+        // Update percentage text
+        comp.pctElement.textContent = fmt(comp.pct, 1);
+
+        // Show legend item using data-component attribute
+        const legendItem = document.querySelector(`.legend-item[data-component="${comp.name}"]`);
+        if (legendItem) {
+            legendItem.style.display = 'flex';
+        }
+    });
 }
 
 // Update P95 statistics
@@ -177,6 +238,7 @@ function updateChartValues(data) {
     elements.queueLive.textContent = fmt(data.last_queue_wait_ms) + ' ms';
     elements.tokenizeLive.textContent = fmt(data.last_tokenize_ms) + ' ms';
     elements.inferenceLive.textContent = fmt(data.last_inference_ms) + ' ms';
+    elements.overheadLive.textContent = fmt(data.last_overhead_ms || 0) + ' ms';
     elements.cpuLive.textContent = fmt(data.cpu_percent, 0) + '%';
     elements.gpuLive.textContent = fmt(data.gpu_memory_mb, 0) + ' MB';
     elements.queriesLive.textContent = data.query_count || 0;
@@ -276,6 +338,52 @@ function updateWorkerStats(data) {
     elements.workerStatsSection.innerHTML = cardsHtml;
 }
 
+// Update per-tokenizer-worker statistics
+function updateTokenizerWorkerStats(data) {
+    const tokenizerWorkerStats = data.tokenizer_worker_stats || [];
+
+    if (tokenizerWorkerStats.length === 0) {
+        elements.tokenizerWorkerStatsTitle.style.display = 'none';
+        elements.tokenizerWorkerStatsSection.style.display = 'none';
+        return;
+    }
+
+    elements.tokenizerWorkerStatsTitle.style.display = 'block';
+    elements.tokenizerWorkerStatsSection.style.display = 'grid';
+
+    // Build HTML for tokenizer worker stat cards
+    const cardsHtml = tokenizerWorkerStats.map((tws, i) => {
+        const color = getInstanceColor(i);
+        return `
+            <div class="worker-card" style="border-color: ${color}">
+                <div class="worker-title">
+                    <span class="worker-id" style="color: ${color}">Tokenizer Worker ${tws.worker_id}</span>
+                </div>
+                <div class="worker-metrics">
+                    <div class="worker-metric">
+                        <div class="worker-metric-label">Avg Latency</div>
+                        <div class="worker-metric-value">${fmt(tws.avg_ms)} ms</div>
+                    </div>
+                    <div class="worker-metric">
+                        <div class="worker-metric-label">P95 Latency</div>
+                        <div class="worker-metric-value">${fmt(tws.p95_ms)} ms</div>
+                    </div>
+                    <div class="worker-metric">
+                        <div class="worker-metric-label">Throughput</div>
+                        <div class="worker-metric-value">${fmt(tws.throughput_tokens_per_sec)} tokens/s</div>
+                    </div>
+                    <div class="worker-metric">
+                        <div class="worker-metric-label">Requests</div>
+                        <div class="worker-metric-value">${tws.request_count}</div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    elements.tokenizerWorkerStatsSection.innerHTML = cardsHtml;
+}
+
 // Fetch metrics and update dashboard
 async function fetchAndUpdate() {
     try {
@@ -290,6 +398,7 @@ async function fetchAndUpdate() {
         updateChartValues(data);
         updateInstanceMetrics(data);
         updateWorkerStats(data);
+        updateTokenizerWorkerStats(data);
 
         if (data.history) {
             window.DashboardCharts.updateAll(data.history);

@@ -20,6 +20,9 @@ class DashboardHistory:
     tokenize_ms: list = field(default_factory=list)
     inference_ms: list = field(default_factory=list)
     padding_pct: list = field(default_factory=list)
+    overhead_ms: list = field(default_factory=list)  # Tokenizer pool overhead
+    tokenizer_worker_latencies: list = field(default_factory=list)
+    tokenizer_worker_requests: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -34,6 +37,9 @@ class DashboardHistory:
             "tokenize_ms": self.tokenize_ms.copy(),
             "inference_ms": self.inference_ms.copy(),
             "padding_pct": self.padding_pct.copy(),
+            "overhead_ms": self.overhead_ms.copy(),
+            "tokenizer_worker_latencies": self.tokenizer_worker_latencies.copy(),
+            "tokenizer_worker_requests": self.tokenizer_worker_requests.copy(),
         }
 
     def reset(self):
@@ -48,6 +54,9 @@ class DashboardHistory:
         self.tokenize_ms.clear()
         self.inference_ms.clear()
         self.padding_pct.clear()
+        self.overhead_ms.clear()
+        self.tokenizer_worker_latencies.clear()
+        self.tokenizer_worker_requests.clear()
 
 
 @dataclass
@@ -63,6 +72,7 @@ class DashboardMetrics:
     inference_ms: list = field(default_factory=list)
     queue_wait_ms: list = field(default_factory=list)
     padding_pct: list = field(default_factory=list)
+    overhead_ms: list = field(default_factory=list)  # Tokenizer pool overhead
     worker_stats: list = field(default_factory=list)  # Per-worker/per-model stats
     stage_percentages: dict = field(default_factory=dict)  # Stage breakdown percentages
 
@@ -89,4 +99,5 @@ class DashboardMetrics:
             "inference_ms": stats(self.inference_ms),
             "queue_wait_ms": stats(self.queue_wait_ms),
             "padding_pct": stats(self.padding_pct),
+            "overhead_ms": stats(self.overhead_ms),
         }

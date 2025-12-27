@@ -23,6 +23,7 @@ class TokenizedBatch:
     padding_ratio: float
     avg_seq_length: float
     tokenize_time_ms: float
+    overhead_ms: float = 0.0  # Overhead from tokenizer pool (queue wait, synchronization, etc.)
 
 
 class TokenizerService:

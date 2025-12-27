@@ -49,6 +49,11 @@
             <div class="metric-value" id="inference_ms">0</div>
             <div class="metric-unit">ms</div>
         </div>
+        <div class="metric-card overhead">
+            <div class="metric-label">Overhead</div>
+            <div class="metric-value" id="overhead_ms">0</div>
+            <div class="metric-unit">ms</div>
+        </div>
         <div class="metric-card">
             <div class="metric-label">Throughput</div>
             <div class="metric-value" id="throughput_qps">0</div>
@@ -91,24 +96,54 @@
             <div class="stage-bar-segment tokenize" id="bar_tokenize" style="width: 0%"></div>
             <div class="stage-bar-segment queue-wait" id="bar_queue_wait" style="width: 0%"></div>
             <div class="stage-bar-segment inference" id="bar_inference" style="width: 0%"></div>
-            <div class="stage-bar-segment other" id="bar_other" style="width: 100%"></div>
+            <div class="stage-bar-segment overhead" id="bar_overhead" style="width: 0%"></div>
+            <div class="stage-bar-segment mp-queue-send" id="bar_mp_queue_send" style="width: 0%"></div>
+            <div class="stage-bar-segment mp-queue-receive" id="bar_mp_queue_receive" style="width: 0%"></div>
+            <div class="stage-bar-segment grpc-serialize" id="bar_grpc_serialize" style="width: 0%"></div>
+            <div class="stage-bar-segment grpc-deserialize" id="bar_grpc_deserialize" style="width: 0%"></div>
+            <div class="stage-bar-segment scheduler" id="bar_scheduler" style="width: 0%"></div>
+            <div class="stage-bar-segment other" id="bar_other" style="width: 0%"></div>
         </div>
         <div class="stage-legend">
-            <div class="legend-item">
+            <div class="legend-item" data-component="tokenize">
                 <div class="legend-dot tokenize"></div>
                 <span>Tokenization (<span id="pct_tokenize">0</span>%)</span>
             </div>
-            <div class="legend-item">
+            <div class="legend-item" data-component="queue_wait">
                 <div class="legend-dot queue-wait"></div>
                 <span>Queue Wait (<span id="pct_queue_wait">0</span>%)</span>
             </div>
-            <div class="legend-item">
+            <div class="legend-item" data-component="inference">
                 <div class="legend-dot inference"></div>
                 <span>Model Inference (<span id="pct_inference">0</span>%)</span>
             </div>
-            <div class="legend-item">
+            <div class="legend-item" data-component="overhead">
+                <div class="legend-dot overhead"></div>
+                <span>Tokenizer Overhead (<span id="pct_overhead">0</span>%)</span>
+            </div>
+            <div class="legend-item" data-component="mp_queue_send">
+                <div class="legend-dot mp-queue-send"></div>
+                <span>MP Queue Send (<span id="pct_mp_queue_send">0</span>%)</span>
+            </div>
+            <div class="legend-item" data-component="mp_queue_receive">
+                <div class="legend-dot mp-queue-receive"></div>
+                <span>MP Queue Receive (<span id="pct_mp_queue_receive">0</span>%)</span>
+            </div>
+            <div class="legend-item" data-component="grpc_serialize">
+                <div class="legend-dot grpc-serialize"></div>
+                <span>gRPC Serialize (<span id="pct_grpc_serialize">0</span>%)</span>
+            </div>
+            <div class="legend-item" data-component="grpc_deserialize">
+                <div class="legend-dot grpc-deserialize"></div>
+                <span>gRPC Deserialize (<span id="pct_grpc_deserialize">0</span>%)</span>
+            </div>
+            <div class="legend-item" data-component="scheduler">
+                <div class="legend-dot scheduler"></div>
+                <span>Scheduler (<span id="pct_scheduler">0</span>%)</span>
+            </div>
+            <div class="legend-item" data-component="other">
                 <div class="legend-dot other"></div>
-                <span>Other/gRPC (<span id="pct_other">100</span>%)</span>
+                <span>Other (<span id="pct_other">0</span>%)</span>
             </div>
         </div>
         <div class="stats-grid">
@@ -137,6 +172,11 @@
         <!-- Dynamically populated with per-worker/per-model stats -->
     </section>
 
+    <div class="section-title" id="tokenizer_worker_stats_title" style="display: none;">Per-Tokenizer-Worker Statistics</div>
+    <section class="metrics-row worker-stats" id="tokenizer_worker_stats_section" style="display: none;">
+        <!-- Dynamically populated with per-tokenizer-worker stats -->
+    </section>
+
     <!-- Charts Grid -->
     <div class="section-title">Performance Charts</div>
     <main class="charts-container">
@@ -163,7 +203,7 @@
         </div>
 
         <!-- Row 2: Stage timings -->
-        <div class="chart-grid three-col">
+        <div class="chart-grid four-col">
             <div class="chart-container">
                 <div class="chart-header">
                     <span class="chart-title">Queue Wait</span>
@@ -189,6 +229,15 @@
                 </div>
                 <div class="chart-wrapper">
                     <canvas id="inferenceChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Tokenizer Pool Overhead</span>
+                    <span class="chart-value overhead" id="overhead_live">0 ms</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="overheadChart"></canvas>
                 </div>
             </div>
         </div>
