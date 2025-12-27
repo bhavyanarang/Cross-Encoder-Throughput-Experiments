@@ -3,11 +3,15 @@
 import logging
 import time
 from concurrent import futures
+from typing import TYPE_CHECKING
 
 import grpc
 import numpy as np
 
 from src.proto import inference_pb2, inference_pb2_grpc
+
+if TYPE_CHECKING:
+    from src.server.orchestrator import InferenceInterface
 
 logger = logging.getLogger(__name__)
 
@@ -15,8 +19,8 @@ logger = logging.getLogger(__name__)
 class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
     """gRPC servicer for inference requests."""
 
-    def __init__(self, scheduler, metrics=None):
-        self._scheduler = scheduler
+    def __init__(self, inference_handler: "InferenceInterface", metrics=None):
+        self._inference_handler = inference_handler
         self._metrics = metrics
         self._request_count = 0
 
@@ -29,9 +33,9 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
         pairs = [(p.query, p.document) for p in request.pairs]
         t_grpc_deserialize_ms = (time.perf_counter() - grpc_deserialize_start) * 1000
 
-        # Scheduler.schedule() includes all inference time (tokenization, queue wait, model inference, etc.)
+        # inference_handler.schedule() includes all inference time (tokenization, queue wait, model inference, etc.)
         # The scheduler overhead itself is minimal (just queue management), so we don't track it separately
-        result = self._scheduler.schedule(pairs)
+        result = self._inference_handler.schedule(pairs)
 
         # Track gRPC serialization time
         grpc_serialize_start = time.perf_counter()
@@ -114,11 +118,17 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
         return inference_pb2.MetricsResponse(total_requests=self._request_count)
 
 
-def serve(scheduler, host: str = "0.0.0.0", port: int = 50051, max_workers: int = 10, metrics=None):
+def serve(
+    inference_handler: "InferenceInterface",
+    host: str = "0.0.0.0",
+    port: int = 50051,
+    max_workers: int = 10,
+    metrics=None,
+):
     """Start gRPC server."""
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     inference_pb2_grpc.add_InferenceServiceServicer_to_server(
-        InferenceServicer(scheduler, metrics), server
+        InferenceServicer(inference_handler, metrics), server
     )
     server.add_insecure_port(f"{host}:{port}")
     server.start()
