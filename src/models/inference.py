@@ -1,8 +1,12 @@
 """Inference DTOs."""
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from src.server.services.tokenizer import TokenizedBatch
 
 
 @dataclass
@@ -31,7 +35,7 @@ class InferenceResult:
 @dataclass
 class WorkItem:
     req_id: int
-    pairs: list[tuple[str, str]]
+    tokenized_batch: "TokenizedBatch"  # Tokenized features (required)
 
 
 @dataclass

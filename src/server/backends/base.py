@@ -113,6 +113,61 @@ class BaseBackend(ABC):
         finally:
             self._release()
 
+    def infer_with_tokenized(self, tokenized_batch) -> InferenceResult:
+        """Run inference with pre-tokenized batch (no tokenization).
+
+        Args:
+            tokenized_batch: TokenizedBatch with features already tokenized
+
+        Returns:
+            InferenceResult with scores and timing (t_tokenize_ms will be 0)
+        """
+        self._acquire()
+        try:
+            # Move features to device (tokenizer pool tokenizes on CPU)
+            features = {k: v.to(self.device) for k, v in tokenized_batch.features.items()}
+
+            # Run model inference directly with features
+            start = time.perf_counter()
+            sync_device(self.device)
+
+            # Use the model's forward pass directly with features
+            import torch
+
+            with torch.inference_mode():
+                # Extract input_ids and attention_mask from features
+                outputs = self.model.model(**features, return_dict=True)
+                logits = outputs.logits
+                # Handle different model configurations
+                if hasattr(self.model, "config") and self.model.config.num_labels == 1:
+                    scores = torch.sigmoid(logits).squeeze(-1)
+                else:
+                    scores = (
+                        torch.softmax(logits, dim=-1)[:, 1]
+                        if logits.shape[1] > 1
+                        else torch.sigmoid(logits).squeeze(-1)
+                    )
+
+            sync_device(self.device)
+            t_model_inference_ms = (time.perf_counter() - start) * 1000
+            scores_np = scores.cpu().numpy()
+
+            return InferenceResult(
+                scores=scores_np,
+                t_tokenize_ms=0.0,  # Tokenization already done
+                t_model_inference_ms=t_model_inference_ms,
+                total_ms=t_model_inference_ms,
+                batch_size=tokenized_batch.batch_size,
+                max_seq_length=tokenized_batch.max_seq_length,
+                total_tokens=tokenized_batch.total_tokens,
+                real_tokens=tokenized_batch.real_tokens,
+                padded_tokens=tokenized_batch.padded_tokens,
+                padding_ratio=tokenized_batch.padding_ratio,
+                avg_seq_length=tokenized_batch.avg_seq_length,
+            )
+        finally:
+            self._release()
+
     def warmup(self, iterations: int = 5) -> None:
         dummy = [("warmup query", "warmup document")]
         for _ in range(iterations):
