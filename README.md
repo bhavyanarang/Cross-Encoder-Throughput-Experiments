@@ -2,14 +2,6 @@
 
 A high-performance ML inference server for cross-encoder models with support for multiple backends, quantization, and comprehensive benchmarking on Apple Silicon.
 
-## Features
-
-- **gRPC-based inference server** with cross-encoder/sentence transformer models
-- **Multiple backend support**: PyTorch, MPS (Apple Silicon), MLX, Compiled (torch.compile)
-- **Quantization**: FP16 (MPS/GPU) and INT8 (CPU)
-- **Real-time metrics dashboard** with GPU/CPU monitoring
-- **Comprehensive benchmarking** with MS MARCO dataset
-
 ## Setup
 
 ### Prerequisites
