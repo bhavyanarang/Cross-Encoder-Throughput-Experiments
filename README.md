@@ -204,50 +204,20 @@ Real-time metrics are available during experiments:
 
 ## Results and Analysis
 
-### Key Experiment Results
+### Experiment Results Ranking (by Throughput)
 
-Results are from experiments run on Apple M-series Mac with MPS backend.
-
-#### Baseline vs Production Optimal
-
-| Experiment | Config | Throughput | Latency P50 | Latency P95 |
-|------------|--------|------------|-------------|-------------|
-| **02_backend_mps** (Baseline) | batch=32, conc=1 | 532.5 p/s | 60.0ms | 85.9ms |
-| **15_production_optimal** | batch=96, conc=1 | 813.6 p/s | 111.6ms | 141.0ms |
-
-**Key Finding**: Increasing batch size from 32 to 96 improves throughput by **53%** (532 → 813 p/s) with acceptable latency increase.
-
-#### Backend Comparison
-
-| Backend | Throughput | Latency P50 | GPU Memory |
-|---------|------------|-------------|------------|
-| PyTorch (baseline) | 457.1 p/s | 68.2ms | 1269 MB |
-| MPS (optimized) | 532.5 p/s | 60.0ms | 1252 MB |
-| MLX | ~520 p/s | ~60ms | ~1100 MB |
-
-**Key Finding**: MPS and MLX backends perform similarly (~520-530 p/s), both outperforming vanilla PyTorch by ~16%.
-
-### Throughput vs Latency Trade-off
-
-From production optimal experiment (15):
-
-| Latency Range | Avg Throughput | Request Count |
-|---------------|----------------|---------------|
-| < P50 (111.6ms) | 869.9 p/s | 50% |
-| P50-P75 | 855.7 p/s | 25% |
-| P75-P90 | 832.4 p/s | 15% |
-| >= P90 | 593.3 p/s | 10% |
-
-**Correlation**: -0.975 (strong negative correlation - lower latency correlates with higher throughput)
-
-### Production Recommendations
-
-Based on experiment results:
-
-1. **Use batch size 96** for optimal throughput/latency balance
-2. **Use MPS or MLX backend** on Apple Silicon (similar performance)
-3. **Use FP16 quantization** for memory efficiency with minimal accuracy loss
-4. **Target concurrency of 1-2** to avoid MPS overload
+| Rank | Experiment | Throughput (p/s) | Latency (ms) | Key Insight |
+|------|------------|------------------|--------------|-------------|
+| 1 | 11: 3x Replicas | 1200.8 | 211.6 | Best throughput |
+| 2 | 10: 2x Pool (opt) | 1011.6 | 126.1 | Best balance |
+| 3 | 14: Production | 679.6 | 141.1 | Best stability |
+| 4 | 07b: Dynamic Batch | 686.0 | 186.4 | Best single |
+| 5 | 10a: Padding Base | 687.4 | 93.0 | Best latency |
+| 6 | 12: Max Length 512 | 576.5 | 110.9 | Longer sequences |
+| 7 | 11_Quant: INT8 | 572.3 | 167.5 | Quantization |
+| 8 | 09: Max Batch 256 | 671.6 | 190.0 | Batch sweep |
+| 9 | 08: Timeout 200ms | 670.6 | 190.4 | Timeout sweep |
+| 10 | 07a: Static Batch | 647.2 | 197.1 | Baseline |
 
 ## Development
 
