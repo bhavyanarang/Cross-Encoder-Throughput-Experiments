@@ -1,0 +1,31 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+# Experiment 15: Combined Optimizations - Sweep across backends
+name: "15_optimal_sweep"
+description: "Optimal settings from previous phases combined, tested on all backends"
+
+# Backend sweep: will be expanded into multiple configs
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: ["mps", "mlx", "compiled"]
+      device: "mps"
+      quantization: "fp16"
+      compile_model: false
+      max_length: 512
+
+batching:
+  enabled: true
+  max_batch_size: 96  # Optimal from Phase 6
+  timeout_ms: 50.0  # Optimal from Phase 5
+  length_aware: true  # Optimal from Phase 7
+
+experiment:
+  batch_sizes: [96]  # Optimal from Phase 2
+  concurrency_levels: [4]  # Optimal from Phase 3

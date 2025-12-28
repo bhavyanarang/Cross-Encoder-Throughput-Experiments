@@ -37,7 +37,7 @@ echo ""
 CONFIG="${1:-experiments/02_backend_mps.yaml}"
 
 export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
-python -m src.main --experiment "$CONFIG" &
+python -m src.main experiment_path="$CONFIG" &
 SERVER_PID=$!
 
 wait $SERVER_PID

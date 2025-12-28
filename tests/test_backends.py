@@ -1,5 +1,3 @@
-"""Tests for backends."""
-
 import numpy as np
 
 from src.server.backends import create_backend

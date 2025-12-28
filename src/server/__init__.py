@@ -1,6 +1,4 @@
-"""Server module."""
+from src.server.services.inference_service import ModelPool
+from src.server.services.scheduler_service import SchedulerService
 
-from src.server.pool import ModelPool
-from src.server.scheduler import Scheduler
-
-__all__ = ["ModelPool", "Scheduler"]
+__all__ = ["ModelPool", "SchedulerService"]

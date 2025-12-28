@@ -1,9 +1,3 @@
-"""Compiled Backend using torch.compile for kernel fusion.
-
-Uses PyTorch 2.0+ torch.compile for optimized inference with kernel fusion.
-This is the Apple Silicon equivalent of TensorRT optimizations.
-"""
-
 import logging
 import time
 
@@ -11,25 +5,15 @@ import numpy as np
 import torch
 from sentence_transformers import CrossEncoder
 
-from src.models import InferenceResult
 from src.server.backends.base import BaseBackend
 from src.server.backends.device import sync_device
-from src.server.services.tokenizer import TokenizerService
+from src.server.models import InferenceResult
+from src.server.services.tokenization_service import TokenizerService
 
 logger = logging.getLogger(__name__)
 
 
 class CompiledBackend(BaseBackend):
-    """Compiled backend using torch.compile for kernel fusion.
-
-    Supports compile modes:
-    - "default": Good balance of compile time and runtime performance
-    - "reduce-overhead": Reduces framework overhead, faster for small batches
-    - "max-autotune": Maximum optimization, longer compile time
-
-    Works on both MPS (Apple Silicon) and CUDA (NVIDIA) devices.
-    """
-
     def __init__(
         self,
         model_name: str,
@@ -60,12 +44,11 @@ class CompiledBackend(BaseBackend):
             )
             logger.info("Applied INT8 dynamic quantization")
 
-        # Compile the model
         try:
             self._compiled_model = torch.compile(
                 self.model.model,
                 mode=self._compile_mode,
-                fullgraph=False,  # Allow graph breaks for compatibility
+                fullgraph=False,
             )
             logger.info(f"Model compiled with mode={self._compile_mode}")
         except Exception as e:
@@ -120,14 +103,11 @@ class CompiledBackend(BaseBackend):
             self._release()
 
     def warmup(self, iterations: int = 5) -> None:
-        """Extended warmup for compiled models to trigger compilation."""
         dummy = [("warmup query", "warmup document")]
 
-        # First inference triggers compilation
         logger.info("Triggering torch.compile compilation (first inference)...")
         self.infer(dummy)
 
-        # Additional warmup iterations
         for _ in range(iterations - 1):
             self.infer(dummy)
 
@@ -135,12 +115,20 @@ class CompiledBackend(BaseBackend):
 
     @classmethod
     def from_config(cls, config) -> "CompiledBackend":
-        # Extract compiled-specific config
-        compiled_config = getattr(config, "compiled", {}) or {}
-        if isinstance(compiled_config, dict):
-            compile_mode = compiled_config.get("mode", "reduce-overhead")
-        else:
-            compile_mode = getattr(compiled_config, "mode", "reduce-overhead")
+        # Check for compile_mode directly (new Hydra format)
+        compile_mode = getattr(config, "compile_mode", None)
+
+        # Fall back to old format: config.compiled.mode
+        if compile_mode is None:
+            compiled_config = getattr(config, "compiled", {}) or {}
+            if isinstance(compiled_config, dict):
+                compile_mode = compiled_config.get("mode", "reduce-overhead")
+            else:
+                compile_mode = getattr(compiled_config, "mode", "reduce-overhead")
+
+        # Default if still None
+        if compile_mode is None:
+            compile_mode = "reduce-overhead"
 
         return cls(
             model_name=config.name if hasattr(config, "name") else config["name"],

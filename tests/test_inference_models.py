@@ -1,13 +1,10 @@
-"""Tests for inference models."""
-
 import numpy as np
 
-from src.models.inference import InferenceResult, WorkItem, WorkResult
+from src.server.models.inference import InferenceResult, WorkItem, WorkResult
 
 
 class TestInferenceResult:
     def test_inference_result_basic(self):
-        """Test InferenceResult with basic fields."""
         scores = np.array([0.5, 0.8, 0.3])
         result = InferenceResult(scores=scores)
         assert np.array_equal(result.scores, scores)
@@ -15,7 +12,6 @@ class TestInferenceResult:
         assert result.total_ms == 0.0
 
     def test_inference_result_all_fields(self):
-        """Test InferenceResult with all fields."""
         scores = np.array([0.5, 0.8])
         result = InferenceResult(
             scores=scores,
@@ -47,9 +43,6 @@ class TestInferenceResult:
 
 class TestWorkItem:
     def test_work_item_creation(self):
-        """Test WorkItem creation."""
-
-        # Mock tokenized batch
         class MockTokenizedBatch:
             pass
 
@@ -61,7 +54,6 @@ class TestWorkItem:
 
 class TestWorkResult:
     def test_work_result_basic(self):
-        """Test WorkResult with basic fields."""
         scores = np.array([0.5, 0.8])
         result = WorkResult(
             req_id=123,
@@ -73,7 +65,6 @@ class TestWorkResult:
         assert result.worker_id == 0
 
     def test_work_result_all_fields(self):
-        """Test WorkResult with all fields."""
         scores = np.array([0.5, 0.8])
         result = WorkResult(
             req_id=123,

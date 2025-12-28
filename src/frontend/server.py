@@ -1,5 +1,3 @@
-"""HTTP Server for ML Inference Metrics Dashboard."""
-
 import json
 import logging
 import mimetypes
@@ -9,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.models import DashboardHistory, MetricsCollector
+from src.server.models import DashboardHistory, MetricsCollector
 
 if TYPE_CHECKING:
     pass
@@ -22,11 +20,6 @@ STATIC_DIR = FRONTEND_DIR / "static"
 
 
 class DashboardState:
-    """State container for dashboard.
-
-    Uses singleton pattern to share state across HTTP handlers.
-    """
-
     _instance = None
     _lock = threading.Lock()
 
@@ -90,10 +83,8 @@ class DashboardState:
             padding = summary.get("padding_analysis", {})
             self._history.padding_pct.append(round(padding.get("last_padding_pct", 0), 1))
 
-            # Track tokenizer worker metrics
             tokenizer_worker_stats = summary.get("tokenizer_worker_stats", [])
             if tokenizer_worker_stats:
-                # Store aggregate metrics from all tokenizer workers
                 avg_latency = sum(ws.get("avg_ms", 0) for ws in tokenizer_worker_stats) / len(
                     tokenizer_worker_stats
                 )
@@ -116,8 +107,6 @@ class DashboardState:
 
 
 class MetricsHandler(BaseHTTPRequestHandler):
-    """HTTP request handler for dashboard endpoints."""
-
     def log_message(self, format, *args):
         pass
 
@@ -174,12 +163,10 @@ class MetricsHandler(BaseHTTPRequestHandler):
 
 
 def set_metrics_collector(collector: MetricsCollector) -> None:
-    """Set the metrics collector for the dashboard."""
     DashboardState().set_metrics_collector(collector)
 
 
 def start_dashboard(port: int = 8080, metrics_collector: MetricsCollector = None) -> HTTPServer:
-    """Start the dashboard HTTP server."""
     if metrics_collector:
         set_metrics_collector(metrics_collector)
 

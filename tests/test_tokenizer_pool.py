@@ -1,13 +1,10 @@
-"""Tests for tokenizer pool."""
-
 import pytest
 
-from src.server.tokenizer_pool import TokenizerPool
+from src.server.services.tokenization_service import TokenizerPool
 
 
 class TestTokenizerPool:
     def test_tokenizer_pool_init(self):
-        """Test TokenizerPool initialization."""
         pool = TokenizerPool(
             model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
             num_workers=2,
@@ -19,7 +16,6 @@ class TestTokenizerPool:
         assert pool.is_loaded is False
 
     def test_tokenizer_pool_get_info(self):
-        """Test getting pool info."""
         pool = TokenizerPool(
             model_name="test-model",
             num_workers=3,
@@ -33,7 +29,6 @@ class TestTokenizerPool:
         assert info["total_queue_size"] == 0
 
     def test_tokenizer_pool_len(self):
-        """Test pool length."""
         pool = TokenizerPool(
             model_name="test-model",
             num_workers=5,
@@ -42,7 +37,6 @@ class TestTokenizerPool:
         assert len(pool) == 5
 
     def test_tokenizer_pool_tokenize_not_started(self):
-        """Test tokenize raises error when pool not started."""
         pool = TokenizerPool(
             model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
             num_workers=1,

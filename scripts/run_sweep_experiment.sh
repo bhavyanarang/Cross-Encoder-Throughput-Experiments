@@ -16,7 +16,8 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 if [ -z "$1" ]; then
-    echo "Usage: $0 <experiment_config.yaml>"
+    echo "Usage: $0 <hydra_config_path>"
+    echo "Example: $0 conf/experiments/01_backend_comparison.yaml"
     exit 1
 fi
 
@@ -29,6 +30,9 @@ fi
 if [ -f "$PROJECT_ROOT/$EXPERIMENT_CONFIG" ]; then
     EXPERIMENT_CONFIG="$PROJECT_ROOT/$EXPERIMENT_CONFIG"
 fi
+
+# Extract experiment name from path
+EXPERIMENT_NAME=$(basename "$EXPERIMENT_CONFIG" .yaml)
 
 cd "$PROJECT_ROOT"
 
@@ -65,7 +69,10 @@ for key, value in base_config.items():
         config[key] = {**value, **config[key]}
 
 # Find sweep parameters
+# Supports both old format (model.backend) and new Hydra format (model_pool.instances[0].backend)
 sweeps = {}
+
+# Old format: model.backend
 if "model" in config:
     if "backend" in config["model"]:
         backend_val = config["model"]["backend"]
@@ -80,6 +87,20 @@ if "model" in config:
         if isinstance(compile_mode_val, list):
             sweeps["model.compiled.mode"] = compile_mode_val
 
+# New Hydra format: model_pool.instances[0].backend
+if "model_pool" in config and "instances" in config["model_pool"]:
+    instances = config["model_pool"]["instances"]
+    if instances and isinstance(instances, list) and len(instances) > 0:
+        first_instance = instances[0]
+        if isinstance(first_instance, dict):
+            if "backend" in first_instance and isinstance(first_instance["backend"], list):
+                sweeps["model_pool.instances.0.backend"] = first_instance["backend"]
+            if "quantization" in first_instance and isinstance(first_instance["quantization"], list):
+                sweeps["model_pool.instances.0.quantization"] = first_instance["quantization"]
+            if "compile_mode" in first_instance and isinstance(first_instance["compile_mode"], list):
+                sweeps["model_pool.instances.0.compile_mode"] = first_instance["compile_mode"]
+
+# Batching sweeps (same format in both old and new)
 if "batching" in config:
     if "timeout_ms" in config["batching"]:
         timeout_val = config["batching"]["timeout_ms"]
@@ -109,11 +130,37 @@ else:
         for param_name, value in zip(param_names, combination):
             parts = param_name.split(".")
             target = new_config
-            for part in parts[:-1]:
-                if part not in target:
-                    target[part] = {}
-                target = target[part]
-            target[parts[-1]] = value
+            # Navigate to parent of target field
+            for j, part in enumerate(parts[:-1]):
+                is_next_array = j + 1 < len(parts) - 1 and parts[j + 1].isdigit()
+                if part.isdigit():
+                    # Array index
+                    part_idx = int(part)
+                    if isinstance(target, list):
+                        while len(target) <= part_idx:
+                            target.append({})
+                        target = target[part_idx]
+                    else:
+                        # Shouldn't happen, but handle it
+                        prev_key = parts[j - 1] if j > 0 else None
+                        if prev_key and prev_key in target:
+                            if not isinstance(target[prev_key], list):
+                                target[prev_key] = [target[prev_key]]
+                            while len(target[prev_key]) <= part_idx:
+                                target[prev_key].append({})
+                            target = target[prev_key][part_idx]
+                else:
+                    # Regular dict key
+                    if part not in target:
+                        target[part] = [] if is_next_array else {}
+                    target = target[part]
+            # Set final value
+            final_key = parts[-1]
+            if isinstance(target, dict):
+                target[final_key] = value
+            elif isinstance(target, list) and len(target) > 0:
+                if isinstance(target[0], dict):
+                    target[0][final_key] = value
 
         # Special handling for quantization_mode
         param_dict = dict(zip(param_names, combination))
@@ -135,6 +182,7 @@ else:
         # Create a dict for easy lookup
         param_dict = dict(zip(param_names, combination))
 
+        # Old format parameters
         if "model.backend" in param_dict:
             name_parts.append(str(param_dict["model.backend"]))
         if "model.quantization_mode" in param_dict:
@@ -144,6 +192,18 @@ else:
             # Convert mode to shorter name
             mode_map = {"reduce-overhead": "ro", "max-autotune": "ma", "default": "def"}
             name_parts.append(mode_map.get(mode_val, mode_val))
+
+        # New Hydra format parameters
+        if "model_pool.instances.0.backend" in param_dict:
+            name_parts.append(str(param_dict["model_pool.instances.0.backend"]))
+        if "model_pool.instances.0.quantization" in param_dict:
+            name_parts.append(str(param_dict["model_pool.instances.0.quantization"]))
+        if "model_pool.instances.0.compile_mode" in param_dict:
+            mode_val = param_dict["model_pool.instances.0.compile_mode"]
+            mode_map = {"reduce-overhead": "ro", "max-autotune": "ma", "default": "def"}
+            name_parts.append(mode_map.get(mode_val, mode_val))
+
+        # Batching parameters (same in both formats)
         if "batching.timeout_ms" in param_dict:
             name_parts.append(f"{param_dict['batching.timeout_ms']}ms")
         if "batching.max_batch_size" in param_dict:
@@ -170,10 +230,11 @@ FIRST_LINE=true
 while IFS= read -r line; do
     if [[ $line == TEMP_DIR:* ]]; then
         TEMP_DIR="${line#TEMP_DIR:}"
-    elif [[ $line == NO_SWEEP:* ]]; then
-        # No sweeps, run normally
+    el    if [[ $line == NO_SWEEP:* ]]; then
+        # No sweeps, run normally using Hydra config
         NO_SWEEP_CONFIG="${line#NO_SWEEP:}"
-        "$SCRIPT_DIR/run_experiment.sh" "$NO_SWEEP_CONFIG"
+        EXPERIMENT_NAME=$(basename "$NO_SWEEP_CONFIG" .yaml)
+        "$SCRIPT_DIR/run_experiment.sh" "$EXPERIMENT_NAME"
         rm -f "$TEMP_OUTPUT"
         exit $?
     else
@@ -182,10 +243,10 @@ while IFS= read -r line; do
 done < "$TEMP_OUTPUT"
 rm -f "$TEMP_OUTPUT"
 
-# If no sweeps detected, run normally
+# If no sweeps detected, run normally using Hydra config
 if [ ${#CONFIGS[@]} -eq 0 ] || [ -z "$TEMP_DIR" ]; then
     echo -e "${GREEN}No sweep parameters detected, running single experiment...${NC}"
-    "$SCRIPT_DIR/run_experiment.sh" "$EXPERIMENT_CONFIG"
+    "$SCRIPT_DIR/run_experiment.sh" "$EXPERIMENT_NAME"
     exit $?
 fi
 
@@ -224,11 +285,29 @@ for i in "${!CONFIGS[@]}"; do
     export SWEEP_CONFIG_NUM="$config_num"
     export SWEEP_TOTAL_CONFIGS="$total"
 
-    if "$SCRIPT_DIR/run_experiment.sh" "$config"; then
+    # Convert temp config to client format
+    TEMP_CLIENT_CONFIG=$(mktemp)
+    CONFIG_EXPERIMENT_NAME=$(basename "$config" .yaml)
+    python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$CONFIG_EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" --config-path "$config" || {
+        echo -e "${RED}Failed to convert config for client${NC}"
+        FAILED=$((FAILED + 1))
+        rm -f "$TEMP_CLIENT_CONFIG"
+        continue
+    }
+
+    # Temporarily copy temp config to conf/experiment/ so run_experiment.sh can find it
+    TEMP_HYDRA_CONFIG="$PROJECT_ROOT/conf/experiment/${CONFIG_EXPERIMENT_NAME}.yaml"
+    cp "$config" "$TEMP_HYDRA_CONFIG"
+
+    # Run experiment with temp config
+    if "$SCRIPT_DIR/run_experiment.sh" "$CONFIG_EXPERIMENT_NAME"; then
         SUCCESS=$((SUCCESS + 1))
     else
         FAILED=$((FAILED + 1))
     fi
+
+    # Cleanup
+    rm -f "$TEMP_CLIENT_CONFIG" "$TEMP_HYDRA_CONFIG"
 
     # Brief pause between sweep configs to ensure cleanup completes
     if [ $config_num -lt $total ]; then

@@ -12,6 +12,7 @@ CLIENT_PID=""
 EXPERIMENT_NAME=""
 OUTPUT_FILE=""
 INTERRUPTED=false
+TEMP_CLIENT_CONFIG=""
 
 # Colors for output
 RED='\033[0;31m'
@@ -47,6 +48,16 @@ cleanup() {
         wait "$SERVER_PID" 2>/dev/null || true
     fi
 
+    # Clean up temp client config
+    if [ -n "$TEMP_CLIENT_CONFIG" ] && [ -f "$TEMP_CLIENT_CONFIG" ]; then
+        rm -f "$TEMP_CLIENT_CONFIG"
+    fi
+
+    # Clean up temp client config
+    if [ -n "$TEMP_CLIENT_CONFIG" ] && [ -f "$TEMP_CLIENT_CONFIG" ]; then
+        rm -f "$TEMP_CLIENT_CONFIG"
+    fi
+
     # Also kill any orphaned python processes from this experiment
     pkill -f "python.*main.py.*$EXPERIMENT_CONFIG" 2>/dev/null || true
 
@@ -73,62 +84,86 @@ trap cleanup EXIT
 
 # Validate arguments
 if [ -z "$1" ]; then
-    echo "Usage: $0 <experiment_config>"
-    echo "Example: $0 experiments/02_backend_mps.yaml"
+    echo "Usage: $0 <experiment_name>"
+    echo "Example: $0 10_multi_model_pool"
+    echo "         $0 experiment=10_multi_model_pool"
+    echo ""
+    echo "Note: Only Hydra configs from conf/experiment/ are supported"
     exit 1
 fi
 
 EXPERIMENT_CONFIG="$1"
 
-# Validate config file exists
-if [ ! -f "$PROJECT_ROOT/$EXPERIMENT_CONFIG" ] && [ ! -f "$EXPERIMENT_CONFIG" ]; then
-    echo -e "${RED}Error: Config file not found: $EXPERIMENT_CONFIG${NC}"
+# Extract experiment name from Hydra format or use directly
+if [[ "$EXPERIMENT_CONFIG" == *"="* ]]; then
+    EXPERIMENT_NAME=$(echo "$EXPERIMENT_CONFIG" | cut -d'=' -f2)
+    HYDRA_CONFIG="$EXPERIMENT_CONFIG"
+else
+    EXPERIMENT_NAME="$EXPERIMENT_CONFIG"
+    HYDRA_CONFIG="experiment=${EXPERIMENT_NAME}"
+fi
+
+# Validate Hydra config exists
+HYDRA_CONFIG_PATH="$PROJECT_ROOT/conf/experiment/${EXPERIMENT_NAME}.yaml"
+if [ ! -f "$HYDRA_CONFIG_PATH" ]; then
+    echo -e "${RED}Error: Hydra config not found: $HYDRA_CONFIG_PATH${NC}"
+    echo "Available experiments:"
+    ls -1 "$PROJECT_ROOT/conf/experiment/"*.yaml 2>/dev/null | xargs -n1 basename | sed 's/.yaml$//' | sed 's/^/  - /' || echo "  (none found)"
     exit 1
 fi
 
-# Use absolute path if relative path given
-if [ -f "$PROJECT_ROOT/$EXPERIMENT_CONFIG" ]; then
-    EXPERIMENT_CONFIG="$PROJECT_ROOT/$EXPERIMENT_CONFIG"
-fi
-
-# Check if config has sweep parameters (lists)
+# Check if config has sweep parameters (arrays in Hydra config)
 HAS_SWEEPS=$(python3 << PYTHON
 import sys
 import yaml
 from pathlib import Path
 
-config_path = "$EXPERIMENT_CONFIG"
-with open(config_path) as f:
-    config = yaml.safe_load(f)
+config_path = "$HYDRA_CONFIG_PATH"
+try:
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
 
-has_sweeps = False
-if "model" in config:
-    if "backend" in config["model"] and isinstance(config["model"]["backend"], list):
-        has_sweeps = True
-    if "quantization_mode" in config["model"] and isinstance(config["model"]["quantization_mode"], list):
-        has_sweeps = True
-    if "compiled" in config["model"] and "mode" in config["model"]["compiled"]:
-        if isinstance(config["model"]["compiled"]["mode"], list):
+    has_sweeps = False
+    # Check model_pool.instances[0] for arrays
+    if "model_pool" in config and "instances" in config["model_pool"]:
+        instances = config["model_pool"]["instances"]
+        if instances and isinstance(instances, list) and len(instances) > 0:
+            first_instance = instances[0]
+            if isinstance(first_instance, dict):
+                if "backend" in first_instance and isinstance(first_instance["backend"], list):
+                    has_sweeps = True
+                if "quantization" in first_instance and isinstance(first_instance["quantization"], list):
+                    has_sweeps = True
+                if "compile_mode" in first_instance and isinstance(first_instance["compile_mode"], list):
+                    has_sweeps = True
+
+    # Check batching for arrays
+    if "batching" in config:
+        if "timeout_ms" in config["batching"] and isinstance(config["batching"]["timeout_ms"], list):
+            has_sweeps = True
+        if "max_batch_size" in config["batching"] and isinstance(config["batching"]["max_batch_size"], list):
             has_sweeps = True
 
-if "batching" in config:
-    if "timeout_ms" in config["batching"] and isinstance(config["batching"]["timeout_ms"], list):
-        has_sweeps = True
-    if "max_batch_size" in config["batching"] and isinstance(config["batching"]["max_batch_size"], list):
-        has_sweeps = True
-
-print("true" if has_sweeps else "false")
+    print("true" if has_sweeps else "false")
+except Exception:
+    print("false")
 PYTHON
 )
 
 # If sweeps detected, use sweep script
 if [ "$HAS_SWEEPS" = "true" ]; then
     echo -e "${BLUE}Detected sweep parameters, using sweep handler...${NC}"
-    "$SCRIPT_DIR/run_sweep_experiment.sh" "$EXPERIMENT_CONFIG"
+    "$SCRIPT_DIR/run_sweep_experiment.sh" "$HYDRA_CONFIG_PATH"
     exit $?
 fi
 
-EXPERIMENT_NAME=$(basename "$EXPERIMENT_CONFIG" .yaml)
+# Generate client config from Hydra config
+TEMP_CLIENT_CONFIG=$(mktemp)
+python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" || {
+    echo -e "${RED}Error: Failed to convert Hydra config to client format${NC}"
+    exit 1
+}
+CLIENT_CONFIG_PATH="$TEMP_CLIENT_CONFIG"
 
 # Check if we're part of a sweep (consolidated output)
 if [ -n "$SWEEP_RESULTS_FILE" ]; then
@@ -184,7 +219,7 @@ fi
 
 # Start server in background
 echo "Starting server..."
-python -m src.main --experiment "$EXPERIMENT_CONFIG" &
+python -m src.main $HYDRA_CONFIG &
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
@@ -228,7 +263,14 @@ echo ""
 echo "Running benchmark..."
 
 # Build client command with sweep options (use array for proper quoting)
-CLIENT_ARGS=(--experiment --config "$EXPERIMENT_CONFIG" --output "$OUTPUT_FILE")
+# Client still uses YAML configs - use the resolved config path
+if [ -n "$CLIENT_CONFIG_PATH" ] && [ -f "$CLIENT_CONFIG_PATH" ]; then
+    CLIENT_CONFIG="$CLIENT_CONFIG_PATH"
+else
+    # Fallback to original config
+    CLIENT_CONFIG="$EXPERIMENT_CONFIG"
+fi
+CLIENT_ARGS=(--experiment --config "$CLIENT_CONFIG" --output "$OUTPUT_FILE")
 
 if [ "$IS_SWEEP" = "true" ]; then
     CLIENT_ARGS+=(--timeseries-file "$TIMESERIES_FILE")

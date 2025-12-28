@@ -1,0 +1,39 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+# Experiment 16a: Dynamic Batching Analysis - Baseline (No Dynamic Batching)
+# Control experiment to compare against dynamic batching enabled
+#
+# Purpose: Establish baseline throughput without dynamic batching overhead
+# to isolate the performance impact of the dynamic batching mechanism.
+
+name: "16a_dynamic_batch_baseline"
+description: "Baseline without dynamic batching for comparison"
+
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: "mps"
+      device: "mps"
+      quantization: fp16
+      compile_model: false
+      max_length: 512
+
+# Dynamic batching DISABLED (control)
+batching:
+  enabled: false
+  max_batch_size: 32
+  timeout_ms: 20.0
+  length_aware: false
+
+experiment:
+  # Fixed batch size for fair comparison
+  batch_sizes: [32]
+  concurrency_levels: [4]
+  # Run for ~1 minute+ with 1000 requests
+  benchmark_requests: 1000

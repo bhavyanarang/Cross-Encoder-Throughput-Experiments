@@ -1,5 +1,3 @@
-"""gRPC client for inference server."""
-
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor

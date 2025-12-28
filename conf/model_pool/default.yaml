@@ -1,0 +1,10 @@
+# @package model_pool
+
+instances:
+  - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    device: "mps"
+    backend: "mps"
+    quantization: "fp16"
+    compile_model: false
+    max_length: 512
+    onnx_optimize: true

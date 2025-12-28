@@ -1,5 +1,3 @@
-"""PyTorch CPU/CUDA Backend."""
-
 import logging
 import time
 
@@ -7,10 +5,10 @@ import numpy as np
 import torch
 from sentence_transformers import CrossEncoder
 
-from src.models import InferenceResult
 from src.server.backends.base import BaseBackend
 from src.server.backends.device import sync_device
-from src.server.services.tokenizer import TokenizerService
+from src.server.models import InferenceResult
+from src.server.services.tokenization_service import TokenizerService
 
 logger = logging.getLogger(__name__)
 
@@ -89,13 +87,10 @@ class PyTorchBackend(BaseBackend):
             self._release()
 
     def infer_with_tokenized(self, tokenized_batch) -> InferenceResult:
-        """Run inference with pre-tokenized batch (no tokenization)."""
         self._acquire()
         try:
-            # Move features to device (tokenizer pool tokenizes on CPU)
             features = {k: v.to(self.device) for k, v in tokenized_batch.features.items()}
 
-            # Run model inference
             inf_start = time.perf_counter()
             sync_device(self.device)
 
@@ -113,7 +108,7 @@ class PyTorchBackend(BaseBackend):
 
             return InferenceResult(
                 scores=scores_np,
-                t_tokenize_ms=0.0,  # Tokenization already done
+                t_tokenize_ms=0.0,
                 t_model_inference_ms=t_inf,
                 total_ms=t_inf,
                 total_tokens=tokenized_batch.total_tokens,

@@ -1,5 +1,3 @@
-"""gRPC server for inference."""
-
 import logging
 import time
 from concurrent import futures
@@ -11,33 +9,29 @@ import numpy as np
 from src.proto import inference_pb2, inference_pb2_grpc
 
 if TYPE_CHECKING:
-    from src.server.orchestrator import InferenceInterface
+    from src.server.services.metrics_service import MetricsService
+    from src.server.services.orchestrator_service import InferenceInterface
 
 logger = logging.getLogger(__name__)
 
 
 class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
-    """gRPC servicer for inference requests."""
-
-    def __init__(self, inference_handler: "InferenceInterface", metrics=None):
+    def __init__(
+        self, inference_handler: "InferenceInterface", metrics: "MetricsService | None" = None
+    ):
         self._inference_handler = inference_handler
         self._metrics = metrics
         self._request_count = 0
 
     def Infer(self, request, context):
-        # Track total gRPC request time (for overall latency measurement)
         total_start = time.perf_counter()
 
-        # Track gRPC deserialization time
         grpc_deserialize_start = time.perf_counter()
         pairs = [(p.query, p.document) for p in request.pairs]
         t_grpc_deserialize_ms = (time.perf_counter() - grpc_deserialize_start) * 1000
 
-        # inference_handler.schedule() includes all inference time (tokenization, queue wait, model inference, etc.)
-        # The scheduler overhead itself is minimal (just queue management), so we don't track it separately
         result = self._inference_handler.schedule(pairs)
 
-        # Track gRPC serialization time
         grpc_serialize_start = time.perf_counter()
         scores = (
             result.scores.tolist() if isinstance(result.scores, np.ndarray) else list(result.scores)
@@ -45,23 +39,18 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
         response = inference_pb2.InferResponse(scores=scores)
         t_grpc_serialize_ms = (time.perf_counter() - grpc_serialize_start) * 1000
 
-        # Total latency includes everything
         total_latency = (time.perf_counter() - total_start) * 1000
 
         self._request_count += 1
 
-        # Update result with gRPC timing
         result.t_grpc_deserialize_ms = t_grpc_deserialize_ms
         result.t_grpc_serialize_ms = t_grpc_serialize_ms
-        # Scheduler overhead is minimal (just queue operations), so we set it to 0
-        # Any unaccounted time will show up in "Other"
+
         result.t_scheduler_ms = 0.0
 
         if self._metrics:
-            # Record overall latency
             self._metrics.record(total_latency, len(pairs))
 
-            # Record stage timings if available (including queue wait and overhead)
             self._metrics.record_stage_timings(
                 t_tokenize=getattr(result, "t_tokenize_ms", 0),
                 t_queue_wait=getattr(result, "t_queue_wait_ms", 0),
@@ -74,7 +63,6 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
                 t_scheduler=getattr(result, "t_scheduler_ms", 0),
             )
 
-            # Record padding stats if available (use >= 0 to catch 0.0 padding ratios)
             padding_ratio = getattr(result, "padding_ratio", -1)
             if padding_ratio >= 0:
                 self._metrics.record_padding_stats(
@@ -85,7 +73,6 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
                     avg_seq_length=getattr(result, "avg_seq_length", 0),
                 )
 
-            # Record per-worker/per-model stats if available
             worker_id = getattr(result, "worker_id", -1)
             if worker_id >= 0:
                 self._metrics.record_worker_stats(
@@ -94,7 +81,6 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
                     num_queries=len(pairs),
                 )
 
-            # Record per-tokenizer-worker stats if available
             tokenizer_worker_id = getattr(result, "tokenizer_worker_id", -1)
             t_tokenize_ms = getattr(result, "t_tokenize_ms", 0)
             total_tokens = getattr(result, "total_tokens", 0)
@@ -109,7 +95,7 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
 
     def GetMetrics(self, request, context):
         if self._metrics:
-            summary = self._metrics.summary()
+            summary = self._metrics.get_summary()
             return inference_pb2.MetricsResponse(
                 qps=summary.get("throughput_qps", 0),
                 latency_avg_ms=summary.get("avg_ms", 0),
@@ -123,9 +109,8 @@ def serve(
     host: str = "0.0.0.0",
     port: int = 50051,
     max_workers: int = 10,
-    metrics=None,
+    metrics: "MetricsService | None" = None,
 ):
-    """Start gRPC server."""
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     inference_pb2_grpc.add_InferenceServiceServicer_to_server(
         InferenceServicer(inference_handler, metrics), server

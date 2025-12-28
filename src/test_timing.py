@@ -1,24 +1,21 @@
-"""Test script to measure all timing components with 500+ samples."""
-
 import logging
 import sys
 import time
 from pathlib import Path
 
-# Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import threading
 
 from src.client.grpc_client import InferenceClient
-from src.models import PoolConfig
-from src.models.config import ModelConfig
-from src.models.server_metrics import MetricsCollector
 from src.run_client import DatasetLoader
 from src.server.grpc import serve
-from src.server.pool import ModelPool
-from src.server.scheduler import Scheduler
-from src.server.tokenizer_pool import TokenizerPool
+from src.server.models import PoolConfig
+from src.server.models.config import ModelConfig
+from src.server.models.metrics import MetricsCollector
+from src.server.services.inference_service import InferenceService, ModelPool
+from src.server.services.scheduler_service import SchedulerService
+from src.server.services.tokenization_service import TokenizationService, TokenizerPool
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,12 +25,10 @@ logger = logging.getLogger(__name__)
 
 
 def run_test(num_samples: int = 500, batch_size: int = 1, concurrency: int = 1):
-    """Run timing test with detailed measurements."""
     logger.info(
         f"Starting timing test: {num_samples} samples, batch_size={batch_size}, concurrency={concurrency}"
     )
 
-    # Create model config
     model_config = ModelConfig(
         name="cross-encoder/ms-marco-MiniLM-L-6-v2",
         device="mps",
@@ -41,10 +36,8 @@ def run_test(num_samples: int = 500, batch_size: int = 1, concurrency: int = 1):
         max_length=512,
     )
 
-    # Create pool config
     pool_config = PoolConfig(instances=[model_config])
 
-    # Create tokenizer pool
     tokenizer_pool = TokenizerPool(
         model_name=model_config.name,
         num_workers=2,
@@ -52,21 +45,23 @@ def run_test(num_samples: int = 500, batch_size: int = 1, concurrency: int = 1):
     )
     tokenizer_pool.start()
 
-    # Create model pool
     model_pool = ModelPool(pool_config)
-    model_pool.set_tokenizer_pool(tokenizer_pool)
     model_pool.start()
 
-    # Create scheduler
-    scheduler = Scheduler(
-        model_pool=model_pool,
+    tokenization_service = TokenizationService(tokenizer_pool)
+    tokenization_service.start()
+
+    inference_service = InferenceService(model_pool)
+    inference_service.start()
+
+    scheduler = SchedulerService(
+        tokenization_service=tokenization_service,
+        inference_service=inference_service,
         batching_enabled=False,
-        tokenizer_pool=tokenizer_pool,
     )
 
-    # Create metrics collector
     metrics = MetricsCollector()
-    metrics.set_pool(model_pool)
+    metrics.set_inference_service(inference_service)
     metrics.set_experiment_info(
         name="timing_test",
         description="Detailed timing analysis",
@@ -74,7 +69,6 @@ def run_test(num_samples: int = 500, batch_size: int = 1, concurrency: int = 1):
         device="mps",
     )
 
-    # Start gRPC server in background thread
     server_thread = threading.Thread(
         target=serve,
         args=(scheduler, "localhost", 50051, 10, metrics),
@@ -82,20 +76,16 @@ def run_test(num_samples: int = 500, batch_size: int = 1, concurrency: int = 1):
     )
     server_thread.start()
 
-    # Wait for server to start
     time.sleep(3)
 
-    # Create client
     client = InferenceClient(host="localhost", port=50051)
 
-    # Load actual dataset
     logger.info("Loading MS MARCO dataset...")
     loader = DatasetLoader()
-    # Load more pairs than we need to ensure we have enough for all batches
+
     test_pairs = loader.load(max(num_samples * batch_size, 1000))
     logger.info(f"Loaded {len(test_pairs)} query-document pairs from dataset")
 
-    # Run tests
     logger.info(f"Running {num_samples} requests...")
     start_time = time.perf_counter()
 
@@ -116,10 +106,8 @@ def run_test(num_samples: int = 500, batch_size: int = 1, concurrency: int = 1):
 
     elapsed = time.perf_counter() - start_time
 
-    # Get metrics summary
     summary = metrics.summary()
 
-    # Print detailed results
     print("\n" + "=" * 80)
     print("TIMING ANALYSIS RESULTS")
     print("=" * 80)
@@ -186,9 +174,10 @@ def run_test(num_samples: int = 500, batch_size: int = 1, concurrency: int = 1):
 
     print("\n" + "=" * 80)
 
-    # Cleanup
     client.close()
+    inference_service.stop()
     model_pool.stop()
+    tokenization_service.stop()
     tokenizer_pool.stop()
 
     return summary

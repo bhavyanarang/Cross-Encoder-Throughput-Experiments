@@ -1,9 +1,3 @@
-"""MLX Backend for Apple Silicon.
-
-MLX is Apple's machine learning framework optimized for Apple Silicon.
-This backend provides an alternative to MPS for Apple devices.
-"""
-
 import logging
 import time
 
@@ -11,10 +5,10 @@ import numpy as np
 import torch
 from sentence_transformers import CrossEncoder
 
-from src.models import InferenceResult
 from src.server.backends.base import BaseBackend
 from src.server.backends.device import sync_device
-from src.server.services.tokenizer import TokenizerService
+from src.server.models import InferenceResult
+from src.server.services.tokenization_service import TokenizerService
 
 logger = logging.getLogger(__name__)
 
@@ -22,15 +16,6 @@ MLX_AVAILABLE = True
 
 
 class MLXBackend(BaseBackend):
-    """MLX backend for Apple Silicon.
-
-    Uses Apple's MLX framework for optimized inference on Apple Silicon.
-    Falls back to MPS if MLX is not available.
-
-    Note: Currently uses sentence-transformers with MPS as MLX doesn't have
-    native cross-encoder support. Future versions may use native MLX models.
-    """
-
     def __init__(
         self,
         model_name: str,
@@ -40,7 +25,6 @@ class MLXBackend(BaseBackend):
         bits: int = 16,
         group_size: int = 64,
     ):
-        # MLX runs on Apple Silicon, map to MPS for PyTorch operations
         super().__init__(model_name, "mps", quantization, max_length)
         self._tokenizer: TokenizerService | None = None
         self._bits = bits
@@ -54,8 +38,6 @@ class MLXBackend(BaseBackend):
             logger.warning("MLX not available, using MPS backend as fallback")
             logger.info(f"Loading {self.model_name} on mps ({self.quantization})")
 
-        # Load model using sentence-transformers (MPS-based)
-        # MLX native cross-encoder support would require custom implementation
         self.model = CrossEncoder(self.model_name, device=self.device)
 
         if self.quantization == "fp16":
@@ -111,7 +93,6 @@ class MLXBackend(BaseBackend):
 
     @classmethod
     def from_config(cls, config) -> "MLXBackend":
-        # Extract MLX-specific config
         mlx_config = getattr(config, "mlx", {}) or {}
         if isinstance(mlx_config, dict):
             bits = mlx_config.get("bits", 16)

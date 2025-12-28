@@ -1,5 +1,3 @@
-"""Base backend interface."""
-
 import logging
 import threading
 import time
@@ -8,11 +6,11 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
-from src.models import InferenceResult
 from src.server.backends.device import clear_memory, resolve_device, sync_device
+from src.server.models import InferenceResult
 
 if TYPE_CHECKING:
-    from src.server.tokenizer_pool import TokenizerPool
+    from src.server.services.tokenization_service import TokenizerPool
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +47,8 @@ class BaseBackend(ABC):
         pass
 
     def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
-        """Run inference with timing, optionally using tokenizer pool."""
         self._acquire()
         try:
-            # Tokenize using pool if available, otherwise inline
             if self._tokenizer_pool is not None:
                 tokenize_start = time.perf_counter()
                 tokenized_batch = self._tokenizer_pool.tokenize(pairs)
@@ -66,8 +62,7 @@ class BaseBackend(ABC):
                 padding_ratio = tokenized_batch.padding_ratio
                 avg_seq_length = tokenized_batch.avg_seq_length
             else:
-                # Fallback: inline tokenization (backward compatible)
-                from src.server.services.tokenizer import TokenizerService
+                from src.server.services.tokenization_service import TokenizerService
 
                 if not hasattr(self, "_tokenizer"):
                     self._tokenizer = TokenizerService(self.model_name, self.max_length)
@@ -84,11 +79,9 @@ class BaseBackend(ABC):
                 padding_ratio = tokenized_batch.padding_ratio
                 avg_seq_length = tokenized_batch.avg_seq_length
 
-            # Move features to device if using tokenizer pool (which tokenizes on CPU)
             if self._tokenizer_pool is not None:
                 features = {k: v.to(self.device) for k, v in features.items()}
 
-            # Run model inference
             start = time.perf_counter()
             sync_device(self.device)
             scores = self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
@@ -114,31 +107,19 @@ class BaseBackend(ABC):
             self._release()
 
     def infer_with_tokenized(self, tokenized_batch) -> InferenceResult:
-        """Run inference with pre-tokenized batch (no tokenization).
-
-        Args:
-            tokenized_batch: TokenizedBatch with features already tokenized
-
-        Returns:
-            InferenceResult with scores and timing (t_tokenize_ms will be 0)
-        """
         self._acquire()
         try:
-            # Move features to device (tokenizer pool tokenizes on CPU)
             features = {k: v.to(self.device) for k, v in tokenized_batch.features.items()}
 
-            # Run model inference directly with features
             start = time.perf_counter()
             sync_device(self.device)
 
-            # Use the model's forward pass directly with features
             import torch
 
             with torch.inference_mode():
-                # Extract input_ids and attention_mask from features
                 outputs = self.model.model(**features, return_dict=True)
                 logits = outputs.logits
-                # Handle different model configurations
+
                 if hasattr(self.model, "config") and self.model.config.num_labels == 1:
                     scores = torch.sigmoid(logits).squeeze(-1)
                 else:
@@ -154,7 +135,7 @@ class BaseBackend(ABC):
 
             return InferenceResult(
                 scores=scores_np,
-                t_tokenize_ms=0.0,  # Tokenization already done
+                t_tokenize_ms=0.0,
                 t_model_inference_ms=t_model_inference_ms,
                 total_ms=t_model_inference_ms,
                 batch_size=tokenized_batch.batch_size,

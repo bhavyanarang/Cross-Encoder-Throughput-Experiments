@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Client for running benchmarks against inference server."""
 
 import argparse
 import json
@@ -19,7 +18,7 @@ import yaml
 from tqdm import tqdm
 
 from src.client.grpc_client import InferenceClient
-from src.models import BenchmarkState, DashboardMetrics
+from src.server.models import BenchmarkState, DashboardMetrics
 
 logging.basicConfig(
     level=logging.INFO,
@@ -29,14 +28,11 @@ logger = logging.getLogger(__name__)
 
 
 class DatasetLoader:
-    """Handles loading and caching of test datasets."""
-
     def __init__(self, cache_dir: Path = None):
         self.cache_dir = cache_dir or Path(__file__).parent.parent / ".cache"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def load(self, num_samples: int = 1000) -> list:
-        """Load MS MARCO query-passage pairs with caching."""
         cache_file = self.cache_dir / f"msmarco_pairs_{num_samples}.json"
 
         if cache_file.exists():
@@ -49,7 +45,6 @@ class DatasetLoader:
         return self._download_and_cache(num_samples, cache_file)
 
     def _download_and_cache(self, num_samples: int, cache_file: Path) -> list:
-        """Download dataset from HuggingFace and cache."""
         try:
             from datasets import load_dataset as hf_load_dataset
 
@@ -84,13 +79,10 @@ class DatasetLoader:
 
 
 class DashboardCollector:
-    """Collects metrics from the dashboard during experiments."""
-
     def __init__(self, dashboard_url: str = "http://localhost:8080"):
         self.dashboard_url = dashboard_url
 
     def fetch_metrics(self) -> dict:
-        """Fetch current metrics from dashboard."""
         try:
             response = requests.get(f"{self.dashboard_url}/metrics", timeout=2)
             return response.json()
@@ -98,7 +90,6 @@ class DashboardCollector:
             return {}
 
     def collect_history(self) -> DashboardMetrics:
-        """Collect all history data from dashboard (built up by frontend polling)."""
         try:
             data = self.fetch_metrics()
             history = data.get("history", {})
@@ -121,8 +112,6 @@ class DashboardCollector:
 
 
 class BenchmarkRunner:
-    """Runs benchmarks with configurable parameters."""
-
     def __init__(self, client: InferenceClient, state: BenchmarkState):
         self.client = client
         self.state = state
@@ -134,7 +123,6 @@ class BenchmarkRunner:
         num_requests: int,
         concurrency: int = 1,
     ) -> dict:
-        """Run benchmark with per-request metrics tracking."""
         logger.info(
             f"Starting benchmark: {num_requests} requests, "
             f"concurrency={concurrency}, batch_size={batch_size}"
@@ -147,14 +135,14 @@ class BenchmarkRunner:
         latency_throughput_pairs = []
         lock = Lock()
         start = time.perf_counter()
-        completed = [0]  # Use list to allow mutation in nested function
+        completed = [0]
 
         def run_batch(batch):
             if self.state.interrupted:
                 return None
-            # Check if we've exceeded 1 minute
+
             elapsed = time.perf_counter() - start
-            if elapsed > 60.0:  # 1 minute timeout
+            if elapsed > 60.0:
                 logger.info(
                     f"Reached 1-minute timeout, stopping benchmark (completed {completed[0]}/{num_requests} requests)"
                 )
@@ -185,7 +173,6 @@ class BenchmarkRunner:
         )
 
     def _prepare_batches(self, pairs: list, batch_size: int, num_requests: int) -> list:
-        """Prepare batches of pairs for benchmark."""
         batches = []
         for i in range(num_requests):
             start_idx = (i * batch_size) % len(pairs)
@@ -204,11 +191,9 @@ class BenchmarkRunner:
         num_requests: int,
         start_time: float = None,
     ):
-        """Execute batches with specified concurrency."""
         if start_time is None:
             start_time = time.perf_counter()
 
-        # Use tqdm for progress bar
         pbar = tqdm(total=num_requests, desc="Benchmarking", unit="req", ncols=80, leave=False)
         last_completed = 0
 
@@ -217,11 +202,11 @@ class BenchmarkRunner:
                 for batch in batches:
                     if self.state.interrupted:
                         break
-                    # Check timeout
+
                     if time.perf_counter() - start_time > 60.0:
                         break
                     run_batch(batch)
-                    # Update progress bar based on actual completed count
+
                     current = completed[0]
                     if current > last_completed:
                         pbar.update(current - last_completed)
@@ -232,16 +217,15 @@ class BenchmarkRunner:
                     for _f in as_completed(futures):
                         if self.state.interrupted:
                             break
-                        # Check timeout
+
                         if time.perf_counter() - start_time > 60.0:
                             break
-                        # Update progress bar based on actual completed count
+
                         current = completed[0]
                         if current > last_completed:
                             pbar.update(current - last_completed)
                             last_completed = current
         finally:
-            # Ensure progress bar shows final state
             final = completed[0]
             if final > last_completed:
                 pbar.update(final - last_completed)
@@ -256,7 +240,6 @@ class BenchmarkRunner:
         concurrency: int,
         elapsed: float,
     ) -> dict:
-        """Compute final benchmark results."""
         lat = np.array(latencies)
         tp = np.array(throughputs)
         total_pairs = len(latencies) * batch_size
@@ -289,8 +272,6 @@ class BenchmarkRunner:
 
 
 class ResultsWriter:
-    """Writes experiment results to markdown files."""
-
     def save(
         self,
         results: list,
@@ -300,16 +281,6 @@ class ResultsWriter:
         append: bool = False,
         timeseries_file: str = None,
     ):
-        """Save experiment results to markdown with detailed metrics.
-
-        Args:
-            results: List of benchmark results
-            config: Experiment config dictionary
-            output_file: Path to output markdown file
-            dashboard_metrics: Optional dashboard metrics
-            append: If True, append to existing file with separator
-            timeseries_file: Optional separate file for timeseries (for sweep consolidation)
-        """
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -318,17 +289,14 @@ class ResultsWriter:
         model_config = self._get_model_config(config)
         batching = config.get("batching", {})
 
-        # Create distribution directory for tables
         output_path = Path(output_file)
         distribution_dir = output_path.parent.parent / "distribution"
         distribution_dir.mkdir(exist_ok=True)
         experiment_basename = output_path.stem.replace("_results", "")
 
-        # Determine write mode
         mode = "a" if append else "w"
 
         with open(output_file, mode) as f:
-            # Add separator before appending new config results
             if append:
                 f.write("\n\n---\n\n")
 
@@ -338,7 +306,6 @@ class ResultsWriter:
             self._write_overall_summary(f, results)
 
             if dashboard_metrics:
-                # Pass the first result for per-config timeseries identification
                 result = None
                 if results and len(results) > 0:
                     result = results[0]
@@ -357,7 +324,6 @@ class ResultsWriter:
         logger.info(f"Results {'appended to' if append else 'saved to'} {output_file}")
 
     def _get_model_config(self, config: dict) -> dict:
-        """Extract model config from experiment config."""
         if "model" in config:
             return config["model"]
         if "models" in config and config["models"]:
@@ -377,7 +343,6 @@ class ResultsWriter:
         model_config: dict,
         batching: dict,
     ):
-        """Write markdown header."""
         f.write(f"# {name}\n\n")
         if description:
             f.write(f"_{description}_\n\n")
@@ -393,8 +358,7 @@ class ResultsWriter:
             f.write(f"timeout={batching.get('timeout_ms')}ms)\n\n")
 
     def _write_summary_table(self, f, results: list):
-        """Write results summary table."""
-        f.write("## Results Summary\n\n")
+        f.write("## Summary\n\n")
         f.write(
             "| Batch | Conc | Pairs | Time(s) | Lat Avg | Lat P95 | Lat P99 | TP Avg | TP P95 |\n"
         )
@@ -417,16 +381,15 @@ class ResultsWriter:
                 )
 
     def _write_detailed_metrics(self, f, results: list):
-        """Write detailed per-config metrics."""
         f.write("\n## Detailed Metrics\n\n")
 
         for i, r in enumerate(results, 1):
             if "error" in r:
-                f.write(f"### Config {i}: **ERROR**\n\n")
+                f.write(f"### Run {i}\n\n")
                 f.write(f"Error: {r.get('error')}\n\n")
                 continue
 
-            f.write(f"### Config {i}: batch={r['batch_size']}, concurrency={r['concurrency']}\n\n")
+            f.write(f"### Run {i}\n\n")
             f.write(f"**Total:** {r['total_pairs']} pairs in {r['total_time_s']:.2f}s\n\n")
 
             self._write_latency_table(f, r)
@@ -434,8 +397,7 @@ class ResultsWriter:
             self._write_latency_throughput_analysis(f, r)
 
     def _write_latency_table(self, f, r: dict):
-        """Write latency metrics table."""
-        f.write("#### Latency (ms)\n")
+        f.write("### Latency\n\n")
         f.write("| Metric | Value |\n|--------|-------|\n")
         f.write(f"| Average | {r['latency_avg_ms']:.2f} |\n")
         f.write(f"| Min | {r['latency_min_ms']:.2f} |\n")
@@ -447,8 +409,7 @@ class ResultsWriter:
         f.write(f"| P99 | {r['latency_p99_ms']:.2f} |\n\n")
 
     def _write_throughput_table(self, f, r: dict):
-        """Write throughput metrics table."""
-        f.write("#### Throughput (pairs/s)\n")
+        f.write("### Throughput\n\n")
         f.write("| Metric | Value |\n|--------|-------|\n")
         f.write(f"| Average | {r['throughput_avg']:.2f} |\n")
         f.write(f"| Min | {r['throughput_min']:.2f} |\n")
@@ -460,7 +421,6 @@ class ResultsWriter:
         f.write(f"| P99 | {r['throughput_p99']:.2f} |\n\n")
 
     def _write_latency_throughput_analysis(self, f, r: dict):
-        """Write latency vs throughput analysis."""
         if "latency_throughput_pairs" not in r or not r["latency_throughput_pairs"]:
             return
 
@@ -472,7 +432,7 @@ class ResultsWriter:
         lat_p75 = float(np.percentile(lat_array, 75))
         lat_p90 = float(np.percentile(lat_array, 90))
 
-        f.write("#### Latency vs Throughput Analysis\n\n")
+        f.write("### Latency vs Throughput Analysis\n\n")
         f.write("| Latency Range | Avg Throughput | Min Throughput | Max Throughput | Count |\n")
         f.write("|---------------|----------------|----------------|----------------|-------|\n")
 
@@ -503,7 +463,6 @@ class ResultsWriter:
         )
 
     def _write_overall_summary(self, f, results: list):
-        """Write overall summary statistics."""
         successful = [r for r in results if "error" not in r]
         if not successful:
             return
@@ -537,22 +496,9 @@ class ResultsWriter:
         config: dict = None,
         result: dict = None,
     ):
-        """Write dashboard metrics summary and full time-series data.
-
-        Args:
-            f: File object to write to
-            metrics: Dashboard metrics containing timeseries data
-            distribution_dir: Directory for distribution files
-            experiment_basename: Base name for experiment files
-            timeseries_file: Optional separate file for timeseries
-            append: Whether to append to existing file
-            config: Full experiment configuration
-            result: Individual benchmark result (for per-config timeseries)
-        """
         summary = metrics.get_summary()
 
-        # Summary statistics table
-        f.write("\n## Dashboard Metrics Summary\n\n")
+        f.write("\n## Dashboard Metrics\n\n")
         f.write("| Metric | Avg | Min | Max | P50 | P95 |\n")
         f.write("|--------|-----|-----|-----|-----|-----|\n")
 
@@ -571,53 +517,34 @@ class ResultsWriter:
             f.write(f"| {display_name} | {s.get('avg', 0):.1f} | {s.get('min', 0):.1f} | ")
             f.write(f"{s.get('max', 0):.1f} | {s.get('p50', 0):.1f} | {s.get('p95', 0):.1f} |\n")
 
-        # Stage breakdown percentages
         self._write_stage_breakdown(f, metrics)
 
-        # Per-worker stats (for multi-model experiments)
         self._write_worker_stats(f, metrics)
 
-        # Create per-sweep config from result and full config
         sweep_config = self._extract_sweep_config(config, result)
 
-        # Full time-series data - write to specified file or default location
         if timeseries_file:
             ts_path = Path(timeseries_file)
             ts_path.parent.mkdir(exist_ok=True)
             self._write_dashboard_timeseries(ts_path, metrics, append=append, config=sweep_config)
-            f.write(
-                f"\n## Dashboard Time-Series Data\n\n"
-                f"Full time-series data is available in: `distribution/{ts_path.name}`\n"
-            )
+            f.write(f"\nFull time-series data is available in: `distribution/{ts_path.name}`\n")
         else:
             ts_path = distribution_dir / f"{experiment_basename}_timeseries.md"
             self._write_dashboard_timeseries(ts_path, metrics, append=False, config=sweep_config)
             f.write(
-                f"\n## Dashboard Time-Series Data\n\n"
-                f"Full time-series data is available in: `distribution/{experiment_basename}_timeseries.md`\n"
+                f"\nFull time-series data is available in: `distribution/{experiment_basename}_timeseries.md`\n"
             )
 
     def _extract_sweep_config(self, config: dict, result: dict) -> dict:
-        """Extract per-sweep configuration from full config and individual result.
-
-        Args:
-            config: Full experiment configuration
-            result: Individual benchmark result containing batch_size, concurrency, etc.
-
-        Returns:
-            Dictionary with per-sweep configuration details
-        """
         sweep_config = {}
 
         if result:
-            # Add per-sweep parameters from result
             if "batch_size" in result:
                 sweep_config["batch_size"] = result["batch_size"]
             if "concurrency" in result:
                 sweep_config["concurrency"] = result["concurrency"]
 
         if config:
-            # Add model configuration
             model_config = self._get_model_config(config)
             if model_config:
                 if "backend" in model_config:
@@ -627,7 +554,6 @@ class ResultsWriter:
                 if "name" in model_config:
                     sweep_config["model"] = model_config["name"]
 
-            # Add batching configuration if enabled
             batching = config.get("batching", {})
             if batching.get("enabled"):
                 sweep_config["batching_enabled"] = True
@@ -639,12 +565,11 @@ class ResultsWriter:
         return sweep_config
 
     def _write_stage_breakdown(self, f, metrics: DashboardMetrics):
-        """Write stage breakdown percentages."""
         stage_pct = metrics.stage_percentages
         if not stage_pct:
             return
 
-        f.write("\n### Stage Breakdown\n\n")
+        f.write("\n### Stage Timing\n\n")
         f.write("| Stage | Percentage |\n")
         f.write("|-------|------------|\n")
         f.write(f"| Tokenization | {stage_pct.get('tokenize_pct', 0):.1f}% |\n")
@@ -653,12 +578,11 @@ class ResultsWriter:
         f.write(f"| Other/gRPC | {stage_pct.get('other_pct', 0):.1f}% |\n")
 
     def _write_worker_stats(self, f, metrics: DashboardMetrics):
-        """Write per-worker/per-model statistics."""
         worker_stats = metrics.worker_stats
         if not worker_stats:
             return
 
-        f.write("\n### Per-Worker Statistics\n\n")
+        f.write("\n### Worker Metrics\n\n")
         f.write(
             "| Worker ID | Avg Latency (ms) | P95 Latency (ms) | Throughput (q/s) | Queries |\n"
         )
@@ -678,18 +602,6 @@ class ResultsWriter:
         append: bool = False,
         config: dict = None,
     ):
-        """Write full time-series data from dashboard to separate file.
-
-        Optimized to avoid slow file reading when appending by tracking
-        the index in a companion file.
-
-        Args:
-            output_file: Path to output markdown file
-            metrics: Dashboard metrics containing timeseries data
-            append: If True, append to existing file with separator and config
-            config: Optional configuration dict (for sweep identification in distribution files)
-        """
-        # Get all lists and find the longest one
         data_lists = {
             "GPU Mem (MB)": metrics.gpu_memory_mb,
             "GPU Util (%)": metrics.gpu_utilization_pct,
@@ -707,11 +619,9 @@ class ResultsWriter:
         if max_len == 0:
             return
 
-        # Use companion index file to track last written index (O(1) read instead of O(n))
         index_file = output_file.with_suffix(".idx")
         file_exists = output_file.exists() and output_file.stat().st_size > 0
 
-        # Get starting index efficiently
         start_idx = 0
         if append and file_exists:
             try:
@@ -719,12 +629,10 @@ class ResultsWriter:
                     with open(index_file) as f:
                         start_idx = int(f.read().strip()) + 1
                 else:
-                    # Fallback: read last line only (faster than full file read)
                     with open(output_file, "rb") as f:
-                        # Seek to end and read backwards
                         f.seek(0, 2)
                         file_size = f.tell()
-                        # Read last 500 bytes to find last line
+
                         read_size = min(500, file_size)
                         f.seek(-read_size, 2)
                         last_chunk = f.read(read_size).decode("utf-8", errors="ignore")
@@ -740,25 +648,21 @@ class ResultsWriter:
             except Exception:
                 start_idx = 0
 
-        # Write data rows
         mode = "a" if append else "w"
         with open(output_file, mode) as f:
-            # For first write or non-append, write header
             if not append or not file_exists:
-                f.write("# Dashboard Time-Series Data\n\n")
+                f.write("# Timeseries Data\n\n")
                 f.write(f"**Experiment:** {output_file.stem.replace('_timeseries', '')}\n\n")
                 f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-                # Header row
+
                 headers = ["Index"] + list(data_lists.keys())
                 f.write("| " + " | ".join(headers) + " |\n")
                 f.write("|" + "|".join(["-----"] * len(headers)) + "|\n")
             else:
-                # When appending, add separator and configuration metadata
                 f.write("\n---\n\n")
                 if config:
-                    f.write("## Configuration\n\n")
+                    f.write("### Configuration\n\n")
 
-                    # Order of keys to display (in priority order)
                     key_order = [
                         "batch_size",
                         "concurrency",
@@ -770,19 +674,17 @@ class ResultsWriter:
                         "timeout_ms",
                     ]
 
-                    # Display relevant config parameters
                     config_items = []
                     for key in key_order:
                         if key in config:
                             val = config[key]
-                            # Format the value appropriately
+
                             if isinstance(val, bool):
                                 display_val = "Yes" if val else "No"
                             else:
                                 display_val = str(val)
                             config_items.append(f"{key}: {display_val}")
 
-                    # Write configuration as inline text
                     if config_items:
                         f.write("**Parameters:** " + " | ".join(config_items) + "\n\n")
 
@@ -791,7 +693,6 @@ class ResultsWriter:
                 f.write("| " + " | ".join(headers) + " |\n")
                 f.write("|" + "|".join(["-----"] * len(headers)) + "|\n")
 
-            # Data rows - use buffering for faster writes
             buffer = []
             for i in range(max_len):
                 row = [str(start_idx + i)]
@@ -803,21 +704,18 @@ class ResultsWriter:
                         row.append("-")
                 buffer.append("| " + " | ".join(row) + " |\n")
 
-                # Flush buffer every 1000 rows to avoid memory buildup
                 if len(buffer) >= 1000:
                     f.writelines(buffer)
                     buffer.clear()
 
-            # Flush remaining buffer
             if buffer:
                 f.writelines(buffer)
 
-        # Update index file for fast lookups on next append
         try:
             with open(index_file, "w") as f:
                 f.write(str(start_idx + max_len - 1))
         except Exception:
-            pass  # Non-critical, continue anyway
+            pass
 
 
 def main():
@@ -839,28 +737,22 @@ def main():
     parser.add_argument("--dataset-size", type=int, default=50000, help="Number of test pairs")
     args = parser.parse_args()
 
-    # Setup state and signal handlers
     state = BenchmarkState()
     signal.signal(signal.SIGINT, state.handle_interrupt)
     signal.signal(signal.SIGTERM, state.handle_interrupt)
 
-    # Load config if provided (merge with base_config.yaml)
     config = {}
     if args.config:
-        # Load base config first
         base_config_path = Path(__file__).parent.parent / "experiments" / "base_config.yaml"
         base_config = {}
         if base_config_path.exists():
             with open(base_config_path) as f:
                 base_config = yaml.safe_load(f) or {}
 
-        # Load experiment config
         with open(args.config) as f:
             exp_config = yaml.safe_load(f) or {}
 
-        # Deep merge: base_config values are defaults, exp_config overrides
         def deep_merge(base, override):
-            """Deep merge two dictionaries, with override taking precedence."""
             result = base.copy()
             for key, value in override.items():
                 if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -877,20 +769,16 @@ def main():
         if "num_requests" in exp:
             args.num_requests = exp["num_requests"]
 
-    # Load test pairs
     loader = DatasetLoader()
     pairs = loader.load(args.dataset_size)
     logger.info(f"Loaded {len(pairs)} test pairs")
 
-    # Create client
     client = InferenceClient(args.host, args.port)
 
-    # Determine all combinations to test
     exp = config.get("experiment", config.get("benchmark", {})) if config else {}
     batch_sizes = exp.get("batch_sizes", [args.batch_size])
     concurrency_levels = exp.get("concurrency_levels", [args.concurrency])
 
-    # If single values provided, convert to lists
     if "batch_size" in exp and "batch_sizes" not in exp:
         batch_sizes = [exp["batch_size"]]
     if "concurrency" in exp and "concurrency_levels" not in exp:
@@ -901,7 +789,6 @@ def main():
         f"Running {total_combinations} configuration(s): {len(batch_sizes)} batch size(s) × {len(concurrency_levels)} concurrency level(s)"
     )
 
-    # Warmup with first batch size
     logger.info("Warming up...")
     warmup_batch_size = batch_sizes[0] if batch_sizes else args.batch_size
     for _ in range(5):
@@ -911,7 +798,6 @@ def main():
         runner = BenchmarkRunner(client, state)
         results = []
 
-        # Iterate through all combinations
         config_num = 0
         for batch_size in batch_sizes:
             for concurrency in concurrency_levels:
@@ -927,16 +813,15 @@ def main():
                 logger.info(f"Requests per config: {args.num_requests} (fixed for all configs)")
                 logger.info(f"{'=' * 60}")
 
-                # Reset metrics before each config for clean per-config metrics
                 try:
                     requests.post("http://localhost:8080/reset", timeout=2)
                 except Exception:
-                    pass  # Dashboard might not be available, continue anyway
+                    pass
 
                 result = runner.run(
                     pairs,
                     batch_size,
-                    args.num_requests,  # Fixed number of requests per combination
+                    args.num_requests,
                     concurrency,
                 )
                 result["batch_size"] = batch_size
@@ -953,17 +838,14 @@ def main():
                 else:
                     logger.error(f"✗ Failed: {result.get('error', 'Unknown error')}")
 
-                # Brief pause between configs
                 time.sleep(0.5)
 
             if state.interrupted:
                 break
 
-        # Collect dashboard metrics (after all configs)
         dashboard_collector = DashboardCollector()
         dashboard_metrics = dashboard_collector.collect_history()
 
-        # Print summary
         successful = [r for r in results if "error" not in r]
         if successful:
             print("\n" + "=" * 80)
@@ -974,14 +856,12 @@ def main():
             print(f"Failed: {len(results) - len(successful)}")
 
             if successful:
-                # If only one configuration, show per-request statistics instead
                 if len(successful) == 1:
                     r = successful[0]
                     print("\n" + "-" * 80)
                     print(f"CONFIGURATION: batch={r['batch_size']}, concurrency={r['concurrency']}")
                     print("-" * 80)
 
-                    # Show per-request statistics
                     print("\nPER-REQUEST THROUGHPUT STATISTICS (pairs/s)")
                     print("-" * 80)
                     print(f"  Average: {r['throughput_avg']:.1f}")
@@ -1001,7 +881,6 @@ def main():
                     print(f"  P95:     {r['latency_p95_ms']:.1f}")
                     print(f"  P99:     {r['latency_p99_ms']:.1f}")
                 else:
-                    # Multiple configurations - show per-configuration statistics
                     all_throughputs = [r["throughput_avg"] for r in successful]
                     all_latencies = [r["latency_avg_ms"] for r in successful]
 
@@ -1013,7 +892,6 @@ def main():
                     avg_tp = sum(all_throughputs) / len(all_throughputs)
                     avg_lat = sum(all_latencies) / len(all_latencies)
 
-                    # Calculate percentiles
                     tp_sorted = sorted(all_throughputs)
                     lat_sorted = sorted(all_latencies)
                     tp_p50 = tp_sorted[len(tp_sorted) // 2]
@@ -1070,40 +948,29 @@ def main():
                     )
                 print("=" * 80 + "\n")
 
-        # Save results
         if args.output:
             writer = ResultsWriter()
 
-            # For sweep experiments, we need to track per-configuration metrics separately
-            # Create a mapping of results to their configurations
             for idx, result in enumerate(results):
-                # Create per-config data if doing timeseries_file (sweep mode)
                 if args.timeseries_file and idx == 0:
-                    # First config - don't append
                     writer.save(
-                        [result],  # Just this config
+                        [result],
                         config,
                         args.output,
-                        dashboard_metrics
-                        if idx == len(results) - 1
-                        else None,  # Only attach metrics to last
+                        dashboard_metrics if idx == len(results) - 1 else None,
                         append=False,
                         timeseries_file=args.timeseries_file,
                     )
                 elif args.timeseries_file:
-                    # Subsequent configs - append with config metadata
                     writer.save(
-                        [result],  # Just this config
+                        [result],
                         config,
                         args.output,
-                        dashboard_metrics
-                        if idx == len(results) - 1
-                        else None,  # Only attach metrics to last
+                        dashboard_metrics if idx == len(results) - 1 else None,
                         append=True,
                         timeseries_file=args.timeseries_file,
                     )
                 elif idx == 0:
-                    # Non-sweep mode - save all at once
                     writer.save(
                         results,
                         config,
@@ -1112,7 +979,7 @@ def main():
                         append=False,
                         timeseries_file=args.timeseries_file,
                     )
-                    break  # Exit loop since we saved everything
+                    break
 
     finally:
         client.close()

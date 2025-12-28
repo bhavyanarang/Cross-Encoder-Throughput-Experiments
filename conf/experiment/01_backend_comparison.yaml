@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+# Experiment 01: Backend Comparison - Sweep all backends
+name: "01_backend_comparison"
+description: "Compare all backends (pytorch, mps, mlx, compiled)"
+
+# Backend sweep: will be expanded into multiple configs
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: ["pytorch", "mps", "mlx", "compiled"]
+      device: "mps"
+      quantization: "fp16"
+      compile_model: false
+      max_length: 512
+
+experiment:
+  batch_sizes: [32]
+  concurrency_levels: [1]

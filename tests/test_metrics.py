@@ -1,11 +1,8 @@
-"""Tests for metrics DTOs."""
-
-from src.models.metrics import LatencyStats, PaddingStats, StageStats, ThroughputStats
+from src.server.models.metrics_dto import LatencyStats, PaddingStats, StageStats, ThroughputStats
 
 
 class TestLatencyStats:
     def test_latency_stats_defaults(self):
-        """Test LatencyStats with default values."""
         stats = LatencyStats()
         assert stats.count == 0
         assert stats.avg_ms == 0.0
@@ -16,7 +13,6 @@ class TestLatencyStats:
         assert stats.p99_ms == 0.0
 
     def test_latency_stats_custom(self):
-        """Test LatencyStats with custom values."""
         stats = LatencyStats(
             count=100,
             avg_ms=50.5,
@@ -37,7 +33,6 @@ class TestLatencyStats:
 
 class TestThroughputStats:
     def test_throughput_stats_defaults(self):
-        """Test ThroughputStats with default values."""
         stats = ThroughputStats()
         assert stats.instant_qps == 0.0
         assert stats.avg_qps == 0.0
@@ -45,7 +40,6 @@ class TestThroughputStats:
         assert stats.total_requests == 0
 
     def test_throughput_stats_custom(self):
-        """Test ThroughputStats with custom values."""
         stats = ThroughputStats(
             instant_qps=100.5,
             avg_qps=95.2,
@@ -60,7 +54,6 @@ class TestThroughputStats:
 
 class TestPaddingStats:
     def test_padding_stats_defaults(self):
-        """Test PaddingStats with default values."""
         stats = PaddingStats()
         assert stats.avg_padding_pct == 0.0
         assert stats.p50_padding_pct == 0.0
@@ -68,7 +61,6 @@ class TestPaddingStats:
         assert stats.total_wasted_pct == 0.0
 
     def test_padding_stats_custom(self):
-        """Test PaddingStats with custom values."""
         stats = PaddingStats(
             avg_padding_pct=25.5,
             p50_padding_pct=20.0,
@@ -83,7 +75,6 @@ class TestPaddingStats:
 
 class TestStageStats:
     def test_stage_stats_defaults(self):
-        """Test StageStats with default values."""
         stats = StageStats()
         assert stats.p50_ms == 0.0
         assert stats.p95_ms == 0.0
@@ -91,7 +82,6 @@ class TestStageStats:
         assert stats.count == 0
 
     def test_stage_stats_custom(self):
-        """Test StageStats with custom values."""
         stats = StageStats(
             p50_ms=10.5,
             p95_ms=25.0,

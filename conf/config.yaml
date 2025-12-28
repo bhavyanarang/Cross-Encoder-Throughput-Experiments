@@ -1,0 +1,10 @@
+# @package _global_
+
+defaults:
+  - model_pool: default
+  - tokenizer_pool: default
+  - batching: default
+  - server: default
+  - experiment: default
+
+# Experiment metadata will be provided by the selected experiment config

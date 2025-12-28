@@ -1,5 +1,3 @@
-"""TensorRT Backend for NVIDIA GPUs."""
-
 import logging
 
 import numpy as np
@@ -10,14 +8,6 @@ logger = logging.getLogger(__name__)
 
 
 class TensorRTBackend(BaseBackend):
-    """TensorRT backend for optimized CUDA inference.
-
-    TODO: Implement TensorRT optimization pipeline:
-    1. Export model to ONNX
-    2. Convert ONNX to TensorRT engine
-    3. Run inference with TensorRT runtime
-    """
-
     def __init__(
         self,
         model_name: str,

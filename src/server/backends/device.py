@@ -1,5 +1,3 @@
-"""Device utilities for GPU/accelerator management."""
-
 import logging
 
 import torch
@@ -8,14 +6,6 @@ logger = logging.getLogger(__name__)
 
 
 def resolve_device(device: str) -> str:
-    """Resolve device string to available device.
-
-    Args:
-        device: Requested device ("mps", "cuda", "cpu", or "cuda:N")
-
-    Returns:
-        Resolved device string that is available on the system.
-    """
     if device == "mps":
         if torch.backends.mps.is_available():
             return "mps"
@@ -32,7 +22,6 @@ def resolve_device(device: str) -> str:
 
 
 def sync_device(device: str) -> None:
-    """Synchronize device for accurate timing."""
     if device == "mps":
         torch.mps.synchronize()
     elif device == "cuda" or device.startswith("cuda:"):
@@ -40,7 +29,6 @@ def sync_device(device: str) -> None:
 
 
 def clear_memory(device: str) -> None:
-    """Clear device memory cache."""
     if device == "mps":
         torch.mps.empty_cache()
     elif device == "cuda" or device.startswith("cuda:"):
@@ -48,7 +36,6 @@ def clear_memory(device: str) -> None:
 
 
 def get_gpu_memory_mb(device: str) -> float:
-    """Get current GPU memory usage in MB."""
     if device == "mps":
         try:
             return torch.mps.current_allocated_memory() / (1024 * 1024)
@@ -63,7 +50,6 @@ def get_gpu_memory_mb(device: str) -> float:
 
 
 def get_device_info(device: str) -> dict:
-    """Get device information."""
     info = {"device": device, "type": "cpu", "name": "CPU"}
 
     if device == "mps":
@@ -89,7 +75,6 @@ def get_device_info(device: str) -> dict:
 
 
 def apply_fp16(model, device: str) -> tuple[bool, str]:
-    """Apply FP16 to model if device supports it."""
     if device == "cuda" or device.startswith("cuda:"):
         model.half()
         return True, "FP16 (CUDA)"

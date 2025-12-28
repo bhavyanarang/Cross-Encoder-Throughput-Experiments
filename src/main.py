@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Main entry point for inference server."""
 
-import argparse
 import logging
 
-from src.models.config_loader import get_experiment_name, load_config
+import hydra
+from omegaconf import DictConfig
+
 from src.server.grpc import serve
-from src.server.orchestrator import ServerOrchestrator
+from src.server.models.config_loader import get_experiment_name, hydra_config_to_config
+from src.server.services.orchestrator_service import OrchestratorService
 
 logging.basicConfig(
     level=logging.INFO,
@@ -15,24 +16,21 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Inference Server")
-    parser.add_argument("--experiment", "-e", required=True, help="Experiment config YAML")
-    parser.add_argument("--grpc-port", type=int, help="Override gRPC port")
-    parser.add_argument("--http-port", type=int, help="Override HTTP port")
-    args = parser.parse_args()
+@hydra.main(version_base=None, config_path="../conf", config_name="config")
+def main(cfg: DictConfig) -> None:
+    config = hydra_config_to_config(cfg)
+    experiment_name = get_experiment_name(config)
+    if not experiment_name:
+        experiment_name = cfg.get("name", "experiment")
 
-    config = load_config(args.experiment)
-    experiment_name = get_experiment_name(config, args.experiment)
-
-    if args.grpc_port:
-        config.server.grpc_port = args.grpc_port
-    if args.http_port:
-        config.server.http_port = args.http_port
+    if cfg.get("grpc_port"):
+        config.server.grpc_port = cfg.grpc_port
+    if cfg.get("http_port"):
+        config.server.http_port = cfg.http_port
 
     logger.info(f"Loaded config: {experiment_name}")
 
-    orchestrator = ServerOrchestrator(config, experiment_name)
+    orchestrator = OrchestratorService(config, experiment_name)
     orchestrator.setup()
     orchestrator.start()
 

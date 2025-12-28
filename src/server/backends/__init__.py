@@ -1,5 +1,3 @@
-"""Backend implementations for model inference."""
-
 import logging
 
 from .base import BaseBackend
@@ -23,16 +21,6 @@ BACKENDS = {
 
 
 def create_backend(config) -> BaseBackend:
-    """Create backend from config.
-
-    Available backends:
-    - pytorch: CPU-based PyTorch inference
-    - mps: Apple Silicon GPU (Metal Performance Shaders)
-    - cuda: NVIDIA GPU with CUDA
-    - mlx: Apple MLX framework (falls back to MPS if MLX not installed)
-    - compiled: torch.compile with kernel fusion
-    - tensorrt: NVIDIA TensorRT (not yet implemented)
-    """
     backend_type = config.backend if hasattr(config, "backend") else config.get("backend", "mps")
 
     if backend_type not in BACKENDS:

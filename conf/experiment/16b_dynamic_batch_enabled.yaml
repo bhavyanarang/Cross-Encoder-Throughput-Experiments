@@ -1,0 +1,46 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+# Experiment 16b: Dynamic Batching Analysis - Enabled
+# Compare against 16a baseline to measure dynamic batching overhead
+#
+# Purpose: Measure throughput with dynamic batching to identify overhead.
+# The scheduler aggregates incoming requests into batches up to max_batch_size
+# or until timeout_ms expires, whichever comes first.
+#
+# HYPOTHESIS: Dynamic batching adds overhead from:
+# 1. Thread synchronization (lock contention)
+# 2. Queue management
+# 3. Timeout waiting (even with requests available)
+# 4. Batch assembly and result distribution
+
+name: "16b_dynamic_batch_enabled"
+description: "Dynamic batching enabled for overhead analysis"
+
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: "mps"
+      device: "mps"
+      quantization: fp16
+      compile_model: false
+      max_length: 512
+
+# Dynamic batching ENABLED
+batching:
+  enabled: true
+  max_batch_size: 256
+  timeout_ms: 50.0
+  length_aware: false
+
+experiment:
+  # Match baseline for fair comparison
+  batch_sizes: [32]
+  concurrency_levels: [4]
+  # Run for ~1 minute+ with 1000 requests
+  benchmark_requests: 1000

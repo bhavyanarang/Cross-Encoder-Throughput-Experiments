@@ -1,0 +1,57 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+# Multi-Model Replicas Experiment
+# Tests hosting the same model multiple times with idle-based routing
+
+name: "Multi-Model Replicas (3x MPS)"
+description: "3 model replicas with first-idle routing for max throughput"
+
+# Multi-model pool configuration
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      quantization: fp16
+      compile_model: false
+      max_length: 512
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      quantization: fp16
+      compile_model: false
+      max_length: 512
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      quantization: fp16
+      compile_model: false
+      max_length: 512
+  # Route to idle instances first for maximum throughput
+  routing_strategy: "first_idle"
+
+# Batching settings
+batching:
+  enabled: false
+  max_batch_size: 64
+  timeout_ms: 50.0
+  length_aware: false
+
+# Server configuration
+server:
+  host: "0.0.0.0"
+  grpc_port: 50051
+  http_port: 8080
+  grpc_workers: 12
+
+# Experiment parameters
+experiment:
+  batch_sizes: [32, 64, 128]
+  concurrency_levels: [4, 8, 12]
+  warmup_iterations: 20

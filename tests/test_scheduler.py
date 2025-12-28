@@ -1,18 +1,15 @@
-"""Tests for scheduler."""
-
 import threading
 import time
 
 import numpy as np
 
-from src.models import InferenceResult
-from src.models.scheduler import PendingRequest
-from src.server.scheduler import Scheduler
+from src.server.models import InferenceResult
+from src.server.models.scheduler import PendingRequest
+from src.server.services.scheduler_service import SchedulerService
 
 
 class TestPendingRequest:
     def test_pending_request_creation(self):
-        """Test PendingRequest creation."""
         event = threading.Event()
         pairs = [("query", "document")]
         req = PendingRequest(pairs=pairs, result_future=event, submit_time=time.perf_counter())
@@ -23,26 +20,19 @@ class TestPendingRequest:
 
 class TestScheduler:
     def test_scheduler_creation(self):
-        """Test scheduler creation."""
-
-        # Mock pool
         class MockPool:
             pass
 
-        # Mock tokenization service
         class MockTokenizationService:
             pass
 
-        # Mock inference service
         class MockInferenceService:
             pass
 
-        scheduler = Scheduler(MockPool(), MockTokenizationService(), MockInferenceService())
+        scheduler = SchedulerService(MockTokenizationService(), MockInferenceService())
         assert scheduler is not None
 
     def test_scheduler_info(self):
-        """Test scheduler info retrieval."""
-
         class MockPool:
             pass
 
@@ -52,8 +42,7 @@ class TestScheduler:
         class MockInferenceService:
             pass
 
-        scheduler = Scheduler(
-            MockPool(),
+        scheduler = SchedulerService(
             MockTokenizationService(),
             MockInferenceService(),
             batching_enabled=True,
@@ -68,16 +57,13 @@ class TestScheduler:
         assert info["length_aware"] is True
 
     def test_scheduler_non_batching(self):
-        """Test scheduler without batching."""
-
         class MockPool:
             pass
 
         class MockTokenizationService:
             def tokenize_sync(self, pairs):
-                from src.server.services.tokenizer import TokenizedBatch
+                from src.server.models.inference import TokenizedBatch
 
-                # Return a mock tokenized batch
                 class MockTokenizedBatch(TokenizedBatch):
                     def __init__(self):
                         self.features = {}
@@ -99,8 +85,7 @@ class TestScheduler:
                     total_ms=15.0,
                 )
 
-        scheduler = Scheduler(
-            MockPool(),
+        scheduler = SchedulerService(
             MockTokenizationService(),
             MockInferenceService(),
             batching_enabled=False,
@@ -110,8 +95,6 @@ class TestScheduler:
         assert len(result.scores) == 2
 
     def test_scheduler_stop(self):
-        """Test stopping scheduler."""
-
         class MockPool:
             pass
 
@@ -121,11 +104,10 @@ class TestScheduler:
         class MockInferenceService:
             pass
 
-        scheduler = Scheduler(
-            MockPool(),
+        scheduler = SchedulerService(
             MockTokenizationService(),
             MockInferenceService(),
             batching_enabled=True,
         )
-        # Should not raise
+
         scheduler.stop()

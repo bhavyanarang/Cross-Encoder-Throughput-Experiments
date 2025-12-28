@@ -1,8 +1,6 @@
-"""Tests for data models."""
-
 import numpy as np
 
-from src.models import Config, InferenceResult, ModelConfig, PoolConfig
+from src.server.models import Config, InferenceResult, ModelConfig, PoolConfig
 
 
 class TestModels:

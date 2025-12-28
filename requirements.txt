@@ -16,6 +16,8 @@ optimum[onnxruntime]>=1.14.0
 psutil>=5.9.0
 playwright>=1.40.0
 tqdm>=4.65.0
+hydra-core>=1.3.0
+omegaconf>=2.3.0
 
 # Apple Silicon native ML framework (optional, for INT4/INT8 quantization)
 # Only works on Apple Silicon Macs

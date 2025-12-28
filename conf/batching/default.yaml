@@ -1,0 +1,6 @@
+# @package batching
+
+enabled: false
+max_batch_size: 8
+timeout_ms: 100.0
+length_aware: false

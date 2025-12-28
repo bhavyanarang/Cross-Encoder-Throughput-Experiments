@@ -1,0 +1,31 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+# Experiment 12: Max Sequence Length - Sweep across backends
+name: "12_max_length_sweep"
+description: "Test max sequence length=512 on MPS and MLX backends"
+
+# Backend sweep: will be expanded into multiple configs
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: ["mps", "mlx"]
+      device: "mps"
+      quantization: "fp16"
+      compile_model: false
+      max_length: 512
+
+batching:
+  enabled: false
+  max_batch_size: 8
+  timeout_ms: 100.0
+  length_aware: false
+
+experiment:
+  batch_sizes: [64]
+  concurrency_levels: [1]

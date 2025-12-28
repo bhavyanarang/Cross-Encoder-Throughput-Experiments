@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Generate static HTML dashboard from timeseries data."""
 
 import argparse
 import json
@@ -18,15 +17,12 @@ STATIC_DIR = FRONTEND_DIR / "static"
 
 
 def parse_timeseries_markdown(markdown_path: Path) -> dict:
-    """Parse timeseries markdown file and extract data."""
     with open(markdown_path) as f:
         content = f.read()
 
-    # Extract experiment name
     exp_match = re.search(r"\*\*Experiment:\*\* (.+)", content)
     experiment_name = exp_match.group(1).strip() if exp_match else "Unknown Experiment"
 
-    # Find the table
     lines = content.split("\n")
     table_start = None
     headers = None
@@ -34,13 +30,12 @@ def parse_timeseries_markdown(markdown_path: Path) -> dict:
     for i, line in enumerate(lines):
         if line.startswith("| Index |"):
             headers = [h.strip() for h in line.split("|")[1:-1]]
-            table_start = i + 2  # Skip header and separator
+            table_start = i + 2
             break
 
     if not headers or table_start is None:
         raise ValueError("Could not find timeseries table in markdown file")
 
-    # Parse data rows
     data = {h: [] for h in headers}
     for line in lines[table_start:]:
         if not line.strip() or not line.startswith("|"):
@@ -57,7 +52,6 @@ def parse_timeseries_markdown(markdown_path: Path) -> dict:
                 except ValueError:
                     data[header].append(value)
 
-    # Convert to arrays, filtering None values
     max_len = max(len(v) for v in data.values() if v)
     timestamps = [float(i) for i in range(max_len)]
 
@@ -77,8 +71,6 @@ def parse_timeseries_markdown(markdown_path: Path) -> dict:
 
 
 def compute_summary_stats(timeseries_data: dict) -> dict:
-    """Compute summary statistics from timeseries data."""
-
     def stats(arr):
         if not arr:
             return {"avg": 0, "min": 0, "max": 0, "p50": 0, "p95": 0, "count": 0}
@@ -96,7 +88,6 @@ def compute_summary_stats(timeseries_data: dict) -> dict:
     if not latencies:
         return {}
 
-    # Compute stage breakdown percentages
     tokenize_total = sum(timeseries_data.get("tokenize_ms", []))
     queue_total = sum(timeseries_data.get("queue_wait_ms", []))
     inference_total = sum(timeseries_data.get("inference_ms", []))
@@ -112,7 +103,7 @@ def compute_summary_stats(timeseries_data: dict) -> dict:
 
     return {
         "count": len(latencies),
-        "query_count": len(latencies),  # Approximate
+        "query_count": len(latencies),
         "instant_latency_ms": latencies[-1] if latencies else 0,
         "avg_ms": stats(latencies)["avg"],
         "p50_ms": stats(latencies)["p50"],
@@ -163,15 +154,11 @@ def generate_static_dashboard(
     output_path: Path,
     experiment_config: dict | None = None,
 ) -> bool:
-    """Generate static HTML dashboard from timeseries data."""
     try:
-        # Parse timeseries data
         timeseries_data = parse_timeseries_markdown(timeseries_path)
 
-        # Compute summary statistics
         summary = compute_summary_stats(timeseries_data)
 
-        # Build metrics response structure
         metrics_data = {
             "experiment_name": timeseries_data["experiment_name"],
             "experiment_description": experiment_config.get("description", "")
@@ -183,7 +170,7 @@ def generate_static_dashboard(
             "device": experiment_config.get("model", {}).get("device", "cpu")
             if experiment_config
             else "cpu",
-            "is_running": False,  # Static dashboard is always not running
+            "is_running": False,
             **summary,
             "history": {
                 "timestamps": timeseries_data["timestamps"],
@@ -198,21 +185,16 @@ def generate_static_dashboard(
                 "inference_ms": timeseries_data["inference_ms"],
                 "padding_pct": timeseries_data["padding_pct"],
             },
-            "worker_stats": [],  # Empty for now, can be enhanced later
+            "worker_stats": [],
         }
 
-        # Read HTML template
         html_template = (TEMPLATES_DIR / "index.html").read_text()
 
-        # Read CSS
-        css_content = (STATIC_DIR / "css" / "styles.css").read_text()
+        styles_css = (STATIC_DIR / "css" / "styles.css").read_text()
 
-        # Read JS files
         charts_js = (STATIC_DIR / "js" / "charts.js").read_text()
         main_js = (STATIC_DIR / "js" / "main.js").read_text()
 
-        # Modify main.js to use embedded data instead of polling
-        # Replace the fetchAndUpdate function and init function
         modified_main_js = main_js.replace(
             "// Fetch metrics and update dashboard\nasync function fetchAndUpdate() {",
             "// Fetch metrics from embedded data\nasync function fetchAndUpdate() {",
@@ -226,58 +208,44 @@ def generate_static_dashboard(
             "// Initialize dashboard\nfunction init() {\n    window.DashboardCharts.init();\n    fetchAndUpdate();\n    // No polling for static dashboard\n}",
         )
 
-        # Replace Chart.js CDN link with embedded version or keep CDN
-        # For now, keep CDN link in template
-
-        # Extract body content from template (everything between <body> and <!-- Scripts -->)
         body_match = re.search(r"<body>(.*?)<!-- Scripts -->", html_template, re.DOTALL)
         if body_match:
             body_content = body_match.group(1)
         else:
-            # Fallback: extract everything between body tags, excluding scripts
             body_match = re.search(r"<body>(.*?)</body>", html_template, re.DOTALL)
             if body_match:
                 body_content = body_match.group(1)
-                # Remove script tags
+
                 body_content = re.sub(
                     r"<script[^>]*>.*?</script>", "", body_content, flags=re.DOTALL
                 )
             else:
                 body_content = ""
 
-        # Generate static HTML
+        # Build complete static HTML with embedded CSS, JS, and data
         static_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{metrics_data["experiment_name"]} - Static Dashboard</title>
+    <title>{metrics_data["experiment_name"]} - ML Inference Dashboard</title>
     <style>
-{css_content}
+{styles_css}
     </style>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-    {body_content}
-
-    <!-- Embedded Metrics Data -->
-    <script>
-        window.embeddedMetricsData = {json.dumps(metrics_data, indent=2)};
-    </script>
-
-    <!-- Charts JS -->
+{body_content}
     <script>
 {charts_js}
     </script>
-
-    <!-- Main JS (modified) -->
     <script>
+        window.embeddedMetricsData = {json.dumps(metrics_data)};
 {modified_main_js}
     </script>
 </body>
 </html>"""
 
-        # Write output
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(static_html)
@@ -291,8 +259,6 @@ def generate_static_dashboard(
 
 
 def find_timeseries_file(experiment_name: str, distribution_dir: Path) -> Path | None:
-    """Find timeseries markdown file for an experiment."""
-    # Try different naming patterns
     patterns = [
         f"{experiment_name}_timeseries.md",
         f"{experiment_name.replace('_results', '')}_timeseries.md",
@@ -326,7 +292,6 @@ def main():
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 
-    # Determine timeseries file path
     if args.timeseries:
         timeseries_path = args.timeseries
     elif args.experiment:

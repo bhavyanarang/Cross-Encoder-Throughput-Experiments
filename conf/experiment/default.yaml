@@ -1,0 +1,11 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+# Default experiment config
+name: "Default Experiment"
+description: "Default experiment configuration"

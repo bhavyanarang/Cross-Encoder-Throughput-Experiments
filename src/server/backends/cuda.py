@@ -1,5 +1,3 @@
-"""CUDA Backend for NVIDIA GPUs."""
-
 import logging
 import time
 
@@ -7,24 +5,15 @@ import numpy as np
 import torch
 from sentence_transformers import CrossEncoder
 
-from src.models import InferenceResult
 from src.server.backends.base import BaseBackend
 from src.server.backends.device import sync_device
-from src.server.services.tokenizer import TokenizerService
+from src.server.models import InferenceResult
+from src.server.services.tokenization_service import TokenizerService
 
 logger = logging.getLogger(__name__)
 
 
 class CUDABackend(BaseBackend):
-    """CUDA backend optimized for NVIDIA GPUs.
-
-    Supports:
-    - FP32 (default)
-    - FP16 (half precision)
-    - INT8 dynamic quantization
-    - Automatic mixed precision (AMP)
-    """
-
     def __init__(
         self,
         model_name: str,
@@ -43,7 +32,6 @@ class CUDABackend(BaseBackend):
 
         logger.info(f"Loading {self.model_name} on {self.device} ({self.quantization})")
 
-        # Log CUDA device info
         device_name = torch.cuda.get_device_name(0)
         total_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)
         logger.info(f"CUDA Device: {device_name}, Memory: {total_memory:.1f} GB")
@@ -112,7 +100,6 @@ class CUDABackend(BaseBackend):
             self._release()
 
     def get_gpu_memory_mb(self) -> float:
-        """Get current GPU memory usage in MB."""
         if torch.cuda.is_available():
             return torch.cuda.memory_allocated() / (1024 * 1024)
         return 0.0
