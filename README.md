@@ -1,6 +1,8 @@
-# ML Inference Server
+# Cross Encoder Inference Server
 
 A high-performance ML inference server for cross-encoder models with support for multiple backends, quantization, and comprehensive benchmarking on Apple Silicon.
+
+![Dashboard Screenshot](images/dashboard_screenshot.png)
 
 ## Setup
 

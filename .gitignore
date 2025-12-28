@@ -26,4 +26,5 @@ Thumbs.db
 
 .cache/
 .gitignore
-images/
+images/*
+!images/*screenshot*.png
