@@ -25,6 +25,11 @@ model:
   mps:
     fp16: true
 
+# Tokenizer pool configuration
+tokenizer_pool:
+  enabled: true
+  num_workers: 4
+
 batching:
   enabled: false
   max_batch_size: 32
