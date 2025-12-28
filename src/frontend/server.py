@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.server.models import DashboardHistory, MetricsCollector
+from src.server.dto import DashboardHistory, MetricsCollector
 
 if TYPE_CHECKING:
     pass
@@ -20,6 +20,8 @@ STATIC_DIR = FRONTEND_DIR / "static"
 
 
 class DashboardState:
+    """Manages dashboard state. Use get_or_create() instead of direct instantiation."""
+
     _instance = None
     _lock = threading.Lock()
 
@@ -39,6 +41,7 @@ class DashboardState:
         self._history = DashboardHistory()
         self._start_time = time.time()
         self._last_request_count = 0
+        self._server: HTTPServer | None = None  # Track the server instance
 
     @property
     def metrics_collector(self) -> MetricsCollector | None:
@@ -118,7 +121,20 @@ class MetricsHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(content)))
-        self.send_header("Access-Control-Allow-Origin", "*")
+
+        # Only allow CORS from localhost/127.0.0.1 by default for security
+        origin = self.headers.get("Origin", "")
+        if origin in (
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://localhost",
+            "http://127.0.0.1",
+        ):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        # For non-browser requests, don't send CORS header
+
         self.end_headers()
         self.wfile.write(content)
 
@@ -166,15 +182,50 @@ def set_metrics_collector(collector: MetricsCollector) -> None:
     DashboardState().set_metrics_collector(collector)
 
 
-def start_dashboard(port: int = 8080, metrics_collector: MetricsCollector = None) -> HTTPServer:
+def start_dashboard(
+    port: int = 8080, metrics_collector: MetricsCollector = None, host: str = "0.0.0.0"
+) -> HTTPServer:
+    """Start the dashboard HTTP server on the specified host and port.
+
+    Args:
+        port: HTTP port to listen on (default 8080)
+        metrics_collector: Optional metrics collector to display
+        host: Host to bind to (default "0.0.0.0", use "127.0.0.1" for local-only)
+
+    Returns:
+        HTTPServer instance that can be shut down with server.shutdown()
+    """
     if metrics_collector:
         set_metrics_collector(metrics_collector)
 
-    server = HTTPServer(("0.0.0.0", port), MetricsHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    server = HTTPServer((host, port), MetricsHandler)
+    state = DashboardState()
+    state._server = server
+
+    # Use non-daemon thread so it doesn't prevent clean shutdown
+    thread = threading.Thread(target=server.serve_forever, daemon=False)
     thread.start()
-    logger.info(f"Dashboard at http://localhost:{port}")
+    logger.info(f"Dashboard at http://{host}:{port}")
     return server
 
 
-__all__ = ["start_dashboard", "set_metrics_collector", "MetricsHandler", "DashboardState"]
+def stop_dashboard() -> None:
+    """Stop the dashboard server if running."""
+    state = DashboardState()
+    if state._server:
+        try:
+            state._server.shutdown()
+            state._server.server_close()
+            state._server = None
+            logger.info("Dashboard stopped")
+        except Exception as e:
+            logger.warning(f"Error stopping dashboard: {e}")
+
+
+__all__ = [
+    "start_dashboard",
+    "stop_dashboard",
+    "set_metrics_collector",
+    "MetricsHandler",
+    "DashboardState",
+]

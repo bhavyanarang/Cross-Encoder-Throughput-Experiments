@@ -1,4 +1,4 @@
-from src.server.models.metrics_dto import LatencyStats, PaddingStats, StageStats, ThroughputStats
+from src.server.dto.metrics import LatencyStats, PaddingStats, StageStats, ThroughputStats
 
 
 class TestLatencyStats:

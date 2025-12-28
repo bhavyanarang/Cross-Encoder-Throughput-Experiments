@@ -18,7 +18,7 @@ import yaml
 from tqdm import tqdm
 
 from src.client.grpc_client import InferenceClient
-from src.server.models import BenchmarkState, DashboardMetrics
+from src.server.dto import BenchmarkState, DashboardMetrics
 
 logging.basicConfig(
     level=logging.INFO,
@@ -326,8 +326,8 @@ class ResultsWriter:
     def _get_model_config(self, config: dict) -> dict:
         if "model" in config:
             return config["model"]
-        if "models" in config and config["models"]:
-            return config["models"][0]
+        if "dto" in config and config["dto"]:
+            return config["dto"][0]
         if "model_pool" in config and "instances" in config["model_pool"]:
             instances = config["model_pool"]["instances"]
             if instances:

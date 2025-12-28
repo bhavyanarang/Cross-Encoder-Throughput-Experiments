@@ -5,7 +5,7 @@ import threading
 from typing import Protocol
 
 from src.frontend.server import start_dashboard
-from src.server.models import Config, InferenceResult
+from src.server.dto import Config, InferenceResult
 from src.server.services.inference_service import InferenceService, ModelPool
 from src.server.services.metrics_service import MetricsService
 from src.server.services.scheduler_service import SchedulerService

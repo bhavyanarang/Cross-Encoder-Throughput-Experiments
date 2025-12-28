@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.server.models import Config, InferenceResult, ModelConfig, PoolConfig
+from src.server.dto import Config, InferenceResult, ModelConfig, PoolConfig
 
 
 class TestModels:

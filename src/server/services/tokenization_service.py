@@ -1,3 +1,4 @@
+import concurrent.futures
 import logging
 import queue
 import threading
@@ -6,8 +7,8 @@ from collections.abc import Callable
 
 from transformers import AutoTokenizer
 
-from src.server.models.inference import TokenizedBatch
-from src.server.models.metrics.worker import TokenizerWorkerMetrics
+from src.server.dto.inference import TokenizedBatch
+from src.server.dto.metrics.worker import TokenizerWorkerMetrics
 from src.server.services.base import BaseWorker, BaseWorkerPool, setup_worker_environment
 from src.server.services.service_base import PoolBasedService
 
@@ -264,15 +265,24 @@ class TokenizerPool(BaseWorkerPool[list[tuple[str, str]], TokenizedBatch]):
 
 
 class TokenizationService(PoolBasedService):
-    def __init__(self, tokenizer_pool: TokenizerPool):
+    def __init__(self, tokenizer_pool: TokenizerPool, max_async_workers: int = 10):
         super().__init__(tokenizer_pool)
         self._tokenizer_pool = tokenizer_pool
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_async_workers, thread_name_prefix="tokenization-async-"
+        )
 
     def tokenize_async(
         self,
         pairs: list[tuple[str, str]],
         callback: Callable[[TokenizedBatch | None, Exception | None], None],
     ) -> None:
+        """Tokenize pairs asynchronously with bounded worker threads.
+
+        Args:
+            pairs: List of (query, document) tuples to tokenize
+            callback: Function to call with (result, error) when done
+        """
         if not self._is_started:
             callback(None, RuntimeError("Tokenization service not started"))
             return
@@ -282,11 +292,10 @@ class TokenizationService(PoolBasedService):
                 tokenized = self._tokenizer_pool.tokenize(pairs)
                 callback(tokenized, None)
             except Exception as e:
-                logger.error(f"Tokenization error: {e}")
+                logger.error(f"Tokenization error: {e}", exc_info=True)
                 callback(None, e)
 
-        thread = threading.Thread(target=_tokenize, daemon=True)
-        thread.start()
+        self._executor.submit(_tokenize)
 
     def tokenize_sync(self, pairs: list[tuple[str, str]]) -> TokenizedBatch:
         if not self.is_started:
@@ -301,6 +310,16 @@ class TokenizationService(PoolBasedService):
     def reset_worker_metrics(self) -> None:
         if self.is_started:
             self._tokenizer_pool.reset_worker_metrics()
+
+    def stop(self, timeout_s: float = 30.0) -> None:
+        """Stop the tokenization service and clean up executor."""
+        super().stop()
+        try:
+            # Note: timeout parameter was added in Python 3.9
+            # Using wait=True to block until all tasks complete
+            self._executor.shutdown(wait=True)
+        except Exception as e:
+            logger.warning(f"Error shutting down executor: {e}")
 
 
 __all__ = [

@@ -4,10 +4,10 @@ import threading
 import time
 from typing import TYPE_CHECKING
 
-from src.server.models import PendingRequest
+from src.server.dto import PendingRequest
 
 if TYPE_CHECKING:
-    from src.server.models import InferenceResult
+    from src.server.dto import InferenceResult
     from src.server.services.inference_service import InferenceService
     from src.server.services.tokenization_service import TokenizationService
 
@@ -37,10 +37,12 @@ class SchedulerService:
 
         self._batch_thread: threading.Thread | None = None
         self._running = False
+        self._shutdown_event = threading.Event()
 
         if self._batching:
             self._running = True
-            self._batch_thread = threading.Thread(target=self._batch_loop, daemon=True)
+            self._shutdown_event.clear()
+            self._batch_thread = threading.Thread(target=self._batch_loop, daemon=False)
             self._batch_thread.start()
             logger.info(
                 f"Scheduler service created with batching: max_batch={max_batch_size}, timeout_ms={timeout_ms}"
@@ -62,11 +64,23 @@ class SchedulerService:
         with self._condition:
             self._condition.notify()
 
-        req.result_future.wait()
+        # Wait with timeout to avoid infinite hangs
+        timeout_sec = (self._timeout_ms * 10) / 1000.0  # Allow up to 10x batch timeout
+        if not req.result_future.wait(timeout=timeout_sec):
+            raise RuntimeError(f"Scheduler request timed out after {timeout_sec}s")
+
+        # Check if error occurred during processing
+        if hasattr(req, "error") and req.error:
+            raise req.error
+
+        if req.result is None:
+            raise RuntimeError("Scheduler returned None result (unexpected error)")
+
         return req.result
 
     def _batch_loop(self) -> None:
-        while self._running:
+        """Process batches until shutdown is signaled."""
+        while not self._shutdown_event.is_set():
             batch: list[PendingRequest] = []
             timeout_sec = self._timeout_ms / 1000.0
 
@@ -77,7 +91,7 @@ class SchedulerService:
                 continue
 
             deadline = time.perf_counter() + timeout_sec
-            while len(batch) < self._max_batch:
+            while len(batch) < self._max_batch and not self._shutdown_event.is_set():
                 remaining = deadline - time.perf_counter()
                 if remaining <= 0:
                     break
@@ -91,6 +105,7 @@ class SchedulerService:
                 self._process_batch(batch)
 
     def _process_batch(self, batch: list[PendingRequest]) -> None:
+        """Process a batch of requests and distribute results back to callers."""
         batch_start_time = time.perf_counter()
 
         all_pairs = []
@@ -129,8 +144,10 @@ class SchedulerService:
                 idx += n
                 req.result_future.set()
         except Exception as e:
-            logger.error(f"Batch error: {e}")
+            logger.error(f"Batch processing error: {e}", exc_info=True)
+            # Store error on request so callers get proper exception, not silent failure
             for req in batch:
+                req.error = e
                 req.result_future.set()
 
     def get_info(self) -> dict:
@@ -142,11 +159,19 @@ class SchedulerService:
             "pending": self._queue.qsize(),
         }
 
-    def stop(self) -> None:
+    def stop(self, timeout_s: float = 5.0) -> None:
+        """Stop the scheduler service and wait for batch thread to exit."""
         self._running = False
+        self._shutdown_event.set()
 
         with self._condition:
             self._condition.notify_all()
+
+        # Wait for batch thread to exit
+        if self._batch_thread and self._batch_thread.is_alive():
+            self._batch_thread.join(timeout=timeout_s)
+            if self._batch_thread.is_alive():
+                logger.warning("Batch thread did not exit cleanly within timeout")
 
 
 __all__ = ["SchedulerService"]

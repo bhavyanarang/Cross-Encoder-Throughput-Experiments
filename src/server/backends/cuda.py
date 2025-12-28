@@ -7,7 +7,7 @@ from sentence_transformers import CrossEncoder
 
 from src.server.backends.base import BaseBackend
 from src.server.backends.device import sync_device
-from src.server.models import InferenceResult
+from src.server.dto import InferenceResult
 from src.server.services.tokenization_service import TokenizerService
 
 logger = logging.getLogger(__name__)

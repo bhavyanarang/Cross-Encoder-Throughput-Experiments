@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal
 import numpy as np
 
 from src.server.backends.device import clear_memory, resolve_device, sync_device
-from src.server.models import InferenceResult
+from src.server.dto import InferenceResult
 
 if TYPE_CHECKING:
     from src.server.services.tokenization_service import TokenizerPool

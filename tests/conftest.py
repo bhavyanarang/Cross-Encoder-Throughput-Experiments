@@ -17,6 +17,6 @@ def sample_pairs():
 
 @pytest.fixture
 def model_config():
-    from src.server.models import ModelConfig
+    from src.server.dto import ModelConfig
 
     return ModelConfig(name="cross-encoder/ms-marco-MiniLM-L-6-v2", backend="pytorch", device="cpu")

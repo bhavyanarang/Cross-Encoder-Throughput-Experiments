@@ -9,10 +9,10 @@ import threading
 
 from src.client.grpc_client import InferenceClient
 from src.run_client import DatasetLoader
+from src.server.dto import PoolConfig
+from src.server.dto.config import ModelConfig
+from src.server.dto.metrics import MetricsCollector
 from src.server.grpc import serve
-from src.server.models import PoolConfig
-from src.server.models.config import ModelConfig
-from src.server.models.metrics import MetricsCollector
 from src.server.services.inference_service import InferenceService, ModelPool
 from src.server.services.scheduler_service import SchedulerService
 from src.server.services.tokenization_service import TokenizationService, TokenizerPool

@@ -1,6 +1,6 @@
 import pytest
 
-from src.server.models import ModelConfig, PoolConfig
+from src.server.dto import ModelConfig, PoolConfig
 from src.server.services.inference_service import ModelPool
 
 

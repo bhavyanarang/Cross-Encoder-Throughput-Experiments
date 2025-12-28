@@ -6,8 +6,8 @@ import hydra
 from omegaconf import DictConfig
 
 from src.server.grpc import serve
-from src.server.models.config_loader import get_experiment_name, hydra_config_to_config
 from src.server.services.orchestrator_service import OrchestratorService
+from src.server.utils.config_loader import get_experiment_name, hydra_config_to_config
 
 logging.basicConfig(
     level=logging.INFO,

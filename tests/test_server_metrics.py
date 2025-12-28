@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from src.server.models.server_metrics import (
+from src.server.dto.server_metrics import (
     MetricsCollector,
     ProcessMonitor,
     StageMetrics,
@@ -201,7 +201,7 @@ class TestMetricsCollector:
         collector.record(10.0)
         assert collector.is_active() is True
 
-        with patch("src.server.models.metrics.collector.time.time") as mock_time:
+        with patch("src.server.dto.metrics.collector.time.time") as mock_time:
             mock_time.return_value = collector.last_update_time + 5.0
 
             assert collector.is_active() is True

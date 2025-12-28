@@ -2,7 +2,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 
-from src.server.models.metrics import MetricsCollector
+from src.server.dto.metrics import MetricsCollector
 from src.server.services.service_base import BaseService
 
 if TYPE_CHECKING:

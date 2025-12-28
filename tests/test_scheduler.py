@@ -3,8 +3,8 @@ import time
 
 import numpy as np
 
-from src.server.models import InferenceResult
-from src.server.models.scheduler import PendingRequest
+from src.server.dto import InferenceResult
+from src.server.dto.scheduler import PendingRequest
 from src.server.services.scheduler_service import SchedulerService
 
 
@@ -62,7 +62,7 @@ class TestScheduler:
 
         class MockTokenizationService:
             def tokenize_sync(self, pairs):
-                from src.server.models.inference import TokenizedBatch
+                from src.server.dto.inference import TokenizedBatch
 
                 class MockTokenizedBatch(TokenizedBatch):
                     def __init__(self):

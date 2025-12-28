@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 
 from src.server.backends import create_backend
-from src.server.models import (
+from src.server.dto import (
     InferenceResult,
     ModelConfig,
     PoolConfig,
@@ -15,7 +15,7 @@ from src.server.models import (
     WorkItem,
     WorkResult,
 )
-from src.server.models.metrics.worker import WorkerMetrics
+from src.server.dto.metrics.worker import WorkerMetrics
 from src.server.services.base import BaseWorker, get_worker_gpu_memory, setup_worker_environment
 from src.server.services.service_base import PoolBasedService
 
@@ -85,11 +85,11 @@ class ModelWorker(BaseWorker[WorkItem, WorkResult]):
 def _worker_main(
     worker_id: int,
     config_dict: dict,
-    input_queue: mp.Queue,
-    output_queue: mp.Queue,
-    ready_event: mp.Event,
-    memory_queue: mp.Queue,
-    metrics_queue: mp.Queue | None = None,
+    input_queue,  # mp.Queue[WorkItem]
+    output_queue,  # mp.Queue[WorkResult]
+    ready_event,  # mp.Event
+    memory_queue,  # mp.Queue
+    metrics_queue=None,  # Optional mp.Queue
 ):
     cfg = ModelConfig(**config_dict)
     worker = ModelWorker(worker_id, cfg)
@@ -149,6 +149,7 @@ class ModelPool:
         self._pending_tokenize_metrics: dict[int, dict] = {}
         self._worker_metrics: dict[int, dict] = {}
         self._metrics_lock = threading.Lock()
+        self._shutdown_event = threading.Event()  # Signal for background threads to stop
 
     def start(self, timeout_s: float = 120.0) -> None:
         if self._is_started:
@@ -189,24 +190,72 @@ class ModelPool:
         if not self._is_started:
             return
 
+        # Signal result and metrics threads to stop
+        self._shutdown_event.set()
+
+        # Stop worker processes
         for _ in range(self.num_workers):
             self._input_queue.put(_STOP)
 
         deadline = time.time() + timeout_s
+
+        # Wait for worker processes to exit
         for p in self._processes:
             remaining = max(0, deadline - time.time())
             p.join(timeout=remaining)
             if p.is_alive():
+                logger.warning("Worker process did not exit; terminating")
                 p.terminate()
+                p.join(timeout=1.0)
+
+        # Wait for background threads to exit
+        if self._result_thread:
+            remaining = max(0, deadline - time.time())
+            self._result_thread.join(timeout=remaining)
+            if self._result_thread.is_alive():
+                logger.warning("Result thread did not exit cleanly")
+
+        if self._metrics_thread:
+            remaining = max(0, deadline - time.time())
+            self._metrics_thread.join(timeout=remaining)
+            if self._metrics_thread.is_alive():
+                logger.warning("Metrics thread did not exit cleanly")
+
+        # Clean up multiprocessing queues to prevent resource leaks
+        try:
+            self._input_queue.close()
+            self._input_queue.join_thread()
+        except Exception as e:
+            logger.debug(f"Error closing input queue: {e}")
+
+        try:
+            self._output_queue.close()
+            self._output_queue.join_thread()
+        except Exception as e:
+            logger.debug(f"Error closing output queue: {e}")
+
+        try:
+            self._memory_queue.close()
+            self._memory_queue.join_thread()
+        except Exception as e:
+            logger.debug(f"Error closing memory queue: {e}")
+
+        try:
+            self._metrics_queue.close()
+            self._metrics_queue.join_thread()
+        except Exception as e:
+            logger.debug(f"Error closing metrics queue: {e}")
 
         self._processes.clear()
         self._is_started = False
         logger.info("Pool stopped")
 
     def _result_loop(self) -> None:
-        while True:
+        """Process results from worker processes until shutdown is signaled."""
+        while not self._shutdown_event.is_set():
             try:
-                result = self._output_queue.get()
+                # Use timeout so we can check shutdown_event periodically
+                result = self._output_queue.get(timeout=0.5)
                 if not isinstance(result, WorkResult):
                     continue
 
@@ -217,24 +266,40 @@ class ModelPool:
                 future = self._pending.pop(result.req_id, None)
                 if future and not future.cancelled():
                     future.set_result(result)
+            except (queue.Empty, EOFError):
+                # EOFError can occur if queue is closed; EOFError or Empty means timeout/no data
+                continue
             except Exception as e:
-                logger.error(f"Result loop error: {e}")
-                time.sleep(0.1)
+                logger.error(f"Result loop error: {e}", exc_info=True)
+                continue
 
     def _metrics_loop(self) -> None:
-        while True:
+        """Collect worker metrics until shutdown is signaled."""
+        while not self._shutdown_event.is_set():
             try:
-                try:
-                    worker_id, metrics_stats = self._metrics_queue.get(timeout=1.0)
-                    with self._metrics_lock:
-                        self._worker_metrics[worker_id] = metrics_stats
-                except (queue.Empty, OSError):
-                    continue
+                worker_id, metrics_stats = self._metrics_queue.get(timeout=0.5)
+                with self._metrics_lock:
+                    self._worker_metrics[worker_id] = metrics_stats
+            except (queue.Empty, OSError, EOFError):
+                # Normal conditions when queue is empty or closed
+                continue
             except Exception as e:
-                logger.error(f"Metrics loop error: {e}")
-                time.sleep(0.1)
+                logger.error(f"Metrics loop error: {e}", exc_info=True)
+                continue
 
-    def infer_with_tokenized(self, tokenized_batch) -> InferenceResult:
+    def infer_with_tokenized(self, tokenized_batch, timeout_s: float = 300.0) -> InferenceResult:
+        """Run inference with a tokenized batch.
+
+        Args:
+            tokenized_batch: Pre-tokenized batch to infer on
+            timeout_s: Maximum time to wait for result (default 300s = 5 minutes)
+
+        Returns:
+            InferenceResult with scores and timing information
+
+        Raises:
+            RuntimeError: If pool not started or request times out
+        """
         if not self._is_started:
             raise RuntimeError("Pool not started")
 
@@ -264,7 +329,7 @@ class ModelPool:
 
         mp_receive_start = time.perf_counter()
         try:
-            result = future.result()
+            result = future.result(timeout=timeout_s)
             t_mp_queue_receive_total_ms = (time.perf_counter() - mp_receive_start) * 1000
 
             t_mp_queue_receive_ms = max(
@@ -419,15 +484,24 @@ class ModelPool:
 
 
 class InferenceService(PoolBasedService):
-    def __init__(self, model_pool: ModelPool):
+    def __init__(self, model_pool: ModelPool, max_async_workers: int = 10):
         super().__init__(model_pool)
         self._model_pool = model_pool
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=max_async_workers, thread_name_prefix="inference-async-"
+        )
 
     def infer_async(
         self,
         tokenized_batch: TokenizedBatch,
         callback: Callable[[InferenceResult | None, Exception | None], None],
     ) -> None:
+        """Run inference asynchronously with bounded worker threads.
+
+        Args:
+            tokenized_batch: Pre-tokenized batch to infer on
+            callback: Function to call with (result, error) when done
+        """
         if not self.is_started:
             callback(None, RuntimeError("Inference service not started"))
             return
@@ -437,11 +511,10 @@ class InferenceService(PoolBasedService):
                 result = self._model_pool.infer_with_tokenized(tokenized_batch)
                 callback(result, None)
             except Exception as e:
-                logger.error(f"Inference error: {e}")
+                logger.error(f"Inference error: {e}", exc_info=True)
                 callback(None, e)
 
-        thread = threading.Thread(target=_infer, daemon=True)
-        thread.start()
+        self._executor.submit(_infer)
 
     def infer_sync(self, tokenized_batch: TokenizedBatch) -> InferenceResult:
         if not self.is_started:
@@ -461,6 +534,16 @@ class InferenceService(PoolBasedService):
     def reset_worker_metrics(self) -> None:
         if self.is_started:
             self._model_pool.reset_worker_metrics()
+
+    def stop(self, timeout_s: float = 30.0) -> None:
+        """Stop the inference service and clean up executor."""
+        super().stop()
+        try:
+            # Note: timeout parameter was added in Python 3.9
+            # Using wait=True to block until all tasks complete
+            self._executor.shutdown(wait=True)
+        except Exception as e:
+            logger.warning(f"Error shutting down executor: {e}")
 
 
 __all__ = [

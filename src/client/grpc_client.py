@@ -12,8 +12,37 @@ logger = logging.getLogger(__name__)
 
 
 class InferenceClient:
-    def __init__(self, host: str = "localhost", port: int = 50051):
-        self._channel = grpc.insecure_channel(f"{host}:{port}")
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 50051,
+        use_ssl: bool = False,
+        ssl_ca_cert_path: str | None = None,
+    ):
+        """Create inference client.
+
+        Args:
+            host: Server hostname/IP
+            port: Server port
+            use_ssl: Whether to use SSL/TLS for connection
+            ssl_ca_cert_path: Path to CA certificate for SSL verification (optional)
+        """
+        if use_ssl:
+            if ssl_ca_cert_path:
+                try:
+                    with open(ssl_ca_cert_path, "rb") as f:
+                        ca_cert = f.read()
+                except FileNotFoundError as e:
+                    raise ValueError(f"CA certificate file not found: {e}") from e
+                credentials = grpc.ssl_channel_credentials(root_certificates=ca_cert)
+            else:
+                credentials = grpc.ssl_channel_credentials()
+            self._channel = grpc.secure_channel(f"{host}:{port}", credentials)
+            logger.info(f"Connected to {host}:{port} (SSL/TLS)")
+        else:
+            self._channel = grpc.insecure_channel(f"{host}:{port}")
+            logger.warning(f"Connected to {host}:{port} (insecure)")
+
         self._stub = inference_pb2_grpc.InferenceServiceStub(self._channel)
 
     def infer(

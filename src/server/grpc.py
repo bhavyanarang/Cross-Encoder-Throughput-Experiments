@@ -106,19 +106,62 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
 
 def serve(
     inference_handler: "InferenceInterface",
-    host: str = "0.0.0.0",
+    host: str = "127.0.0.1",
     port: int = 50051,
     max_workers: int = 10,
     metrics: "MetricsService | None" = None,
-):
+    use_ssl: bool = False,
+    ssl_cert_path: str | None = None,
+    ssl_key_path: str | None = None,
+) -> grpc.Server:
+    """Start the gRPC inference server.
+
+    Args:
+        inference_handler: Handler implementing InferenceInterface
+        host: Host to bind to (default "127.0.0.1" for local-only, use "0.0.0.0" for all interfaces)
+        port: Port to listen on
+        max_workers: Max concurrent worker threads
+        metrics: Optional metrics service for recording request/response times
+        use_ssl: Whether to use SSL/TLS encryption
+        ssl_cert_path: Path to SSL certificate file (required if use_ssl=True)
+        ssl_key_path: Path to SSL private key file (required if use_ssl=True)
+
+    Returns:
+        gRPC server instance that has been started
+
+    Raises:
+        ValueError: If SSL is requested but cert/key paths are not provided
+    """
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     inference_pb2_grpc.add_InferenceServiceServicer_to_server(
         InferenceServicer(inference_handler, metrics), server
     )
-    server.add_insecure_port(f"{host}:{port}")
+
+    if use_ssl:
+        if not ssl_cert_path or not ssl_key_path:
+            raise ValueError("ssl_cert_path and ssl_key_path required when use_ssl=True")
+
+        try:
+            with open(ssl_key_path, "rb") as f:
+                private_key = f.read()
+            with open(ssl_cert_path, "rb") as f:
+                certificate_chain = f.read()
+        except FileNotFoundError as e:
+            raise ValueError(f"SSL certificate or key file not found: {e}") from e
+
+        credentials = grpc.ssl_server_credentials(
+            [(private_key, certificate_chain)], require_client_auth=False
+        )
+        server.add_secure_port(f"{host}:{port}", credentials)
+        logger.info(f"gRPC server listening on {host}:{port} (SSL/TLS enabled)")
+    else:
+        server.add_insecure_port(f"{host}:{port}")
+        logger.warning(f"gRPC server listening on {host}:{port} (insecure, no SSL/TLS)")
+
     server.start()
-    logger.info(f"gRPC server listening on {host}:{port}")
+    logger.info("gRPC server started")
     server.wait_for_termination()
+    return server
 
 
 __all__ = ["serve", "InferenceServicer"]

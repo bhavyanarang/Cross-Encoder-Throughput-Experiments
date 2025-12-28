@@ -1,6 +1,6 @@
 import pytest
 
-from src.server.models import Config, ModelConfig, PoolConfig
+from src.server.dto import Config, ModelConfig, PoolConfig
 from src.server.services.orchestrator_service import OrchestratorService, OrchestratorWrapper
 
 
@@ -22,7 +22,7 @@ class TestOrchestratorWrapper:
     def test_orchestrator_wrapper_schedule(self):
         import numpy as np
 
-        from src.server.models import InferenceResult, TokenizedBatch
+        from src.server.dto import InferenceResult, TokenizedBatch
 
         class MockTokenizedBatch(TokenizedBatch):
             def __init__(self):
@@ -60,7 +60,7 @@ class TestOrchestratorService:
         assert orchestrator.pool is None
 
     def test_orchestrator_service_setup(self):
-        from src.server.models import TokenizerPoolConfig
+        from src.server.dto import TokenizerPoolConfig
 
         config = Config(
             model_pool=PoolConfig(
@@ -78,7 +78,7 @@ class TestOrchestratorService:
         assert orchestrator.metrics is not None
 
     def test_orchestrator_service_setup_with_batching(self):
-        from src.server.models import BatchConfig
+        from src.server.dto import BatchConfig
 
         config = Config(
             model_pool=PoolConfig(
@@ -93,7 +93,7 @@ class TestOrchestratorService:
         assert orchestrator.inference_handler == orchestrator.scheduler
 
     def test_orchestrator_service_setup_without_batching(self):
-        from src.server.models import BatchConfig
+        from src.server.dto import BatchConfig
 
         config = Config(
             model_pool=PoolConfig(
