@@ -51,8 +51,10 @@ def _worker_main(
 ):
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
+    # Import TokenizedBatch for deserialization of WorkItem with tokenized_batch
     from src.models import ModelConfig
     from src.server.backends import create_backend
+    from src.server.services.tokenizer import TokenizedBatch  # noqa: F401
 
     cfg = ModelConfig(**config_dict)
     backend = create_backend(cfg)
@@ -83,17 +85,17 @@ def _worker_main(
                     pass
                 continue
 
-            # Regular inference work
-            result = backend.infer_with_timing(item.pairs)
+            # Regular inference work - use pre-tokenized batch
+            result = backend.infer_with_tokenized(item.tokenized_batch)
             output_queue.put(
                 WorkResult(
                     req_id=item.req_id,
                     scores=result.scores,
                     worker_id=worker_id,
-                    t_tokenize_ms=result.t_tokenize_ms,
+                    t_tokenize_ms=0.0,  # Tokenization already done
                     t_model_inference_ms=result.t_model_inference_ms,
                     t_queue_wait_ms=0.0,  # Worker doesn't know queue wait, set by scheduler
-                    total_ms=result.total_ms,
+                    total_ms=result.t_model_inference_ms,
                     total_tokens=result.total_tokens,
                     real_tokens=result.real_tokens,
                     padded_tokens=result.padded_tokens,
@@ -121,6 +123,7 @@ class ModelPool:
         self._pending: dict[int, concurrent.futures.Future] = {}
         self._result_thread: threading.Thread | None = None
         self._request_counts: dict[int, int] = {}
+        self._pending_tokenize_metrics: dict[int, dict] = {}  # Tokenization metrics per request ID
 
     def start(self, timeout_s: float = 120.0) -> None:
         if self._is_started:
@@ -190,7 +193,15 @@ class ModelPool:
                 logger.error(f"Result loop error: {e}")
                 time.sleep(0.1)
 
-    def infer(self, pairs: list[tuple[str, str]]) -> InferenceResult:
+    def infer_with_tokenized(self, tokenized_batch) -> InferenceResult:
+        """Run inference with pre-tokenized batch (no tokenization in workers).
+
+        Args:
+            tokenized_batch: TokenizedBatch with features already tokenized
+
+        Returns:
+            InferenceResult with scores and timing
+        """
         if not self._is_started:
             raise RuntimeError("Pool not started")
 
@@ -200,31 +211,94 @@ class ModelPool:
         future = concurrent.futures.Future()
         self._pending[req_id] = future
 
-        self._input_queue.put(WorkItem(req_id=req_id, pairs=pairs))
+        # Store tokenization metrics from the tokenized batch
+        overhead_ms = getattr(tokenized_batch, "overhead_ms", 0.0)
+        worker_id = getattr(tokenized_batch, "worker_id", -1)
+        self._pending_tokenize_metrics[req_id] = {
+            "t_tokenize_ms": tokenized_batch.tokenize_time_ms,
+            "overhead_ms": overhead_ms,
+            "total_tokens": tokenized_batch.total_tokens,
+            "real_tokens": tokenized_batch.real_tokens,
+            "padded_tokens": tokenized_batch.padded_tokens,
+            "padding_ratio": tokenized_batch.padding_ratio,
+            "max_seq_length": tokenized_batch.max_seq_length,
+            "avg_seq_length": tokenized_batch.avg_seq_length,
+            "worker_id": worker_id,
+        }
 
+        # Track multiprocessing queue send time
+        mp_send_start = time.perf_counter()
+        self._input_queue.put(WorkItem(req_id=req_id, tokenized_batch=tokenized_batch))
+        t_mp_queue_send_ms = (time.perf_counter() - mp_send_start) * 1000
+
+        # Track multiprocessing queue receive/wait time
+        mp_receive_start = time.perf_counter()
         try:
             result = future.result()
-            return InferenceResult(
-                scores=result.scores,
-                t_tokenize_ms=result.t_tokenize_ms,
-                t_model_inference_ms=result.t_model_inference_ms,
-                t_queue_wait_ms=result.t_queue_wait_ms,
-                total_ms=result.total_ms,
-                total_tokens=result.total_tokens,
-                real_tokens=result.real_tokens,
-                padded_tokens=result.padded_tokens,
-                padding_ratio=result.padding_ratio,
-                max_seq_length=result.max_seq_length,
-                avg_seq_length=result.avg_seq_length,
-                batch_size=result.batch_size,
-                worker_id=result.worker_id,
+            t_mp_queue_receive_total_ms = (time.perf_counter() - mp_receive_start) * 1000
+
+            # MP queue receive time includes model inference time, so we calculate overhead only
+            t_mp_queue_receive_ms = max(
+                0.0, t_mp_queue_receive_total_ms - result.t_model_inference_ms
             )
+
+            # Use tokenization metrics from tokenized batch
+            tokenize_metrics = self._pending_tokenize_metrics.pop(req_id, None)
+            if tokenize_metrics:
+                overhead_ms = tokenize_metrics.get("overhead_ms", 0.0)
+                tokenizer_worker_id = tokenize_metrics.get("worker_id", -1)
+                result_obj = InferenceResult(
+                    scores=result.scores,
+                    t_tokenize_ms=tokenize_metrics["t_tokenize_ms"],
+                    t_model_inference_ms=result.t_model_inference_ms,
+                    t_queue_wait_ms=result.t_queue_wait_ms,
+                    t_overhead_ms=overhead_ms,
+                    t_mp_queue_send_ms=t_mp_queue_send_ms,
+                    t_mp_queue_receive_ms=t_mp_queue_receive_ms,
+                    total_ms=tokenize_metrics["t_tokenize_ms"]
+                    + result.t_model_inference_ms
+                    + overhead_ms
+                    + t_mp_queue_send_ms
+                    + t_mp_queue_receive_ms,
+                    total_tokens=tokenize_metrics["total_tokens"],
+                    real_tokens=tokenize_metrics["real_tokens"],
+                    padded_tokens=tokenize_metrics["padded_tokens"],
+                    padding_ratio=tokenize_metrics["padding_ratio"],
+                    max_seq_length=tokenize_metrics["max_seq_length"],
+                    avg_seq_length=tokenize_metrics["avg_seq_length"],
+                    batch_size=result.batch_size,
+                    worker_id=result.worker_id,
+                )
+                result_obj.tokenizer_worker_id = tokenizer_worker_id
+                return result_obj
+            else:
+                # Fallback (should not happen)
+                t_mp_queue_receive_ms = max(
+                    0.0, t_mp_queue_receive_total_ms - result.t_model_inference_ms
+                )
+                return InferenceResult(
+                    scores=result.scores,
+                    t_tokenize_ms=0.0,  # Tokenization already done
+                    t_model_inference_ms=result.t_model_inference_ms,
+                    t_queue_wait_ms=result.t_queue_wait_ms,
+                    t_mp_queue_send_ms=t_mp_queue_send_ms,
+                    t_mp_queue_receive_ms=t_mp_queue_receive_ms,
+                    total_ms=result.t_model_inference_ms
+                    + t_mp_queue_send_ms
+                    + t_mp_queue_receive_ms,
+                    total_tokens=result.total_tokens,
+                    real_tokens=result.real_tokens,
+                    padded_tokens=result.padded_tokens,
+                    padding_ratio=result.padding_ratio,
+                    max_seq_length=result.max_seq_length,
+                    avg_seq_length=result.avg_seq_length,
+                    batch_size=result.batch_size,
+                    worker_id=result.worker_id,
+                )
         except Exception:
             self._pending.pop(req_id, None)
+            self._pending_tokenize_metrics.pop(req_id, None)
             raise
-
-    def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
-        return self.infer(pairs)
 
     def get_gpu_memory_mb(self) -> float:
         """Get total GPU memory usage from all worker processes.

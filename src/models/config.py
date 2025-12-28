@@ -19,6 +19,12 @@ class PoolConfig(BaseModel):
     instances: list[ModelConfig] = Field(default_factory=list)
 
 
+class TokenizerPoolConfig(BaseModel):
+    enabled: bool = True
+    num_workers: int = 3
+    model_name: str = ""  # If empty, uses same model as inference
+
+
 class BatchConfig(BaseModel):
     enabled: bool = False
     max_batch_size: int = 8
@@ -35,6 +41,7 @@ class ServerConfig(BaseModel):
 
 class Config(BaseModel):
     model_pool: PoolConfig = Field(default_factory=PoolConfig)
+    tokenizer_pool: TokenizerPoolConfig = Field(default_factory=TokenizerPoolConfig)
     batching: BatchConfig = Field(default_factory=BatchConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     name: str = ""

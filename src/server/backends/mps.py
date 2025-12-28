@@ -81,6 +81,45 @@ class MPSBackend(BaseBackend):
         finally:
             self._release()
 
+    def infer_with_tokenized(self, tokenized_batch) -> InferenceResult:
+        """Run inference with pre-tokenized batch (no tokenization)."""
+        self._acquire()
+        try:
+            # Move features to device (tokenizer pool tokenizes on CPU)
+            features = {k: v.to(self.device) for k, v in tokenized_batch.features.items()}
+
+            # Run model inference
+            inf_start = time.perf_counter()
+            sync_device(self.device)
+
+            with torch.inference_mode():
+                out = self.model.model(**features, return_dict=True)
+                logits = out.logits
+                if self.model.config.num_labels == 1:
+                    scores = torch.sigmoid(logits).squeeze(-1)
+                else:
+                    scores = torch.softmax(logits, dim=-1)[:, 1]
+
+            sync_device(self.device)
+            t_inf = (time.perf_counter() - inf_start) * 1000
+            scores_np = scores.cpu().numpy()
+
+            return InferenceResult(
+                scores=scores_np,
+                t_tokenize_ms=0.0,  # Tokenization already done
+                t_model_inference_ms=t_inf,
+                total_ms=t_inf,
+                total_tokens=tokenized_batch.total_tokens,
+                real_tokens=tokenized_batch.real_tokens,
+                padded_tokens=tokenized_batch.padded_tokens,
+                padding_ratio=tokenized_batch.padding_ratio,
+                max_seq_length=tokenized_batch.max_seq_length,
+                avg_seq_length=tokenized_batch.avg_seq_length,
+                batch_size=tokenized_batch.batch_size,
+            )
+        finally:
+            self._release()
+
     @classmethod
     def from_config(cls, config) -> "MPSBackend":
         return cls(

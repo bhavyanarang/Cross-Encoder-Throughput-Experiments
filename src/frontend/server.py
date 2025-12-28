@@ -85,9 +85,21 @@ class DashboardState:
             self._history.queue_wait_ms.append(round(summary.get("last_queue_wait_ms", 0), 2))
             self._history.tokenize_ms.append(round(summary.get("last_tokenize_ms", 0), 2))
             self._history.inference_ms.append(round(summary.get("last_inference_ms", 0), 2))
+            self._history.overhead_ms.append(round(summary.get("last_overhead_ms", 0), 2))
 
             padding = summary.get("padding_analysis", {})
             self._history.padding_pct.append(round(padding.get("last_padding_pct", 0), 1))
+
+            # Track tokenizer worker metrics
+            tokenizer_worker_stats = summary.get("tokenizer_worker_stats", [])
+            if tokenizer_worker_stats:
+                # Store aggregate metrics from all tokenizer workers
+                avg_latency = sum(ws.get("avg_ms", 0) for ws in tokenizer_worker_stats) / len(
+                    tokenizer_worker_stats
+                )
+                total_requests = sum(ws.get("request_count", 0) for ws in tokenizer_worker_stats)
+                self._history.tokenizer_worker_latencies.append(round(avg_latency, 2))
+                self._history.tokenizer_worker_requests.append(total_requests)
 
             self._last_request_count = current_count
 

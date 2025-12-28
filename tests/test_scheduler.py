@@ -14,7 +14,15 @@ class TestScheduler:
 
                 return InferenceResult(scores=np.zeros(len(pairs)))
 
-        scheduler = Scheduler(MockPool())
+        # Mock tokenization service
+        class MockTokenizationService:
+            pass
+
+        # Mock inference service
+        class MockInferenceService:
+            pass
+
+        scheduler = Scheduler(MockPool(), MockTokenizationService(), MockInferenceService())
         assert scheduler is not None
 
     def test_scheduler_info(self):
@@ -23,7 +31,21 @@ class TestScheduler:
         class MockPool:
             pass
 
-        scheduler = Scheduler(MockPool(), batching_enabled=True, max_batch_size=16)
+        # Mock tokenization service
+        class MockTokenizationService:
+            pass
+
+        # Mock inference service
+        class MockInferenceService:
+            pass
+
+        scheduler = Scheduler(
+            MockPool(),
+            MockTokenizationService(),
+            MockInferenceService(),
+            batching_enabled=True,
+            max_batch_size=16,
+        )
         info = scheduler.get_info()
         assert info["batching_enabled"] is True
         assert info["max_batch_size"] == 16

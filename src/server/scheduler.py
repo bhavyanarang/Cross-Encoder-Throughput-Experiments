@@ -18,6 +18,8 @@ from src.models import PendingRequest
 if TYPE_CHECKING:
     from src.models import InferenceResult
     from src.server.pool import ModelPool
+    from src.server.services.inference_service import InferenceService
+    from src.server.services.tokenization_service import TokenizationService
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +30,16 @@ class Scheduler:
     def __init__(
         self,
         model_pool: "ModelPool",
+        tokenization_service: "TokenizationService",
+        inference_service: "InferenceService",
         batching_enabled: bool = False,
         max_batch_size: int = 8,
         timeout_ms: float = 100,
         length_aware: bool = False,
     ):
         self._pool = model_pool
+        self._tokenization_service = tokenization_service
+        self._inference_service = inference_service
         self._batching = batching_enabled
         self._max_batch = max_batch_size
         self._timeout_ms = timeout_ms
@@ -52,11 +58,16 @@ class Scheduler:
             self._running = True
             self._batch_thread = threading.Thread(target=self._batch_loop, daemon=True)
             self._batch_thread.start()
+            logger.info(
+                f"Scheduler created with batching: max_batch={max_batch_size}, timeout_ms={timeout_ms}"
+            )
 
     def schedule(self, pairs: list[tuple[str, str]]) -> "InferenceResult":
         """Schedule inference request."""
         if not self._batching:
-            return self._pool.infer(pairs)
+            # Non-batching: tokenize then infer
+            tokenized_batch = self._tokenization_service.tokenize_sync(pairs)
+            return self._inference_service.infer_sync(tokenized_batch)
 
         # Create request with event for completion signaling
         req = PendingRequest(
@@ -119,7 +130,10 @@ class Scheduler:
             all_pairs.sort(key=lambda p: len(p[0]) + len(p[1]))
 
         try:
-            result = self._pool.infer(all_pairs)
+            # Tokenize the combined batch
+            tokenized_batch = self._tokenization_service.tokenize_sync(all_pairs)
+            # Infer with tokenized batch
+            result = self._inference_service.infer_sync(tokenized_batch)
 
             idx = 0
             for req in batch:

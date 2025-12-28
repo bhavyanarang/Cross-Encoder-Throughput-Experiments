@@ -162,6 +162,14 @@ body {
     color: var(--accent-green);
 }
 
+.metric-card.overhead {
+    border-color: var(--accent-orange);
+}
+
+.metric-card.overhead .metric-value {
+    color: var(--accent-orange);
+}
+
 .metric-card.queue-wait {
     border-color: var(--accent-orange);
 }
@@ -225,7 +233,7 @@ body {
 }
 
 .stage-bar {
-    display: flex;
+    position: relative;
     height: 28px;
     border-radius: 6px;
     overflow: hidden;
@@ -234,27 +242,37 @@ body {
 }
 
 .stage-bar-segment {
+    position: absolute;
+    height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 0.65em;
     font-weight: 600;
     color: #fff;
-    transition: width 0.3s ease;
+    transition: width 0.3s ease, left 0.3s ease;
     min-width: 0;
+    top: 0;
 }
 
 .stage-bar-segment.tokenize { background: var(--accent-red); }
 .stage-bar-segment.queue-wait { background: var(--accent-orange); }
 .stage-bar-segment.inference { background: var(--accent-green); }
+.stage-bar-segment.overhead { background: #f0883e; }
+.stage-bar-segment.mp-queue-send { background: #56d4dd; }
+.stage-bar-segment.mp-queue-receive { background: #58a6ff; }
+.stage-bar-segment.grpc-serialize { background: #db61a2; }
+.stage-bar-segment.grpc-deserialize { background: #a371f7; }
+.stage-bar-segment.scheduler { background: #e3b341; }
 .stage-bar-segment.other { background: var(--text-muted); }
 
 .stage-legend {
     display: flex;
     justify-content: center;
-    gap: 16px;
-    font-size: 0.7em;
+    gap: 12px;
+    font-size: 0.65em;
     flex-wrap: wrap;
+    row-gap: 8px;
 }
 
 .legend-item {
@@ -272,6 +290,12 @@ body {
 .legend-dot.tokenize { background: var(--accent-red); }
 .legend-dot.queue-wait { background: var(--accent-orange); }
 .legend-dot.inference { background: var(--accent-green); }
+.legend-dot.overhead { background: #f0883e; }
+.legend-dot.mp-queue-send { background: #56d4dd; }
+.legend-dot.mp-queue-receive { background: #58a6ff; }
+.legend-dot.grpc-serialize { background: #db61a2; }
+.legend-dot.grpc-deserialize { background: #a371f7; }
+.legend-dot.scheduler { background: #e3b341; }
 .legend-dot.other { background: var(--text-muted); }
 
 .stats-grid {
@@ -318,11 +342,18 @@ body {
     grid-template-columns: repeat(3, 1fr);
 }
 
+.chart-grid.four-col {
+    grid-template-columns: repeat(4, 1fr);
+}
+
 @media (max-width: 900px) {
     .chart-grid {
         grid-template-columns: 1fr;
     }
     .chart-grid.three-col {
+        grid-template-columns: 1fr;
+    }
+    .chart-grid.four-col {
         grid-template-columns: 1fr;
     }
 }
@@ -362,6 +393,7 @@ body {
 
 .chart-value.tokenize { color: var(--accent-red); }
 .chart-value.inference { color: var(--accent-green); }
+.chart-value.overhead { color: var(--accent-orange); }
 .chart-value.queue { color: var(--accent-orange); }
 .chart-value.cpu { color: #6e7681; }
 .chart-value.gpu { color: var(--accent-purple); }

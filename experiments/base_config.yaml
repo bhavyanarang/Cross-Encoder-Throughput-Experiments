@@ -35,6 +35,13 @@ server:
   host: "0.0.0.0"
   port: 50051
 
+# Tokenizer pool configuration (optional)
+# Enable for CPU-based parallel tokenization
+tokenizer_pool:
+  enabled: false
+  num_workers: 1
+  model_name: ""  # If empty, uses same model as inference
+
 batching:
   enabled: false
   max_batch_size: 32
