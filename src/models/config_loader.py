@@ -72,7 +72,8 @@ def _parse_model_instances(data: dict) -> list[ModelConfig]:
             )
         )
     else:
-        instances.append(ModelConfig())
+        # Default model config with required name field
+        instances.append(ModelConfig(name="cross-encoder/ms-marco-MiniLM-L-6-v2"))
 
     return instances
 

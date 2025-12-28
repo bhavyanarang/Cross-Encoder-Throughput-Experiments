@@ -112,6 +112,7 @@ class TokenizerWorkerMetrics:
                 "p95_ms": 0,
                 "p99_ms": 0,
                 "request_count": 0,
+                "total_tokens_processed": self.total_tokens_processed,
                 "throughput_tokens_per_sec": 0,
             }
         arr = np.array(self.latencies)
@@ -123,6 +124,7 @@ class TokenizerWorkerMetrics:
             "p95_ms": float(np.percentile(arr, 95)),
             "p99_ms": float(np.percentile(arr, 99)),
             "request_count": self.request_count,
+            "total_tokens_processed": self.total_tokens_processed,
             "throughput_tokens_per_sec": (
                 self.total_tokens_processed / elapsed if elapsed > 0 else 0
             ),
