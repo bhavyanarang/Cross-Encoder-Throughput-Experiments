@@ -259,7 +259,7 @@ Real-time metrics are available during experiments:
 | Rank | Experiment | Throughput (p/s) | Latency (ms) | Key Insight |
 |------|------------|------------------|--------------|-------------|
 | 1 | 11: 3x Replicas | 1200.8 | 211.6 | Best throughput |
-| 2 | 10: 2x Pool + Tokenizer Pool | 1192.4 | 37.7 | Parallel tokenization + model pool |
+| 2 | 10: 2x Pool + Tokenizer Pool | 1192.4 | 131.8 | Parallel tokenization + model pool |
 | 3 | 10: 2x Pool (opt) | 1011.6 | 126.1 | Best balance |
 | 4 | 14: Production | 679.6 | 141.1 | Best stability |
 | 5 | 07b: Dynamic Batch | 686.0 | 186.4 | Best single |
