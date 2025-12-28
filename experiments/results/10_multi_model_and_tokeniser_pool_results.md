@@ -1,12 +1,14 @@
-# Multi-Model Pool (2x MPS)
+# Multi-Model Pool + Tokenizer Pool (2x MPS, 4 workers)
 
-_Two MPS model instances with round-robin routing for parallel inference_
+_Two MPS model instances with round-robin routing and 4-worker tokenizer pool for parallel tokenization and inference_
 
 **Timestamp:** 2025-12-28 13:30:02
 
 **Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2`
 
 **Backend:** `mps` | **Device:** `mps`
+
+**Tokenizer Pool:** Enabled with 4 workers | **Model Pool:** 2x instances (round-robin routing)
 
 ## Results Summary
 
@@ -195,6 +197,19 @@ _Two MPS model instances with round-robin routing for parallel inference_
 | Inference (ms) | 40.8 | 14.7 | 89.6 | 43.9 | 64.8 |
 | Queue Wait (ms) | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 |
 | Padding Waste (%) | 40.7 | 26.2 | 58.2 | 40.2 | 51.2 |
+
+### Tokenizer Pool Performance
+
+**Configuration:**
+- **Workers:** 4 parallel tokenizer workers
+- **Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2` (same as inference model)
+- **Load Balancing:** Round-robin distribution across workers
+
+**Performance Metrics:**
+- **Average Tokenization Time:** 5.1ms (7.7% of total latency)
+- **Tokenization Range:** 2.2ms - 14.8ms
+- **P95 Tokenization Time:** 9.2ms
+- **Parallel Processing:** 4 workers handling tokenization concurrently, reducing bottlenecks at higher concurrency levels
 
 ### Stage Breakdown
 

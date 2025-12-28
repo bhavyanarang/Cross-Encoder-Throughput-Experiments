@@ -1,8 +1,8 @@
-# Multi-Model Pool Experiment
-# Tests multiple model instances with round-robin routing
+# Multi-Model Pool with Tokenizer Pool Experiment
+# Tests multiple model instances with round-robin routing and parallel tokenization
 
-name: "Multi-Model Pool (2x MPS)"
-description: "Two MPS model instances with round-robin routing for parallel inference"
+name: "Multi-Model Pool + Tokenizer Pool (2x MPS, 4 workers)"
+description: "Two MPS model instances with round-robin routing and 4-worker tokenizer pool for parallel tokenization and inference"
 
 # Multi-model pool configuration
 model_pool:
