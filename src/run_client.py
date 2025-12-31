@@ -105,6 +105,9 @@ class DashboardCollector:
                 padding_pct=history.get("padding_pct", []),
                 worker_stats=data.get("worker_stats", []),
                 stage_percentages=data.get("stage_percentages", {}),
+                tokenizer_throughput_qps=history.get("tokenizer_throughput_qps", []),
+                inference_throughput_qps=history.get("inference_throughput_qps", []),
+                overall_throughput_qps=history.get("overall_throughput_qps", []),
             )
         except Exception as e:
             logger.warning(f"Failed to collect dashboard metrics: {e}")
@@ -932,6 +935,50 @@ def main():
                     )
                     print(f"  P50:     {lat_p50:.1f}")
                     print(f"  P95:     {lat_p95:.1f}")
+
+                print("\n" + "-" * 80)
+                print("LAYER THROUGHPUT ANALYSIS (q/s)")
+                print("-" * 80)
+                
+                # Compute layer throughput statistics
+                def compute_layer_stats(throughput_list):
+                    if not throughput_list:
+                        return {"avg": 0, "min": 0, "max": 0, "p50": 0, "p95": 0}
+                    arr = np.array([v for v in throughput_list if v is not None and v > 0])
+                    if len(arr) == 0:
+                        return {"avg": 0, "min": 0, "max": 0, "p50": 0, "p95": 0}
+                    return {
+                        "avg": float(np.mean(arr)),
+                        "min": float(np.min(arr)),
+                        "max": float(np.max(arr)),
+                        "p50": float(np.percentile(arr, 50)),
+                        "p95": float(np.percentile(arr, 95)),
+                    }
+                
+                tokenizer_stats = compute_layer_stats(dashboard_metrics.tokenizer_throughput_qps)
+                inference_stats = compute_layer_stats(dashboard_metrics.inference_throughput_qps)
+                overall_stats = compute_layer_stats(dashboard_metrics.overall_throughput_qps)
+                
+                print("Tokenizer Layer:")
+                print(f"  Average: {tokenizer_stats['avg']:.1f}")
+                print(f"  Min:     {tokenizer_stats['min']:.1f}")
+                print(f"  Max:     {tokenizer_stats['max']:.1f}")
+                print(f"  P50:     {tokenizer_stats['p50']:.1f}")
+                print(f"  P95:     {tokenizer_stats['p95']:.1f}")
+                print()
+                print("Inference Layer:")
+                print(f"  Average: {inference_stats['avg']:.1f}")
+                print(f"  Min:     {inference_stats['min']:.1f}")
+                print(f"  Max:     {inference_stats['max']:.1f}")
+                print(f"  P50:     {inference_stats['p50']:.1f}")
+                print(f"  P95:     {inference_stats['p95']:.1f}")
+                print()
+                print("Overall Response:")
+                print(f"  Average: {overall_stats['avg']:.1f}")
+                print(f"  Min:     {overall_stats['min']:.1f}")
+                print(f"  Max:     {overall_stats['max']:.1f}")
+                print(f"  P50:     {overall_stats['p50']:.1f}")
+                print(f"  P95:     {overall_stats['p95']:.1f}")
 
                 print("\n" + "-" * 80)
                 print("PER-CONFIGURATION RESULTS")

@@ -8,7 +8,6 @@ from sentence_transformers import CrossEncoder
 from src.server.backends.base import BaseBackend
 from src.server.backends.device import sync_device
 from src.server.dto import InferenceResult
-from src.server.services.tokenization_service import TokenizerService
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +21,6 @@ class MPSBackend(BaseBackend):
         max_length: int = 512,
     ):
         super().__init__(model_name, device, quantization, max_length)
-        self._tokenizer: TokenizerService | None = None
 
     def load_model(self) -> None:
         logger.info(f"Loading {self.model_name} on {self.device} ({self.quantization})")
@@ -32,7 +30,6 @@ class MPSBackend(BaseBackend):
             self.model.model.half()
             logger.info("Applied FP16")
 
-        self._tokenizer = TokenizerService(self.model_name, self.max_length)
         self._is_loaded = True
 
     def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:

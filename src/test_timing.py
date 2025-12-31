@@ -13,9 +13,10 @@ from src.server.dto import PoolConfig
 from src.server.dto.config import ModelConfig
 from src.server.dto.metrics import MetricsCollector
 from src.server.grpc import serve
-from src.server.services.inference_service import InferenceService, ModelPool
+from src.server.services.inference_service import InferenceService
 from src.server.services.scheduler_service import SchedulerService
-from src.server.services.tokenization_service import TokenizationService, TokenizerPool
+from src.server.services.tokenization_service import TokenizationService
+from src.server.pool import ModelPool, TokenizerPool
 
 logging.basicConfig(
     level=logging.INFO,

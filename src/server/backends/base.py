@@ -10,7 +10,7 @@ from src.server.backends.device import clear_memory, resolve_device, sync_device
 from src.server.dto import InferenceResult
 
 if TYPE_CHECKING:
-    from src.server.services.tokenization_service import TokenizerPool
+    from src.server.pool.tokenizer_pool import TokenizerPool
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +62,7 @@ class BaseBackend(ABC):
                 padding_ratio = tokenized_batch.padding_ratio
                 avg_seq_length = tokenized_batch.avg_seq_length
             else:
-                from src.server.services.tokenization_service import TokenizerService
+                from src.server.worker.tokenizer_worker import TokenizerService
 
                 if not hasattr(self, "_tokenizer"):
                     self._tokenizer = TokenizerService(self.model_name, self.max_length)

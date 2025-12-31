@@ -4,6 +4,7 @@ defaults:
   - model_pool: default
   - tokenizer_pool: default
   - batching: default
+  - pipeline: default
   - server: default
   - experiment: default
 

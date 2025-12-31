@@ -2,8 +2,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.server.services.inference_service import InferenceService, ModelPool
-from src.server.services.tokenization_service import TokenizationService, TokenizerPool
+from src.server.services.inference_service import InferenceService
+from src.server.services.tokenization_service import TokenizationService
+from src.server.pool.model_pool import ModelPool
+from src.server.pool.tokenizer_pool import TokenizerPool
 
 
 class TestTokenizationService:

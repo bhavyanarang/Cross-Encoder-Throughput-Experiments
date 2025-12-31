@@ -36,6 +36,10 @@ batching:
   timeout_ms: 100.0
   length_aware: false
 
+# Pipeline configuration
+pipeline:
+  enabled: true
+
 # Experiment benchmark configuration (for client)
 experiment:
   batch_sizes: [32, 64, 128]

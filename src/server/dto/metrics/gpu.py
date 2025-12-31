@@ -2,7 +2,8 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.server.services.inference_service import InferenceService, ModelPool
+    from src.server.services.inference_service import InferenceService
+    from src.server.pool.model_pool import ModelPool
 
 logger = logging.getLogger(__name__)
 

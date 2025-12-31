@@ -94,6 +94,22 @@ class DashboardState:
                 total_requests = sum(ws.get("request_count", 0) for ws in tokenizer_worker_stats)
                 self._history.tokenizer_worker_latencies.append(round(avg_latency, 2))
                 self._history.tokenizer_worker_requests.append(total_requests)
+            
+            # Pipeline throughput metrics (sum of all worker throughputs)
+            tokenizer_throughput = sum(
+                ws.get("throughput_qps", 0) for ws in tokenizer_worker_stats
+            ) if tokenizer_worker_stats else 0
+            self._history.tokenizer_throughput_qps.append(round(tokenizer_throughput, 2))
+            
+            model_worker_stats = summary.get("worker_stats", [])
+            inference_throughput = sum(
+                ws.get("throughput_qps", 0) for ws in model_worker_stats
+            ) if model_worker_stats else 0
+            self._history.inference_throughput_qps.append(round(inference_throughput, 2))
+            
+            # Overall response throughput is the same as system throughput_qps
+            overall_throughput = summary.get("throughput_qps", 0)
+            self._history.overall_throughput_qps.append(round(overall_throughput, 2))
 
             self._last_request_count = current_count
 

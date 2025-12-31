@@ -1,6 +1,6 @@
 import pytest
 
-from src.server.services.tokenization_service import TokenizerPool
+from src.server.pool.tokenizer_pool import TokenizerPool
 
 
 class TestTokenizerPool:
@@ -36,11 +36,24 @@ class TestTokenizerPool:
         )
         assert len(pool) == 5
 
-    def test_tokenizer_pool_tokenize_not_started(self):
+    def test_tokenizer_pool_submit_not_started(self):
+        """Test that submit raises error when pool is not started."""
+        from src.server.dto.pipeline import TokenizationQueueItem
+        
         pool = TokenizerPool(
             model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
             num_workers=1,
             max_length=512,
         )
+        
+        # Create a mock request
+        class MockRequest:
+            pass
+        
+        tokenization_item = TokenizationQueueItem(
+            request=MockRequest(),
+            pairs=[("query", "document")],
+        )
+        
         with pytest.raises(RuntimeError, match="not started"):
-            pool.tokenize([("query", "document")])
+            pool.submit(tokenization_item)

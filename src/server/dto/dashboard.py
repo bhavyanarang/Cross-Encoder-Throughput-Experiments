@@ -19,6 +19,11 @@ class DashboardHistory:
     overhead_ms: list = field(default_factory=list)
     tokenizer_worker_latencies: list = field(default_factory=list)
     tokenizer_worker_requests: list = field(default_factory=list)
+    
+    # Pipeline mode metrics (three-layer throughput analysis)
+    tokenizer_throughput_qps: list = field(default_factory=list)  # Tokenizer pool throughput (q/s)
+    inference_throughput_qps: list = field(default_factory=list)  # Inference pool throughput (q/s)
+    overall_throughput_qps: list = field(default_factory=list)    # Overall response throughput (q/s)
 
     def to_dict(self) -> dict:
         return {
@@ -36,6 +41,9 @@ class DashboardHistory:
             "overhead_ms": self.overhead_ms.copy(),
             "tokenizer_worker_latencies": self.tokenizer_worker_latencies.copy(),
             "tokenizer_worker_requests": self.tokenizer_worker_requests.copy(),
+            "tokenizer_throughput_qps": self.tokenizer_throughput_qps.copy(),
+            "inference_throughput_qps": self.inference_throughput_qps.copy(),
+            "overall_throughput_qps": self.overall_throughput_qps.copy(),
         }
 
     def reset(self):
@@ -53,6 +61,9 @@ class DashboardHistory:
         self.overhead_ms.clear()
         self.tokenizer_worker_latencies.clear()
         self.tokenizer_worker_requests.clear()
+        self.tokenizer_throughput_qps.clear()
+        self.inference_throughput_qps.clear()
+        self.overall_throughput_qps.clear()
 
 
 @dataclass
@@ -69,6 +80,9 @@ class DashboardMetrics:
     overhead_ms: list = field(default_factory=list)
     worker_stats: list = field(default_factory=list)
     stage_percentages: dict = field(default_factory=dict)
+    tokenizer_throughput_qps: list = field(default_factory=list)  # Layer throughput (q/s)
+    inference_throughput_qps: list = field(default_factory=list)  # Layer throughput (q/s)
+    overall_throughput_qps: list = field(default_factory=list)    # Overall response throughput (q/s)
 
     def get_summary(self) -> dict:
         def stats(arr):

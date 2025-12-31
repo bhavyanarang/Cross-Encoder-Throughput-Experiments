@@ -105,9 +105,9 @@ class MetricsService(BaseService):
         self._collector.record_worker_stats(worker_id, latency_ms, num_queries)
 
     def record_tokenizer_worker_stats(
-        self, worker_id: int, latency_ms: float, total_tokens: int = 0
+        self, worker_id: int, latency_ms: float, total_tokens: int = 0, num_queries: int = 1
     ) -> None:
-        self._collector.record_tokenizer_worker_stats(worker_id, latency_ms, total_tokens)
+        self._collector.record_tokenizer_worker_stats(worker_id, latency_ms, total_tokens=total_tokens, num_queries=num_queries)
 
     def get_summary(self) -> dict:
         return self._collector.summary()

@@ -18,7 +18,8 @@ from src.server.dto.metrics.worker import (
 )
 
 if TYPE_CHECKING:
-    from src.server.services.inference_service import InferenceService, ModelPool
+    from src.server.services.inference_service import InferenceService
+    from src.server.pool.model_pool import ModelPool
 
 logger = logging.getLogger(__name__)
 
@@ -177,10 +178,10 @@ class MetricsCollector:
         self._worker_stats_manager.record(worker_id, latency_ms, num_queries=num_queries)
 
     def record_tokenizer_worker_stats(
-        self, worker_id: int, latency_ms: float, total_tokens: int = 0
+        self, worker_id: int, latency_ms: float, total_tokens: int = 0, num_queries: int = 1
     ) -> None:
         self._tokenizer_worker_stats_manager.record(
-            worker_id, latency_ms, total_tokens=total_tokens
+            worker_id, latency_ms, total_tokens=total_tokens, num_queries=num_queries
         )
 
     def _filter_recent(self, deque_data: deque, window_sec: float = 1.0) -> list:
@@ -219,6 +220,15 @@ class MetricsCollector:
 
         arr = np.array(self.latencies)
         elapsed = time.time() - self.start_time
+        
+        # Calculate overall throughput from all workers' combined query counts
+        # This ensures overall throughput = sum of per-worker throughputs
+        worker_stats = self._worker_stats_manager.get_all_stats()
+        total_worker_queries = sum(ws.get("query_count", 0) for ws in worker_stats)
+        
+        # Use total_worker_queries if available and greater than query_count
+        # (query_count may only count requests, not individual queries in batches)
+        effective_query_count = max(self.query_count, total_worker_queries) if worker_stats else self.query_count
 
         stage_stats = self._stage_tracker_manager.get_all_stats()
         total_avg = float(np.mean(arr)) if len(arr) > 0 else 1.0
@@ -275,7 +285,7 @@ class MetricsCollector:
             "p95_ms": float(np.percentile(arr, 95)),
             "p99_ms": float(np.percentile(arr, 99)),
             "throughput_qps": self._compute_instant_qps(),
-            "avg_throughput_qps": self.query_count / elapsed if elapsed > 0 else 0,
+            "avg_throughput_qps": effective_query_count / elapsed if elapsed > 0 else 0,
             "cpu_percent": cpu_pct,
             "gpu_memory_mb": self.get_gpu_memory_mb(),
             "gpu_utilization_pct": gpu_util,

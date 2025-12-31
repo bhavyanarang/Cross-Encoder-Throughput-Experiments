@@ -89,6 +89,7 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
                     worker_id=tokenizer_worker_id,
                     latency_ms=t_tokenize_ms,
                     total_tokens=total_tokens,
+                    num_queries=len(pairs),
                 )
 
         return response

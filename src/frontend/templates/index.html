@@ -202,6 +202,38 @@
             </div>
         </div>
 
+        <!-- Row 1.5: Pipeline Throughput (only shown in pipeline mode) -->
+        <div class="section-title" id="pipeline_section_title" style="display: none;">Pipeline Throughput Analysis</div>
+        <div class="chart-grid pipeline-throughput" id="pipeline_throughput_section" style="display: none;">
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Overall Throughput</span>
+                    <span class="chart-value" id="overall_throughput_live">0 q/s</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="overallThroughputChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Tokenizer Throughput</span>
+                    <span class="chart-value" id="tokenizer_throughput_live">0 q/s</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="tokenizerThroughputChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-container">
+                <div class="chart-header">
+                    <span class="chart-title">Inference Throughput</span>
+                    <span class="chart-value" id="inference_throughput_live">0 q/s</span>
+                </div>
+                <div class="chart-wrapper">
+                    <canvas id="inferenceThroughputChart"></canvas>
+                </div>
+            </div>
+        </div>
+
         <!-- Row 2: Stage timings -->
         <div class="chart-grid four-col">
             <div class="chart-container">

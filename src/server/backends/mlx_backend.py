@@ -8,7 +8,6 @@ from sentence_transformers import CrossEncoder
 from src.server.backends.base import BaseBackend
 from src.server.backends.device import sync_device
 from src.server.dto import InferenceResult
-from src.server.services.tokenization_service import TokenizerService
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,6 @@ class MLXBackend(BaseBackend):
         group_size: int = 64,
     ):
         super().__init__(model_name, "mps", quantization, max_length)
-        self._tokenizer: TokenizerService | None = None
         self._bits = bits
         self._group_size = group_size
         self._use_mlx = MLX_AVAILABLE
@@ -44,7 +42,6 @@ class MLXBackend(BaseBackend):
             self.model.model.half()
             logger.info("Applied FP16")
 
-        self._tokenizer = TokenizerService(self.model_name, self.max_length)
         self._is_loaded = True
 
     def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:

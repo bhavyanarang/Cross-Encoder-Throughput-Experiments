@@ -81,7 +81,14 @@ const elements = {
 
     // Per-tokenizer-worker stats section
     tokenizerWorkerStatsTitle: document.getElementById('tokenizer_worker_stats_title'),
-    tokenizerWorkerStatsSection: document.getElementById('tokenizer_worker_stats_section')
+    tokenizerWorkerStatsSection: document.getElementById('tokenizer_worker_stats_section'),
+    
+    // Pipeline throughput section
+    pipelineSectionTitle: document.getElementById('pipeline_section_title'),
+    pipelineThroughputSection: document.getElementById('pipeline_throughput_section'),
+    overallThroughputLive: document.getElementById('overall_throughput_live'),
+    tokenizerThroughputLive: document.getElementById('tokenizer_throughput_live'),
+    inferenceThroughputLive: document.getElementById('inference_throughput_live')
 };
 
 // Format number with fixed decimals
@@ -270,6 +277,33 @@ function updateChartValues(data) {
     elements.utilizationLive.textContent = fmt(instanceMetrics.avg_utilization_pct || 0) + '%';
 }
 
+// Update pipeline throughput metrics
+function updatePipelineThroughput(data) {
+    const history = data.history || {};
+    
+    // Check if we have pipeline throughput data
+    const hasPipelineData = history.overall_throughput_qps && history.overall_throughput_qps.length > 0;
+    
+    if (hasPipelineData) {
+        // Show pipeline section
+        elements.pipelineSectionTitle.style.display = 'block';
+        elements.pipelineThroughputSection.style.display = 'grid';
+        
+        // Get latest values
+        const latestOverall = history.overall_throughput_qps[history.overall_throughput_qps.length - 1] || 0;
+        const latestTokenizer = history.tokenizer_throughput_qps[history.tokenizer_throughput_qps.length - 1] || 0;
+        const latestInference = history.inference_throughput_qps[history.inference_throughput_qps.length - 1] || 0;
+        
+        elements.overallThroughputLive.textContent = fmt(latestOverall) + ' q/s';
+        elements.tokenizerThroughputLive.textContent = fmt(latestTokenizer) + ' q/s';
+        elements.inferenceThroughputLive.textContent = fmt(latestInference) + ' q/s';
+    } else {
+        // Hide pipeline section if no data
+        elements.pipelineSectionTitle.style.display = 'none';
+        elements.pipelineThroughputSection.style.display = 'none';
+    }
+}
+
 // Update per-instance metrics cards
 function updateInstanceMetrics(data) {
     const instanceMetrics = data.instance_metrics || {};
@@ -388,7 +422,7 @@ function updateTokenizerWorkerStats(data) {
                     </div>
                     <div class="worker-metric">
                         <div class="worker-metric-label">Throughput</div>
-                        <div class="worker-metric-value">${fmt(tws.throughput_tokens_per_sec)} tokens/s</div>
+                        <div class="worker-metric-value">${fmt(tws.throughput_qps)} q/s</div>
                     </div>
                     <div class="worker-metric">
                         <div class="worker-metric-label">Requests</div>
@@ -414,6 +448,7 @@ async function fetchAndUpdate() {
         updateStageBreakdown(data);
         updateP95Stats(data);
         updateChartValues(data);
+        updatePipelineThroughput(data);
         updateInstanceMetrics(data);
         updateWorkerStats(data);
         updateTokenizerWorkerStats(data);

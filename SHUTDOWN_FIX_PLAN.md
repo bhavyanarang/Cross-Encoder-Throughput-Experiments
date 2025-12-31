@@ -278,3 +278,4 @@ Add to your experiment workflow:
 2. If orphans found, use `./scripts/cleanup_orphans.sh`
 3. Use `./scripts/diagnose_performance.sh` for comprehensive analysis
 4. Monitor process counts and GPU memory over multiple runs
+

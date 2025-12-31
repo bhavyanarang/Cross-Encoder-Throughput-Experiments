@@ -36,7 +36,7 @@ def main(cfg: DictConfig) -> None:
 
     logger.info(f"Starting gRPC server on port {config.server.grpc_port}...")
     serve(
-        orchestrator.get_inference_handler(),
+        orchestrator,
         host=config.server.host,
         port=config.server.grpc_port,
         max_workers=config.server.grpc_workers,

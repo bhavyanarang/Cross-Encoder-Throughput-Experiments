@@ -150,6 +150,31 @@ function initCharts() {
         document.getElementById('overheadChart'),
         createChartConfig(COLORS.orange)
     );
+    
+    // Pipeline throughput charts (initialized only if elements exist)
+    const overallThroughputEl = document.getElementById('overallThroughputChart');
+    if (overallThroughputEl) {
+        charts.overallThroughput = new Chart(
+            overallThroughputEl,
+            createChartConfig(COLORS.blue)
+        );
+    }
+    
+    const tokenizerThroughputEl = document.getElementById('tokenizerThroughputChart');
+    if (tokenizerThroughputEl) {
+        charts.tokenizerThroughput = new Chart(
+            tokenizerThroughputEl,
+            createChartConfig(COLORS.red)
+        );
+    }
+    
+    const inferenceThroughputEl = document.getElementById('inferenceThroughputChart');
+    if (inferenceThroughputEl) {
+        charts.inferenceThroughput = new Chart(
+            inferenceThroughputEl,
+            createChartConfig(COLORS.green)
+        );
+    }
 }
 
 // Create multi-line chart config for instance utilization
@@ -331,6 +356,11 @@ function updateAllCharts(history) {
     updateChart(charts.padding, labels, history.padding_pct);
     updateChart(charts.utilization, labels, history.gpu_utilization_pct);
     updateChart(charts.overhead, labels, history.overhead_ms || []);
+
+    // Pipeline throughput charts
+    updateChart(charts.overallThroughput, labels, history.overall_throughput_qps || []);
+    updateChart(charts.tokenizerThroughput, labels, history.tokenizer_throughput_qps || []);
+    updateChart(charts.inferenceThroughput, labels, history.inference_throughput_qps || []);
 
     // Update per-instance charts if available
     if (history.instance_names && history.instance_names.length > 1) {

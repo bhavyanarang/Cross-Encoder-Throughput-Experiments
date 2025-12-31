@@ -8,7 +8,6 @@ from sentence_transformers import CrossEncoder
 from src.server.backends.base import BaseBackend
 from src.server.backends.device import sync_device
 from src.server.dto import InferenceResult
-from src.server.services.tokenization_service import TokenizerService
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,6 @@ class CompiledBackend(BaseBackend):
         compile_mode: str = "reduce-overhead",
     ):
         super().__init__(model_name, device, quantization, max_length)
-        self._tokenizer: TokenizerService | None = None
         self._compile_mode = compile_mode
         self._compiled_model = None
 
@@ -55,7 +53,6 @@ class CompiledBackend(BaseBackend):
             logger.warning(f"torch.compile failed: {e}. Using uncompiled model.")
             self._compiled_model = self.model.model
 
-        self._tokenizer = TokenizerService(self.model_name, self.max_length)
         self._is_loaded = True
 
     def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:

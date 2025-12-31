@@ -33,6 +33,10 @@ class BatchConfig(BaseModel):
     length_aware: bool = False
 
 
+class PipelineConfig(BaseModel):
+    enabled: bool = False
+
+
 class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     grpc_port: int = 50051
@@ -44,6 +48,7 @@ class Config(BaseModel):
     model_pool: PoolConfig = Field(default_factory=PoolConfig)
     tokenizer_pool: TokenizerPoolConfig = Field(default_factory=TokenizerPoolConfig)
     batching: BatchConfig = Field(default_factory=BatchConfig)
+    pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     server: ServerConfig = Field(default_factory=ServerConfig)
     name: str = ""
     description: str = ""

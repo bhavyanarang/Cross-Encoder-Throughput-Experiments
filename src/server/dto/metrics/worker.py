@@ -24,9 +24,11 @@ class WorkerMetrics(BaseWorkerMetrics):
 @dataclass
 class TokenizerWorkerMetrics(BaseWorkerMetrics):
     total_tokens_processed: int = 0
+    query_count: int = 0
 
-    def _record_additional(self, latency_ms: float, total_tokens: int = 0, **kwargs) -> None:
+    def _record_additional(self, latency_ms: float, total_tokens: int = 0, num_queries: int = 1, **kwargs) -> None:
         self.total_tokens_processed += total_tokens
+        self.query_count += num_queries
 
     def _get_additional_stats(self, elapsed: float) -> dict:
         return {
@@ -34,10 +36,14 @@ class TokenizerWorkerMetrics(BaseWorkerMetrics):
             "throughput_tokens_per_sec": (
                 self.total_tokens_processed / elapsed if elapsed > 0 else 0
             ),
+            # Query throughput: accumulated query count from metrics recording
+            "query_count": self.query_count,
+            "throughput_qps": self.query_count / elapsed if elapsed > 0 else 0,
         }
 
     def _reset_additional(self) -> None:
         self.total_tokens_processed = 0
+        self.query_count = 0
 
 
 class WorkerStatsManager:

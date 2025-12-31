@@ -1,0 +1,31 @@
+# @package _global_
+
+name: "Pipeline Mode Baseline"
+description: "Baseline experiment with decoupled tokenization and inference pipeline"
+
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "pytorch"
+      quantization: "fp16"
+      max_length: 200
+
+tokenizer_pool:
+  num_workers: 4
+  model_name: ""  # Empty means use same model as inference
+
+batching:
+  enabled: false
+
+pipeline:
+  enabled: true
+
+server:
+  http_port: 8080
+  grpc_port: 50051
+
+experiment:
+  batch_sizes: [32, 64, 128]
+  concurrency_levels: [2]
+  warmup_iterations: 10
