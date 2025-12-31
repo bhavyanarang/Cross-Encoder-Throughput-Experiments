@@ -20,6 +20,21 @@ class PaddingTracker:
         max_seq_length: int = 0,
         avg_seq_length: float = 0.0,
     ) -> None:
+        # Validate inputs
+        if not (0.0 <= padding_ratio <= 1.0):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Invalid padding_ratio {padding_ratio}, must be in [0.0, 1.0]")
+            return
+        
+        if not (0 <= padded_tokens <= total_tokens):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Invalid padding tokens: padded_tokens={padded_tokens} > total_tokens={total_tokens}"
+            )
+            return
+        
         self.ratios.append(padding_ratio)
         self.last_ratio = padding_ratio
         if padded_tokens >= 0:

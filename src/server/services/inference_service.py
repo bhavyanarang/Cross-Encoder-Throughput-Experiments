@@ -2,6 +2,7 @@ import concurrent.futures
 import logging
 import multiprocessing as mp
 import queue
+import random
 import threading
 import time
 from collections.abc import Callable
@@ -85,7 +86,7 @@ class ModelWorker(BaseWorker[WorkItem, WorkResult]):
 def _worker_main(
     worker_id: int,
     config_dict: dict,
-    input_queue,  # mp.Queue[WorkItem]
+    input_queue,  # mp.Queue[WorkItem] - per-worker queue
     output_queue,  # mp.Queue[WorkResult]
     ready_event,  # mp.Event
     memory_queue,  # mp.Queue
@@ -135,7 +136,7 @@ class ModelPool:
         self.config = config
         self.num_workers = len(config.instances)
         self._processes: list[mp.Process] = []
-        self._input_queue = mp.Queue()
+        self._input_queues: list[mp.Queue] = []  # Per-worker input queues
         self._output_queue = mp.Queue()
         self._memory_queue = mp.Queue()
         self._metrics_queue = mp.Queue()
@@ -158,13 +159,17 @@ class ModelPool:
         for i, inst in enumerate(self.config.instances):
             ready = mp.Event()
             self._ready_events.append(ready)
+            
+            # Create per-worker input queue
+            input_queue = mp.Queue()
+            self._input_queues.append(input_queue)
 
             p = mp.Process(
                 target=_worker_main,
                 args=(
                     i,
                     inst.model_dump(),
-                    self._input_queue,
+                    input_queue,
                     self._output_queue,
                     ready,
                     self._memory_queue,
@@ -193,9 +198,12 @@ class ModelPool:
         # Signal result and metrics threads to stop
         self._shutdown_event.set()
 
-        # Stop worker processes
-        for _ in range(self.num_workers):
-            self._input_queue.put(_STOP)
+        # Stop worker processes - send _STOP to each worker's per-worker queue
+        for input_queue in self._input_queues:
+            try:
+                input_queue.put(_STOP, block=False)
+            except Exception as e:
+                logger.debug(f"Error sending STOP to worker: {e}")
 
         deadline = time.time() + timeout_s
 
@@ -222,11 +230,12 @@ class ModelPool:
                 logger.warning("Metrics thread did not exit cleanly")
 
         # Clean up multiprocessing queues to prevent resource leaks
-        try:
-            self._input_queue.close()
-            self._input_queue.join_thread()
-        except Exception as e:
-            logger.debug(f"Error closing input queue: {e}")
+        for input_queue in self._input_queues:
+            try:
+                input_queue.close()
+                input_queue.join_thread()
+            except Exception as e:
+                logger.debug(f"Error closing input queue: {e}")
 
         try:
             self._output_queue.close()
@@ -247,6 +256,7 @@ class ModelPool:
             logger.debug(f"Error closing metrics queue: {e}")
 
         self._processes.clear()
+        self._input_queues.clear()
         self._is_started = False
         logger.info("Pool stopped")
 
@@ -324,7 +334,9 @@ class ModelPool:
         }
 
         mp_send_start = time.perf_counter()
-        self._input_queue.put(WorkItem(req_id=req_id, tokenized_batch=tokenized_batch))
+        # Randomly select a worker to minimize queue contention and distribute load evenly
+        selected_worker = random.randint(0, self.num_workers - 1)
+        self._input_queues[selected_worker].put(WorkItem(req_id=req_id, tokenized_batch=tokenized_batch))
         t_mp_queue_send_ms = (time.perf_counter() - mp_send_start) * 1000
 
         mp_receive_start = time.perf_counter()
@@ -396,9 +408,9 @@ class ModelPool:
         if not self._is_started:
             return 0.0
 
-        for _ in range(self.num_workers):
+        for input_queue in self._input_queues:
             try:
-                self._input_queue.put(_GET_MEMORY, block=True, timeout=1.0)
+                input_queue.put(_GET_MEMORY, block=False)
             except Exception as e:
                 logger.debug(f"Error sending memory query to worker: {e}")
                 continue
@@ -446,9 +458,9 @@ class ModelPool:
         if not self._is_started:
             return []
 
-        for _ in range(self.num_workers):
+        for input_queue in self._input_queues:
             try:
-                self._input_queue.put(_GET_METRICS, block=False)
+                input_queue.put(_GET_METRICS, block=False)
             except Exception:
                 pass
 
@@ -462,7 +474,7 @@ class ModelPool:
             return {}
 
         try:
-            self._input_queue.put(_GET_METRICS, block=False)
+            self._input_queues[worker_id].put(_GET_METRICS, block=False)
         except Exception:
             pass
 

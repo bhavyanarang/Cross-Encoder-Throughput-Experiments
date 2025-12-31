@@ -76,6 +76,9 @@ class TestOrchestratorService:
         assert orchestrator.pool is not None
         assert orchestrator.inference_service is not None
         assert orchestrator.metrics is not None
+        
+        # Cleanup to prevent hanging threads
+        orchestrator.stop()
 
     def test_orchestrator_service_setup_with_batching(self):
         from src.server.dto import BatchConfig
@@ -91,6 +94,9 @@ class TestOrchestratorService:
 
         assert orchestrator.scheduler is not None
         assert orchestrator.inference_handler == orchestrator.scheduler
+        
+        # Cleanup to prevent hanging threads (scheduler has non-daemon thread)
+        orchestrator.stop()
 
     def test_orchestrator_service_setup_without_batching(self):
         from src.server.dto import BatchConfig
@@ -106,6 +112,9 @@ class TestOrchestratorService:
 
         assert orchestrator.scheduler is None
         assert isinstance(orchestrator.inference_handler, OrchestratorWrapper)
+        
+        # Cleanup to prevent hanging threads
+        orchestrator.stop()
 
     def test_orchestrator_service_get_inference_handler_not_setup(self):
         config = Config()

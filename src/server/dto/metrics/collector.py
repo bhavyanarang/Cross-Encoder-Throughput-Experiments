@@ -226,8 +226,23 @@ class MetricsCollector:
         def _calc_pct(stats: dict) -> float:
             return (stats["avg_ms"] / total_avg * 100) if total_avg > 0 else 0
 
+        # Calculate percentages for all stages
         stage_percentages = {f"{name}_pct": _calc_pct(stats) for name, stats in stage_stats.items()}
-        other_pct = max(0, 100 - sum(stage_percentages.values()))
+        
+        # Validate that stage breakdown sums to approximately total latency
+        actual_stage_sum = sum(stats["avg_ms"] for stats in stage_stats.values())
+        if total_avg > 0 and abs(actual_stage_sum - total_avg) > 1.0:
+            logger.warning(
+                f"Stage breakdown mismatch: stages sum to {actual_stage_sum:.1f}ms "
+                f"but total latency is {total_avg:.1f}ms (diff: {abs(actual_stage_sum - total_avg):.1f}ms). "
+                f"This suggests unmeasured latency in the request pipeline."
+            )
+        
+        # Calculate the sum of named stages (excluding 'other')
+        named_stages_sum = sum(v for k, v in stage_percentages.items() if k != "other_pct")
+        
+        # Other percentage fills the gap to reach 100%
+        other_pct = max(0, 100 - named_stages_sum)
 
         gpu_util = self.get_gpu_utilization_pct()
         last_values = self._stage_tracker_manager.get_all_last_values()
@@ -267,7 +282,16 @@ class MetricsCollector:
             "instance_metrics": {"avg_utilization_pct": gpu_util},
             "stage_breakdown": stage_stats,
             "stage_percentages": {
-                **{k: round(v, 1) for k, v in stage_percentages.items()},
+                # Frontend-friendly mappings (convert model_inference_pct to inference_pct)
+                "tokenize_pct": round(stage_percentages.get("tokenize_pct", 0), 1),
+                "queue_wait_pct": round(stage_percentages.get("queue_wait_pct", 0), 1),
+                "inference_pct": round(stage_percentages.get("model_inference_pct", 0), 1),
+                "overhead_pct": round(stage_percentages.get("overhead_pct", 0), 1),
+                "mp_queue_send_pct": round(stage_percentages.get("mp_queue_send_pct", 0), 1),
+                "mp_queue_receive_pct": round(stage_percentages.get("mp_queue_receive_pct", 0), 1),
+                "grpc_serialize_pct": round(stage_percentages.get("grpc_serialize_pct", 0), 1),
+                "grpc_deserialize_pct": round(stage_percentages.get("grpc_deserialize_pct", 0), 1),
+                "scheduler_pct": round(stage_percentages.get("scheduler_pct", 0), 1),
                 "other_pct": round(other_pct, 1),
                 "other_combined_pct": round(
                     stage_percentages.get("overhead_pct", 0)

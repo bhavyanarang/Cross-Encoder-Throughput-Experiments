@@ -160,16 +160,34 @@ function updateStageBreakdown(data) {
         { name: 'other', label: 'Other', pct: stagePct.other_pct || 0, element: elements.barOther, pctElement: elements.pctOther },
     ];
 
-    // Sort by percentage (descending) and get top 3
-    const sorted = components.filter(c => c.pct > 0).sort((a, b) => b.pct - a.pct);
-    const top3 = sorted.slice(0, 3);
-    const rest = sorted.slice(3);
+    // Calculate total of all percentages
+    const totalPct = components.reduce((sum, c) => sum + c.pct, 0);
+    
+    // If total is 0 or components exist, sort by percentage (descending) and get top 3
+    let displayComponents = [];
+    if (totalPct > 0) {
+        const sorted = components.filter(c => c.pct > 0).sort((a, b) => b.pct - a.pct);
+        const top3 = sorted.slice(0, 3);
+        const rest = sorted.slice(3);
 
-    // Calculate "Other" as sum of all non-top-3 components
-    // If "other" is already in top3, don't add it again
-    const otherInTop3 = top3.some(c => c.name === 'other');
-    const restComponents = rest.filter(c => c.name !== 'other');
-    const otherPct = restComponents.reduce((sum, c) => sum + c.pct, 0) + (otherInTop3 ? 0 : (stagePct.other_pct || 0));
+        // Calculate "Other" as sum of all non-top-3 components
+        // If "other" is already in top3, don't add it again
+        const otherInTop3 = top3.some(c => c.name === 'other');
+        const restComponents = rest.filter(c => c.name !== 'other');
+        const otherPct = restComponents.reduce((sum, c) => sum + c.pct, 0) + (otherInTop3 ? 0 : (stagePct.other_pct || 0));
+
+        // Build display components list: top 3 + Other (if > 0 and not already in top3)
+        displayComponents = [...top3];
+        if (otherPct > 0 && !otherInTop3) {
+            displayComponents.push({
+                name: 'other',
+                label: 'Other',
+                pct: otherPct,
+                element: elements.barOther,
+                pctElement: elements.pctOther
+            });
+        }
+    }
 
     // Hide all legend items and bar segments first
     const allLegendItems = document.querySelectorAll('.legend-item');
@@ -179,29 +197,29 @@ function updateStageBreakdown(data) {
         c.pctElement.textContent = '0';
     });
 
-    // Show top 3 + Other (if Other > 0 and not already in top3)
-    const displayComponents = [...top3];
-    if (otherPct > 0 && !otherInTop3) {
-        displayComponents.push({
-            name: 'other',
-            label: 'Other',
-            pct: otherPct,
-            element: elements.barOther,
-            pctElement: elements.pctOther
-        });
+    // If no components to display, we're done
+    if (displayComponents.length === 0) {
+        return;
     }
 
+    // Normalize display components to ensure they sum to 100%
+    const displayTotal = displayComponents.reduce((sum, c) => sum + c.pct, 0);
+    const scaleFactor = displayTotal > 0 ? 100 / displayTotal : 1;
+    
     // Update bar segments and legend for displayed components
     let cumulative = 0;
     displayComponents.forEach((comp) => {
+        // Normalize the percentage to ensure 100% fill
+        const normalizedPct = comp.pct * scaleFactor;
+        
         // Show bar segment
         comp.element.style.display = 'flex';
-        comp.element.style.width = comp.pct + '%';
+        comp.element.style.width = normalizedPct + '%';
         comp.element.style.left = cumulative + '%';
-        comp.element.textContent = comp.pct > 2 ? fmt(comp.pct, 1) + '%' : '';
-        cumulative += comp.pct;
+        comp.element.textContent = normalizedPct > 2 ? fmt(normalizedPct, 1) + '%' : '';
+        cumulative += normalizedPct;
 
-        // Update percentage text
+        // Update percentage text (show original percentage, not normalized)
         comp.pctElement.textContent = fmt(comp.pct, 1);
 
         // Show legend item using data-component attribute

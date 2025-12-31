@@ -62,5 +62,5 @@ class WorkerStatsManager:
 
     def reset_all(self) -> None:
         with self._lock:
-            for ws in self._stats.values():
-                ws.reset()
+            # Clear all worker stats and reset counters
+            self._stats.clear()

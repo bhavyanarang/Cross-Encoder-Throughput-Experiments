@@ -55,6 +55,9 @@ class TestScheduler:
         assert info["max_batch_size"] == 16
         assert info["timeout_ms"] == 100
         assert info["length_aware"] is True
+        
+        # Cleanup to prevent hanging threads
+        scheduler.stop()
 
     def test_scheduler_non_batching(self):
         class MockPool:

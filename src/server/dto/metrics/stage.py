@@ -36,11 +36,15 @@ class StageTracker:
         self.recent_history: deque | None = deque(maxlen=recent_maxlen) if track_recent else None
 
     def record(self, value_ms: float, timestamp: float | None = None) -> None:
-        if value_ms > 0:
-            self.metrics.record(value_ms)
-            self.last_value_ms = value_ms
-            if self.recent_history is not None and timestamp is not None:
-                self.recent_history.append((timestamp, value_ms))
+        # Only record non-zero values to maintain consistency
+        # Zero values (e.g., no queue wait) don't consume time and shouldn't affect averages
+        if value_ms <= 0:
+            return
+            
+        self.metrics.record(value_ms)
+        self.last_value_ms = value_ms
+        if self.recent_history is not None and timestamp is not None:
+            self.recent_history.append((timestamp, value_ms))
 
     def reset(self) -> None:
         self.metrics.reset()

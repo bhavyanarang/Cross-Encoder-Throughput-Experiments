@@ -85,9 +85,15 @@ class SchedulerService:
             timeout_sec = self._timeout_ms / 1000.0
 
             try:
-                first_item = self._queue.get(timeout=timeout_sec)
+                # Use shorter timeout to check shutdown_event more frequently
+                # This allows faster shutdown when stop() is called
+                check_interval = min(0.1, timeout_sec)  # Check at least every 100ms
+                first_item = self._queue.get(timeout=check_interval)
                 batch.append(first_item)
             except queue.Empty:
+                # If we got Empty, check if we should shutdown before continuing
+                if self._shutdown_event.is_set():
+                    break
                 continue
 
             deadline = time.perf_counter() + timeout_sec
