@@ -39,21 +39,21 @@ class TestTokenizerPool:
     def test_tokenizer_pool_submit_not_started(self):
         """Test that submit raises error when pool is not started."""
         from src.server.dto.pipeline import TokenizationQueueItem
-        
+
         pool = TokenizerPool(
             model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
             num_workers=1,
             max_length=512,
         )
-        
+
         # Create a mock request
         class MockRequest:
             pass
-        
+
         tokenization_item = TokenizationQueueItem(
             request=MockRequest(),
             pairs=[("query", "document")],
         )
-        
+
         with pytest.raises(RuntimeError, match="not started"):
             pool.submit(tokenization_item)

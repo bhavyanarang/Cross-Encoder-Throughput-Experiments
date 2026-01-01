@@ -23,7 +23,7 @@ class OrchestratorService:
         self.tokenizer_pool = None
         self.pool = None
         self.metrics = None
-        self._next_request_id_counter = count()  # Lock-free atomic counter
+        self._next_request_id_counter = count()
         self._pending_requests: dict[int, PipelineRequest] = {}
         self._pending_requests_lock = threading.Lock()
         self._inference_queue: queue.Queue = None
@@ -35,7 +35,6 @@ class OrchestratorService:
         self._tokenization_started = False
         self._inference_started = False
 
-        # Batching configuration (moved from SchedulerService)
         self._batching_enabled = False
         self._max_batch_size = 8
         self._timeout_ms = 100
@@ -47,7 +46,6 @@ class OrchestratorService:
         self._batch_shutdown_event = threading.Event()
 
     def _get_next_request_id(self) -> int:
-        # Lock-free request ID generation using atomic counter
         return next(self._next_request_id_counter)
 
     def setup(self) -> None:
@@ -86,7 +84,6 @@ class OrchestratorService:
             ),
         )
 
-        # Setup batching if enabled
         if self.config.batching.enabled:
             self._batching_enabled = True
             self._max_batch_size = self.config.batching.max_batch_size
@@ -146,7 +143,6 @@ class OrchestratorService:
         if self.metrics:
             self.metrics.stop()
 
-        # Stop batching thread
         self._batching_running = False
         self._batch_shutdown_event.set()
         with self._batch_condition:
@@ -164,9 +160,12 @@ class OrchestratorService:
             self.tokenizer_pool.stop()
 
     def schedule(self, pairs: list[tuple[str, str]]) -> InferenceResult:
-        """Schedule inference request. Uses batching if enabled, otherwise direct pipeline."""
-        # If batching is enabled, queue the request for batch processing
         if self._batching_enabled:
+            queue_size = self._batch_queue.qsize()
+
+            if queue_size == 0:
+                return self._schedule_direct(pairs)
+
             req = PendingRequest(
                 pairs=pairs,
                 result_future=threading.Event(),
@@ -178,8 +177,6 @@ class OrchestratorService:
             with self._batch_condition:
                 self._batch_condition.notify()
 
-            # Wait for result without timeout (batching processes immediately)
-            # Use a long timeout as safety net (30 seconds)
             if not req.result_future.wait(timeout=30.0):
                 raise RuntimeError("Scheduler request timed out after 30s")
 
@@ -191,7 +188,9 @@ class OrchestratorService:
 
             return req.result
 
-        # Otherwise, use direct pipeline processing
+        return self._schedule_direct(pairs)
+
+    def _schedule_direct(self, pairs: list[tuple[str, str]]) -> InferenceResult:
         if not self._tokenization_started or not self._inference_started:
             raise RuntimeError("Pipeline services not started")
 
@@ -256,28 +255,33 @@ class OrchestratorService:
                 self._pending_requests.pop(req_id, None)
 
     def _batch_loop(self) -> None:
-        """Process batches immediately without timeout - batches when max_batch_size is reached or immediately if queue is empty."""
         while not self._batch_shutdown_event.is_set():
             batch: list[PendingRequest] = []
 
-            # Get first item (block until available)
-            try:
-                first_item = self._batch_queue.get(timeout=0.1)
-                batch.append(first_item)
-            except queue.Empty:
+            with self._batch_condition:
+                while self._batch_queue.empty() and not self._batch_shutdown_event.is_set():
+                    if self._batch_condition.wait(timeout=0.001):
+                        break
+
                 if self._batch_shutdown_event.is_set():
                     break
+
+            if self._batch_shutdown_event.is_set():
+                break
+
+            try:
+                first_item = self._batch_queue.get(block=False)
+                batch.append(first_item)
+            except queue.Empty:
                 continue
 
-            # Collect additional items up to max_batch_size without waiting
-            # Process immediately when max_batch_size is reached
             while len(batch) < self._max_batch_size and not self._batch_shutdown_event.is_set():
                 try:
-                    # Non-blocking get - process immediately if no more items available
                     item = self._batch_queue.get(block=False)
                     batch.append(item)
+                    if len(batch) >= self._max_batch_size:
+                        break
                 except queue.Empty:
-                    # No more items available, process what we have
                     break
 
             if batch:
@@ -314,7 +318,6 @@ class OrchestratorService:
 
             self.submit_pipeline(tokenization_item)
 
-            # Wait for pipeline result (no timeout - should complete quickly)
             if not pipeline_request.result_event.wait(timeout=30.0):
                 raise RuntimeError(f"Pipeline request {req_id} timed out after 30s")
 
@@ -356,7 +359,6 @@ class OrchestratorService:
                 req.result_future.set()
 
     def get_batching_info(self) -> dict:
-        """Get batching configuration and status."""
         return {
             "batching_enabled": self._batching_enabled,
             "max_batch_size": self._max_batch_size,
@@ -370,82 +372,64 @@ class OrchestratorService:
             raise RuntimeError("Orchestrator not set up. Call setup() first.")
         return self.metrics
 
-    # TokenizationService methods
     def set_inference_queue(self, inference_queue: queue.Queue) -> None:
-        """Set the inference queue for tokenization pipeline."""
         self._inference_queue = inference_queue
         if self.tokenizer_pool:
             self.tokenizer_pool.set_inference_queue(inference_queue)
         logger.info("Tokenization pipeline queue set")
 
     def submit_pipeline(self, tokenization_item: TokenizationQueueItem) -> None:
-        """Submit a tokenization item to the pipeline."""
         if not self._tokenization_started:
             raise RuntimeError("Tokenization service not started")
         self.tokenizer_pool.submit_pipeline(tokenization_item)
 
     def get_tokenizer_worker_metrics(self) -> list[dict]:
-        """Get tokenizer worker metrics."""
         if not self._tokenization_started:
             return []
         return self.tokenizer_pool.get_worker_metrics()
 
     def reset_tokenizer_worker_metrics(self) -> None:
-        """Reset tokenizer worker metrics."""
         if self._tokenization_started:
             self.tokenizer_pool.reset_worker_metrics()
 
     @property
     def tokenization_is_started(self) -> bool:
-        """Check if tokenization service is started."""
         return self._tokenization_started
 
-    # InferenceService methods
     def get_gpu_memory_mb(self) -> float:
-        """Get GPU memory usage in MB."""
         if not self._inference_started:
             return 0.0
         return self.pool.get_gpu_memory_mb()
 
     def get_inference_worker_metrics(self) -> list[dict]:
-        """Get inference worker metrics."""
         if not self._inference_started:
             return []
         return self.pool.get_worker_metrics()
 
     def reset_inference_worker_metrics(self) -> None:
-        """Reset inference worker metrics."""
         if self._inference_started:
             self.pool.reset_worker_metrics()
 
     @property
     def inference_is_started(self) -> bool:
-        """Check if inference service is started."""
         return self._inference_started
 
-    # Compatibility properties for metrics service
     @property
     def is_started(self) -> bool:
-        """Check if both services are started (for compatibility)."""
         return self._tokenization_started and self._inference_started
 
     def get_worker_metrics(self) -> list[dict]:
-        """Get worker metrics (tokenizer) - for compatibility with metrics service."""
         return self.get_tokenizer_worker_metrics()
 
     def reset_worker_metrics(self) -> None:
-        """Reset worker metrics (tokenizer) - for compatibility with metrics service."""
         self.reset_tokenizer_worker_metrics()
 
-    # Backwards compatibility properties (for tests that expect separate services)
     @property
     def tokenization_service(self):
-        """Backwards compatibility: return self as tokenization service."""
         return self
 
     @property
     def inference_service(self):
-        """Backwards compatibility: return self as inference service."""
         return self
 
 
