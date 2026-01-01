@@ -84,7 +84,6 @@ class TokenizerPool(BaseWorkerPool):
 
         # Helper threads
         self._result_thread: threading.Thread | None = None
-        self._metrics_thread: threading.Thread | None = None
 
         self._inference_queue: queue.Queue | None = None
 
@@ -93,10 +92,7 @@ class TokenizerPool(BaseWorkerPool):
         self._pending_items: dict[int, TokenizationQueueItem] = {}
         self._pending_lock = threading.Lock()
 
-        self._worker_metrics: dict[int, dict] = {}
-        self._metrics_lock = threading.Lock()
-
-        self._shutdown_event = threading.Event()
+        # _worker_metrics, locks, and loops are in BaseWorkerPool
 
         self._total_batches = 0
         self._total_queries = 0
@@ -143,8 +139,7 @@ class TokenizerPool(BaseWorkerPool):
         self._result_thread = threading.Thread(target=self._result_loop, daemon=True)
         self._result_thread.start()
 
-        self._metrics_thread = threading.Thread(target=self._metrics_loop, daemon=True)
-        self._metrics_thread.start()
+        self.start_metrics_thread()
 
         self._is_started = True
         logger.info(f"Tokenizer pool ready with {self.num_workers} workers (MP, Shared Queue)")
@@ -173,8 +168,7 @@ class TokenizerPool(BaseWorkerPool):
         if self._result_thread:
             self._result_thread.join(timeout=1.0)
 
-        if self._metrics_thread:
-            self._metrics_thread.join(timeout=1.0)
+        self.stop_metrics_thread(timeout_s=1.0)
 
         self._processes.clear()
         self._input_queue = None
@@ -207,6 +201,9 @@ class TokenizerPool(BaseWorkerPool):
             raise RuntimeError("Tokenizer pool not started")
 
         req_id = tokenization_item.request.request_id
+
+        if not self._input_queue:
+            raise RuntimeError("Tokenizer pool input queue not initialized")
 
         with self._pending_lock:
             self._pending_items[req_id] = tokenization_item
@@ -279,18 +276,6 @@ class TokenizerPool(BaseWorkerPool):
             except Exception as e:
                 logger.error(f"Tokenizer pool result loop error: {e}", exc_info=True)
 
-    def _metrics_loop(self) -> None:
-        while not self._shutdown_event.is_set():
-            try:
-                try:
-                    worker_id, metrics = self._metrics_queue.get(timeout=1.0)
-                    with self._metrics_lock:
-                        self._worker_metrics[worker_id] = metrics
-                except queue.Empty:
-                    pass
-            except Exception as e:
-                logger.error(f"Tokenizer metrics loop error: {e}")
-
     def get_info(self) -> dict:
         total_worker_queue_size = 0
         inference_queue_size = 0
@@ -332,19 +317,10 @@ class TokenizerPool(BaseWorkerPool):
             except Exception:
                 pass
 
-        # Return cached metrics
-        with self._metrics_lock:
-            return [self._worker_metrics.get(i, {}) for i in range(self.num_workers)]
+        # Return cached metrics from base
+        return super().get_worker_metrics()
 
     def get_worker_metrics_by_id(self, worker_id: int) -> dict:
         # Not supported with shared queue targeting specific worker
         # But we can return cached metrics
-        with self._metrics_lock:
-            return self._worker_metrics.get(worker_id, {})
-
-    def reset_worker_metrics(self) -> None:
-        with self._metrics_lock:
-            self._worker_metrics.clear()
-
-
-__all__ = ["TokenizerPool"]
+        return super().get_worker_metrics_by_id(worker_id)

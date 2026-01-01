@@ -35,6 +35,7 @@ class BatchConfig(BaseModel):
 
 class PipelineConfig(BaseModel):
     enabled: bool = False
+    mode: Literal["full", "tokenization_only", "inference_only"] = "full"
 
 
 class ServerConfig(BaseModel):

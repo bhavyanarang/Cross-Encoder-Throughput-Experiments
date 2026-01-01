@@ -24,8 +24,33 @@ import numpy as np
 # Add src to path
 sys.path.insert(0, str(__file__).replace("/scripts/perf_hammer.py", ""))
 
+# from src.server.utils.data_loader import DataLoader
+import json
+from pathlib import Path
+
 from src.client.grpc_client import InferenceClient
-from src.server.utils.data_loader import DataLoader
+
+
+class DataLoader:
+    def __init__(self, cache_dir: Path = None):
+        self.cache_dir = cache_dir or Path(__file__).parent.parent / ".cache"
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def load(self, num_samples: int = 1000) -> list:
+        cache_file = self.cache_dir / f"msmarco_pairs_{num_samples}.json"
+
+        if cache_file.exists():
+            with open(cache_file) as f:
+                pairs = json.load(f)
+            return [(p[0], p[1]) for p in pairs]
+
+        # Fallback to synthetic if cache missing (since we can't easily download here without duplicating code)
+        # Or duplicate the logic. Let's duplicate minimal logic.
+        return self._create_synthetic(num_samples)
+
+    def _create_synthetic(self, num_samples: int) -> list:
+        return [(f"query {i}", f"document {i} with some text content") for i in range(num_samples)]
+
 
 logging.basicConfig(
     level=logging.INFO,
@@ -203,7 +228,7 @@ class PerfHammer:
                             break
 
                 # Print stats every second
-                if time.perf_counter() - last_stats_time >= 1.0:
+                if time.perf_counter() - last_stats_time >= 60.0:
                     self._print_stats()
                     last_stats_time = time.perf_counter()
 

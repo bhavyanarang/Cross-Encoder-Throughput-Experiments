@@ -42,6 +42,12 @@ class MetricsService(BaseService):
         self._is_started = True
         self._shutdown_event.clear()
 
+        # Check pipeline mode and disable unrelated stages in collector
+        if self._orchestrator and hasattr(self._orchestrator, "config"):
+            mode = self._orchestrator.config.pipeline.mode
+            if hasattr(self._collector, "set_pipeline_mode"):
+                self._collector.set_pipeline_mode(mode)
+
         if self._orchestrator:
             self._collection_thread = threading.Thread(target=self._collection_loop, daemon=True)
             self._collection_thread.start()
@@ -143,12 +149,17 @@ class MetricsService(BaseService):
         is_running = self._is_active()
         cpu_pct = self._process_monitor_service.get_cpu_percent()
 
+        pipeline_mode = "full"
+        if self._orchestrator and hasattr(self._orchestrator, "config"):
+            pipeline_mode = self._orchestrator.config.pipeline.mode
+
         if not collector.latencies:
             return {
                 "experiment_name": collector.experiment_name,
                 "experiment_description": collector.experiment_description,
                 "backend_type": collector.backend_type,
                 "device": collector.device,
+                "pipeline_mode": pipeline_mode,
                 "is_running": is_running,
                 "count": 0,
                 "query_count": 0,
@@ -239,6 +250,7 @@ class MetricsService(BaseService):
             "experiment_description": collector.experiment_description,
             "backend_type": collector.backend_type,
             "device": collector.device,
+            "pipeline_mode": pipeline_mode,
             "is_running": is_running,
             "count": len(arr),
             "query_count": collector.query_count,

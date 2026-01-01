@@ -52,6 +52,9 @@ class InferenceClient:
         request = inference_pb2.InferRequest(pairs=proto_pairs)
         response = self._stub.Infer(request, timeout=timeout)
         latency = (time.perf_counter() - start) * 1000
+        status_code = getattr(response, "status_code", 200)
+        if status_code == 204:
+            return [], latency
         return list(response.scores), latency
 
     def get_metrics(self, timeout: float = 10.0) -> dict:

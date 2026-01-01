@@ -56,6 +56,10 @@ class StageTrackerManager:
         self._trackers[name] = tracker
         return tracker
 
+    def unregister(self, name: str) -> None:
+        if name in self._trackers:
+            del self._trackers[name]
+
     def get(self, name: str) -> StageTracker:
         return self._trackers[name]
 

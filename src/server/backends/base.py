@@ -46,38 +46,40 @@ class BaseBackend(ABC):
     def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:
         pass
 
+    def _get_tokenizer(self):
+        if self._tokenizer_pool is not None:
+            return self._tokenizer_pool
+
+        if not hasattr(self, "_tokenizer"):
+            from src.server.utils.tokenizer import TokenizerService
+
+            self._tokenizer = TokenizerService(self.model_name, self.max_length)
+        return self._tokenizer
+
     def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
         self._acquire()
         try:
+            tokenizer = self._get_tokenizer()
+            tokenize_start = time.perf_counter()
+
             if self._tokenizer_pool is not None:
-                tokenize_start = time.perf_counter()
-                tokenized_batch = self._tokenizer_pool.tokenize(pairs)
-                t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+                tokenized_batch = tokenizer.tokenize(pairs)
                 features = tokenized_batch.features
-                batch_size = tokenized_batch.batch_size
-                max_seq_length = tokenized_batch.max_seq_length
-                total_tokens = tokenized_batch.total_tokens
-                real_tokens = tokenized_batch.real_tokens
-                padded_tokens = tokenized_batch.padded_tokens
-                padding_ratio = tokenized_batch.padding_ratio
-                avg_seq_length = tokenized_batch.avg_seq_length
             else:
-                from src.server.worker.tokenizer_worker import TokenizerService
-
-                if not hasattr(self, "_tokenizer"):
-                    self._tokenizer = TokenizerService(self.model_name, self.max_length)
-
-                tokenize_start = time.perf_counter()
-                tokenized_batch = self._tokenizer.tokenize(pairs, device=self.device)
-                t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+                # Local tokenizer
+                tokenized_batch = tokenizer.tokenize(pairs, device=self.device)
                 features = tokenized_batch.features
-                batch_size = tokenized_batch.batch_size
-                max_seq_length = tokenized_batch.max_seq_length
-                total_tokens = tokenized_batch.total_tokens
-                real_tokens = tokenized_batch.real_tokens
-                padded_tokens = tokenized_batch.padded_tokens
-                padding_ratio = tokenized_batch.padding_ratio
-                avg_seq_length = tokenized_batch.avg_seq_length
+
+            t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+
+            # Common metadata from tokenized batch
+            batch_size = tokenized_batch.batch_size
+            max_seq_length = tokenized_batch.max_seq_length
+            total_tokens = tokenized_batch.total_tokens
+            real_tokens = tokenized_batch.real_tokens
+            padded_tokens = tokenized_batch.padded_tokens
+            padding_ratio = tokenized_batch.padding_ratio
+            avg_seq_length = tokenized_batch.avg_seq_length
 
             if self._tokenizer_pool is not None:
                 features = {k: v.to(self.device) for k, v in features.items()}

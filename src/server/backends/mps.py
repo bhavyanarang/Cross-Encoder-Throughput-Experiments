@@ -1,18 +1,14 @@
 import logging
-import time
 
-import numpy as np
-import torch
 from sentence_transformers import CrossEncoder
 
-from src.server.backends.base import BaseBackend
-from src.server.backends.device import sync_device
-from src.server.dto import InferenceResult
+from src.server.backends.device import apply_fp16
+from src.server.backends.torch_base import TorchBackend
 
 logger = logging.getLogger(__name__)
 
 
-class MPSBackend(BaseBackend):
+class MPSBackend(TorchBackend):
     def __init__(
         self,
         model_name: str,
@@ -26,91 +22,12 @@ class MPSBackend(BaseBackend):
         logger.info(f"Loading {self.model_name} on {self.device} ({self.quantization})")
         self.model = CrossEncoder(self.model_name, device=self.device)
 
-        if self.quantization == "fp16" and self.device == "mps":
-            self.model.model.half()
-            logger.info("Applied FP16")
+        if self.quantization == "fp16":
+            applied, msg = apply_fp16(self.model.model, self.device)
+            if applied:
+                logger.info(f"Applied {msg}")
 
         self._is_loaded = True
-
-    def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:
-        self._acquire()
-        try:
-            return self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
-        finally:
-            self._release()
-
-    def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
-        self._acquire()
-        try:
-            total_start = time.perf_counter()
-            batch = self._tokenizer.tokenize(pairs, self.device)
-
-            inf_start = time.perf_counter()
-            sync_device(self.device)
-
-            with torch.inference_mode():
-                out = self.model.model(**batch.features, return_dict=True)
-                logits = out.logits
-                if self.model.config.num_labels == 1:
-                    scores = torch.sigmoid(logits).squeeze(-1)
-                else:
-                    scores = torch.softmax(logits, dim=-1)[:, 1]
-
-            sync_device(self.device)
-            t_inf = (time.perf_counter() - inf_start) * 1000
-            scores_np = scores.cpu().numpy()
-
-            return InferenceResult(
-                scores=scores_np,
-                t_tokenize_ms=batch.tokenize_time_ms,
-                t_model_inference_ms=t_inf,
-                total_ms=(time.perf_counter() - total_start) * 1000,
-                total_tokens=batch.total_tokens,
-                real_tokens=batch.real_tokens,
-                padded_tokens=batch.padded_tokens,
-                padding_ratio=batch.padding_ratio,
-                max_seq_length=batch.max_seq_length,
-                avg_seq_length=batch.avg_seq_length,
-                batch_size=batch.batch_size,
-            )
-        finally:
-            self._release()
-
-    def infer_with_tokenized(self, tokenized_batch) -> InferenceResult:
-        self._acquire()
-        try:
-            features = {k: v.to(self.device) for k, v in tokenized_batch.features.items()}
-
-            inf_start = time.perf_counter()
-            sync_device(self.device)
-
-            with torch.inference_mode():
-                out = self.model.model(**features, return_dict=True)
-                logits = out.logits
-                if self.model.config.num_labels == 1:
-                    scores = torch.sigmoid(logits).squeeze(-1)
-                else:
-                    scores = torch.softmax(logits, dim=-1)[:, 1]
-
-            sync_device(self.device)
-            t_inf = (time.perf_counter() - inf_start) * 1000
-            scores_np = scores.cpu().numpy()
-
-            return InferenceResult(
-                scores=scores_np,
-                t_tokenize_ms=0.0,
-                t_model_inference_ms=t_inf,
-                total_ms=t_inf,
-                total_tokens=tokenized_batch.total_tokens,
-                real_tokens=tokenized_batch.real_tokens,
-                padded_tokens=tokenized_batch.padded_tokens,
-                padding_ratio=tokenized_batch.padding_ratio,
-                max_seq_length=tokenized_batch.max_seq_length,
-                avg_seq_length=tokenized_batch.avg_seq_length,
-                batch_size=tokenized_batch.batch_size,
-            )
-        finally:
-            self._release()
 
     @classmethod
     def from_config(cls, config) -> "MPSBackend":

@@ -53,6 +53,14 @@ class MetricsCollector:
         self._stage_tracker_manager.register("grpc_deserialize")
         self._stage_tracker_manager.register("scheduler")
 
+    def set_pipeline_mode(self, mode: str):
+        if mode == "tokenization_only":
+            self._stage_tracker_manager.unregister("model_queue_wait")
+            self._stage_tracker_manager.unregister("model_inference")
+        elif mode == "inference_only":
+            self._stage_tracker_manager.unregister("tokenize")
+            self._stage_tracker_manager.unregister("tokenizer_queue_wait")
+
     def set_pool(self, pool: "ModelPool") -> None:
         """Set the model pool for getting worker metrics with throughput."""
         self._model_pool = pool

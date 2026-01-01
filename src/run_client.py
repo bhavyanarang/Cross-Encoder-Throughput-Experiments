@@ -16,6 +16,7 @@ import requests
 import yaml
 from tqdm import tqdm
 
+from scripts.perf_hammer import PerfHammer
 from src.client.grpc_client import InferenceClient
 from src.server.dto import BenchmarkState, DashboardMetrics
 
@@ -848,7 +849,7 @@ def main():
         client.infer(pairs[:warmup_batch_size])
 
     try:
-        runner = BenchmarkRunner(client, state)
+        # runner = BenchmarkRunner(client, state) # Deprecated
         results = []
 
         config_num = 0
@@ -863,7 +864,7 @@ def main():
                 logger.info(
                     f"Config {config_num}/{total_combinations}: batch_size={batch_size}, concurrency={concurrency}"
                 )
-                logger.info(f"Requests per config: {args.num_requests} (fixed for all configs)")
+                logger.info("Target duration per config: 60.0s")
                 logger.info(f"{'=' * 60}")
 
                 try:
@@ -871,12 +872,76 @@ def main():
                 except Exception:
                     pass
 
-                result = runner.run(
-                    pairs,
-                    batch_size,
-                    args.num_requests,
-                    concurrency,
+                # Always use PerfHammer logic
+                logger.info(f"Using PerfHammer logic for load generation (conc={concurrency})...")
+
+                hammer = PerfHammer(
+                    host=args.host,
+                    port=args.port,
+                    concurrency=concurrency,
+                    batch_size=batch_size,
+                    num_requests=None,  # User requested duration driven for everything
+                    duration=60.0,
                 )
+
+                # PerfHammer loads its own data, but we want to use 'pairs' or consistent data?
+                # PerfHammer.run() calls _load_test_data() internally.
+                # To ensure consistency, we should ideally inject data or let it load.
+                # PerfHammer._load_test_data loads 10000 items.
+                # Let's modify PerfHammer instance to use our loaded pairs if possible,
+                # or just accept it uses its own loader (which is same DataLoader/DatasetLoader logic)
+
+                try:
+                    hammer.run()
+
+                    # Extract results from hammer
+                    lat_array = np.array(hammer.latencies) if hammer.latencies else np.array([])
+                    tp_array = np.array(hammer.throughputs) if hammer.throughputs else np.array([])
+
+                    if len(lat_array) == 0:
+                        result = {"error": "No requests completed", "interrupted": True}
+                    else:
+                        elapsed = (
+                            hammer.end_time - hammer.start_time
+                            if hammer.end_time and hammer.start_time
+                            else 0
+                        )
+                        total_pairs = len(lat_array) * batch_size
+
+                        result = {
+                            "batch_size": batch_size,
+                            "concurrency": concurrency,
+                            "num_requests": len(lat_array),
+                            "total_pairs": total_pairs,
+                            "total_time_s": elapsed,
+                            "latency_avg_ms": float(np.mean(lat_array)),
+                            "latency_min_ms": float(np.min(lat_array)),
+                            "latency_max_ms": float(np.max(lat_array)),
+                            "latency_std_ms": float(np.std(lat_array)),
+                            "latency_p50_ms": float(np.percentile(lat_array, 50)),
+                            "latency_p90_ms": float(np.percentile(lat_array, 90)),
+                            "latency_p95_ms": float(np.percentile(lat_array, 95)),
+                            "latency_p99_ms": float(np.percentile(lat_array, 99)),
+                            "throughput_avg": total_pairs / elapsed if elapsed > 0 else 0,
+                            "throughput_min": float(np.min(tp_array)),
+                            "throughput_max": float(np.max(tp_array)),
+                            "throughput_std": float(np.std(tp_array)),
+                            "throughput_p50": float(np.percentile(tp_array, 50)),
+                            "throughput_p90": float(np.percentile(tp_array, 90)),
+                            "throughput_p95": float(np.percentile(tp_array, 95)),
+                            "throughput_p99": float(np.percentile(tp_array, 99)),
+                            "latency_throughput_pairs": list(
+                                zip(hammer.latencies, hammer.throughputs, strict=False)
+                            ),
+                            "interrupted": False,
+                        }
+
+                except Exception as e:
+                    logger.error(f"PerfHammer failed: {e}")
+                    result = {"error": str(e), "interrupted": True}
+                finally:
+                    hammer.client.close()
+
                 result["batch_size"] = batch_size
                 result["concurrency"] = concurrency
                 results.append(result)
@@ -891,7 +956,9 @@ def main():
                 else:
                     logger.error(f"✗ Failed: {result.get('error', 'Unknown error')}")
 
-                time.sleep(0.5)
+                # Wait before next config
+                logger.info("Cooling down for 5 seconds...")
+                time.sleep(5.0)
 
             if state.interrupted:
                 break

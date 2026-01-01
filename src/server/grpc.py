@@ -39,7 +39,8 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
         scores = (
             result.scores.tolist() if isinstance(result.scores, np.ndarray) else list(result.scores)
         )
-        response = inference_pb2.InferResponse(scores=scores)
+        status_code = getattr(result, "status_code", 200)
+        response = inference_pb2.InferResponse(scores=scores, status_code=status_code)
         t_grpc_serialize_ms = (time.perf_counter() - grpc_serialize_start) * 1000
 
         total_latency = (time.perf_counter() - total_start) * 1000

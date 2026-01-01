@@ -157,7 +157,24 @@ class DashboardState:
         if self._metrics_service:
             try:
                 data = self._metrics_service.get_summary()
-                data["history"] = self._history.to_dict()
+                pipeline_mode = data.get("pipeline_mode", "full")
+
+                if pipeline_mode == "tokenization_only":
+                    filtered_history = self._history.to_dict()
+                    filtered_history["inference_throughput_qps"] = []
+                    filtered_history["inference_ms"] = []
+                    filtered_history["model_queue_wait_ms"] = []
+                    filtered_history["model_queue_size"] = []
+                    data["history"] = filtered_history
+                elif pipeline_mode == "inference_only":
+                    filtered_history = self._history.to_dict()
+                    filtered_history["tokenizer_throughput_qps"] = []
+                    filtered_history["tokenizer_worker_latencies"] = []
+                    filtered_history["tokenizer_queue_wait_ms"] = []
+                    filtered_history["tokenizer_queue_size"] = []
+                    data["history"] = filtered_history
+                else:
+                    data["history"] = self._history.to_dict()
             except Exception as e:
                 logger.error(f"Error getting metrics summary: {e}", exc_info=True)
                 data = {

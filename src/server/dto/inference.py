@@ -9,7 +9,7 @@ class InferenceResult:
     scores: np.ndarray
     t_tokenize_ms: float = 0.0
     t_model_inference_ms: float = 0.0
-    t_queue_wait_ms: float = 0.0  # Combined for backward compatibility
+    t_queue_wait_ms: float = 0.0
     t_tokenizer_queue_wait_ms: float = 0.0
     t_model_queue_wait_ms: float = 0.0
     t_overhead_ms: float = 0.0
@@ -28,6 +28,7 @@ class InferenceResult:
     batch_size: int = 0
     worker_id: int = -1
     tokenizer_worker_id: int = -1
+    status_code: int = 200
 
 
 @dataclass

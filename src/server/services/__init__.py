@@ -20,7 +20,7 @@ def __getattr__(name):
 
         return ModelWorker
     elif name == "TokenizerService":
-        from src.server.worker.tokenizer_worker import TokenizerService
+        from src.server.utils.tokenizer import TokenizerService
 
         return TokenizerService
     elif name == "TokenizerWorker":

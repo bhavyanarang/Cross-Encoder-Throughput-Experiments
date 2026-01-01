@@ -92,11 +92,11 @@ class ModelPool(BaseWorkerPool):
         self._metrics_queue = mp.Queue()
         self._ready_events: list[mp.Event] = []
         self._result_thread: threading.Thread | None = None
-        self._metrics_thread: threading.Thread | None = None
+
         self._request_counts: dict[int, int] = {}
-        self._worker_metrics: dict[int, dict] = {}
-        self._metrics_lock = threading.Lock()
-        self._shutdown_event = threading.Event()
+        # _worker_metrics and locks are in BaseWorkerPool
+
+        # self._shutdown_event is in BaseWorkerPool
         self._inference_queue: queue.Queue | None = None
         self._pipeline_consumer_thread: threading.Thread | None = None
         self._round_robin_counter = count()  # Lock-free atomic counter
@@ -108,6 +108,8 @@ class ModelPool(BaseWorkerPool):
     def start(self, timeout_s: float = 120.0) -> None:
         if self._is_started:
             return
+
+        self._shutdown_event.clear()
 
         for i, inst in enumerate(self.config.instances):
             ready = mp.Event()
@@ -140,8 +142,9 @@ class ModelPool(BaseWorkerPool):
 
         self._result_thread = threading.Thread(target=self._result_loop, daemon=True)
         self._result_thread.start()
-        self._metrics_thread = threading.Thread(target=self._metrics_loop, daemon=True)
-        self._metrics_thread.start()
+
+        self.start_metrics_thread()
+
         self._is_started = True
         logger.info(f"Pool ready with {self.num_workers} workers")
 
@@ -200,11 +203,7 @@ class ModelPool(BaseWorkerPool):
             if self._result_thread.is_alive():
                 logger.warning("Result thread did not exit cleanly")
 
-        if self._metrics_thread:
-            remaining = max(0, deadline - time.time())
-            self._metrics_thread.join(timeout=remaining)
-            if self._metrics_thread.is_alive():
-                logger.warning("Metrics thread did not exit cleanly")
+        self.stop_metrics_thread(max(0, deadline - time.time()))
 
         if self._pipeline_consumer_thread:
             remaining = max(0, deadline - time.time())
@@ -268,18 +267,6 @@ class ModelPool(BaseWorkerPool):
                 continue
             except Exception as e:
                 logger.error(f"Result loop error: {e}", exc_info=True)
-                continue
-
-    def _metrics_loop(self) -> None:
-        while not self._shutdown_event.is_set():
-            try:
-                worker_id, metrics_stats = self._metrics_queue.get(timeout=0.5)
-                with self._metrics_lock:
-                    self._worker_metrics[worker_id] = metrics_stats
-            except (queue.Empty, OSError, EOFError):
-                continue
-            except Exception as e:
-                logger.error(f"Metrics loop error: {e}", exc_info=True)
                 continue
 
     def _pipeline_consumer_loop(self) -> None:
@@ -462,8 +449,8 @@ class ModelPool(BaseWorkerPool):
 
         time.sleep(0.1)
 
-        with self._metrics_lock:
-            return [self._worker_metrics.get(i, {}) for i in range(self.num_workers)]
+        # Use base class method to return cached metrics
+        return super().get_worker_metrics()
 
     def get_worker_metrics_by_id(self, worker_id: int) -> dict:
         if not self._is_started or worker_id >= self.num_workers:
@@ -476,12 +463,4 @@ class ModelPool(BaseWorkerPool):
 
         time.sleep(0.1)
 
-        with self._metrics_lock:
-            return self._worker_metrics.get(worker_id, {})
-
-    def reset_worker_metrics(self) -> None:
-        with self._metrics_lock:
-            self._worker_metrics.clear()
-
-
-__all__ = ["ModelPool"]
+        return super().get_worker_metrics_by_id(worker_id)

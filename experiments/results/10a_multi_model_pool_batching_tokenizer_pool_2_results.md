@@ -2,7 +2,7 @@
 
 _Two MPS model instances with round-robin routing and dynamic batching enabled_
 
-**Timestamp:** 2026-01-01 22:37:28
+**Timestamp:** 2026-01-02 00:36:32
 
 **Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2`
 
@@ -14,59 +14,59 @@ _Two MPS model instances with round-robin routing and dynamic batching enabled_
 
 | Batch | Conc | Pairs | Time(s) | Lat Avg | Lat P95 | Lat P99 | TP Avg | TP P95 |
 |-------|------|-------|---------|---------|---------|---------|--------|--------|
-| 64 | 32 | 32000 | 61.39 | 3426.1ms | 5310.1ms | 13794.2ms | 521.2 | 25.5 |
+| 64 | 32 | 243392 | 75.64 | 570.6ms | 669.2ms | 792.6ms | 3218.0 | 444.7 |
 
 ## Detailed Metrics
 
 ### Run 1
 
-**Total:** 32000 pairs in 61.39s
+**Total:** 243392 pairs in 75.64s
 
 ### Latency
 
 | Metric | Value |
 |--------|-------|
-| Average | 3426.06 |
-| Min | 107.23 |
-| Max | 15673.17 |
-| Std Dev | 1884.83 |
-| P50 | 2962.42 |
-| P90 | 3540.38 |
-| P95 | 5310.14 |
-| P99 | 13794.15 |
+| Average | 570.58 |
+| Min | 65.35 |
+| Max | 15640.64 |
+| Std Dev | 863.53 |
+| P50 | 651.31 |
+| P90 | 664.92 |
+| P95 | 669.21 |
+| P99 | 792.58 |
 
 ### Throughput
 
 | Metric | Value |
 |--------|-------|
-| Average | 521.24 |
-| Min | 4.08 |
-| Max | 596.82 |
-| Std Dev | 32.23 |
-| P50 | 21.60 |
-| P90 | 22.28 |
-| P95 | 25.50 |
-| P99 | 66.47 |
+| Average | 3217.96 |
+| Min | 4.09 |
+| Max | 979.35 |
+| Std Dev | 152.01 |
+| P50 | 98.26 |
+| P90 | 437.54 |
+| P95 | 444.66 |
+| P99 | 457.84 |
 
 ### Latency vs Throughput Analysis
 
 | Latency Range | Avg Throughput | Min Throughput | Max Throughput | Count |
 |---------------|----------------|----------------|----------------|-------|
-| < 2962.4ms (P50) | 29.53 | 21.60 | 596.82 | 250 |
-| 2962.4-3402.0ms (P50-P75) | 19.61 | 18.81 | 21.60 | 125 |
-| 3402.0-3540.4ms (P75-P90) | 18.46 | 18.08 | 18.81 | 75 |
-| >= 3540.4ms (P90+) | 11.80 | 4.08 | 18.07 | 50 |
+| < 651.3ms (P50) | 294.97 | 98.26 | 979.35 | 1901 |
+| 651.3-657.3ms (P50-P75) | 97.78 | 97.36 | 98.26 | 951 |
+| 657.3-664.9ms (P75-P90) | 96.94 | 96.26 | 97.36 | 570 |
+| >= 664.9ms (P90+) | 86.95 | 4.09 | 96.25 | 381 |
 
-**Correlation:** -0.279 (negative correlation expected: lower latency = higher throughput)
+**Correlation:** -0.361 (negative correlation expected: lower latency = higher throughput)
 
 ## Overall Summary
 
 | Metric | Value | Config |
 |--------|-------|--------|
-| Best Throughput | 521.24 p/s | batch=64, conc=32 |
-| Best Latency | 3426.06ms | batch=64, conc=32 |
-| Avg Throughput | 521.24 p/s | all configs |
-| Avg Latency | 3426.06ms | all configs |
+| Best Throughput | 3217.96 p/s | batch=64, conc=32 |
+| Best Latency | 570.58ms | batch=64, conc=32 |
+| Avg Throughput | 3217.96 p/s | all configs |
+| Avg Latency | 570.58ms | all configs |
 
 ## Dashboard Metrics
 
