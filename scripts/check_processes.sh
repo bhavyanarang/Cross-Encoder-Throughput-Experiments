@@ -38,4 +38,3 @@ if [ -n "$MAIN_PIDS" ]; then
         echo ""
     done
 fi
-

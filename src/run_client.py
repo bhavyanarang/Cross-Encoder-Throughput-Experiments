@@ -10,7 +10,6 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
-from threading import Lock
 
 import numpy as np
 import requests
@@ -136,7 +135,7 @@ class BenchmarkRunner:
         request_latencies = []
         request_throughputs = []
         latency_throughput_pairs = []
-        lock = Lock()
+        # Use lock-free list operations - list.append() is atomic in CPython due to GIL
         start = time.perf_counter()
         completed = [0]
 
@@ -152,11 +151,11 @@ class BenchmarkRunner:
                 return None
             _, latency_ms = self.client.infer(batch)
             throughput = batch_size / (latency_ms / 1000)
-            with lock:
-                request_latencies.append(latency_ms)
-                request_throughputs.append(throughput)
-                latency_throughput_pairs.append((latency_ms, throughput))
-                completed[0] += 1
+            # Atomic operations in CPython - no lock needed
+            request_latencies.append(latency_ms)
+            request_throughputs.append(throughput)
+            latency_throughput_pairs.append((latency_ms, throughput))
+            completed[0] += 1
             return latency_ms
 
         self._execute_batches(batches, run_batch, concurrency, completed, num_requests, start)
@@ -939,7 +938,7 @@ def main():
                 print("\n" + "-" * 80)
                 print("LAYER THROUGHPUT ANALYSIS (q/s)")
                 print("-" * 80)
-                
+
                 # Compute layer throughput statistics
                 def compute_layer_stats(throughput_list):
                     if not throughput_list:
@@ -954,11 +953,11 @@ def main():
                         "p50": float(np.percentile(arr, 50)),
                         "p95": float(np.percentile(arr, 95)),
                     }
-                
+
                 tokenizer_stats = compute_layer_stats(dashboard_metrics.tokenizer_throughput_qps)
                 inference_stats = compute_layer_stats(dashboard_metrics.inference_throughput_qps)
                 overall_stats = compute_layer_stats(dashboard_metrics.overall_throughput_qps)
-                
+
                 print("Tokenizer Layer:")
                 print(f"  Average: {tokenizer_stats['avg']:.1f}")
                 print(f"  Min:     {tokenizer_stats['min']:.1f}")

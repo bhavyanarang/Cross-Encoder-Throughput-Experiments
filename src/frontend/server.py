@@ -7,10 +7,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.server.dto import DashboardHistory, MetricsCollector
+from src.server.dto import DashboardHistory
 
 if TYPE_CHECKING:
-    pass
+    from src.server.services.metrics_service import MetricsService
 
 logger = logging.getLogger(__name__)
 
@@ -37,35 +37,54 @@ class DashboardState:
         if self._initialized:
             return
         self._initialized = True
-        self._metrics_collector: MetricsCollector | None = None
+        self._metrics_service: MetricsService | None = None
         self._history = DashboardHistory()
         self._start_time = time.time()
         self._last_request_count = 0
         self._server: HTTPServer | None = None  # Track the server instance
 
     @property
-    def metrics_collector(self) -> MetricsCollector | None:
-        return self._metrics_collector
+    def metrics_service(self) -> "MetricsService | None":
+        return self._metrics_service
 
-    def set_metrics_collector(self, collector: MetricsCollector) -> None:
-        self._metrics_collector = collector
+    def set_metrics_service(self, service: "MetricsService") -> None:
+        self._metrics_service = service
 
     def reset(self) -> None:
         self._history.reset()
         self._last_request_count = 0
         self._start_time = time.time()
-        if self._metrics_collector:
-            self._metrics_collector.reset()
+        if self._metrics_service:
+            self._metrics_service.reset()
 
     def update_history(self) -> None:
-        if not self._metrics_collector:
+        if not self._metrics_service:
             return
 
-        summary = self._metrics_collector.summary()
+        summary = self._metrics_service.get_summary()
         current_count = summary.get("count", 0)
-        is_running = summary.get("is_running", False)
+        query_count = summary.get("query_count", 0)
+        summary.get("is_running", False)
 
-        if is_running and current_count > self._last_request_count:
+        # Update history more frequently for charts to show data
+        # Always capture metrics at regular intervals for proper chart visualization
+        elapsed = time.time() - self._start_time
+        time_since_last_update = elapsed - (
+            self._history.timestamps[-1] if self._history.timestamps else 0
+        )
+
+        # Update if:
+        # 1. First update (no history yet)
+        # 2. We have new queries (query_count increased)
+        # 3. It's been at least 0.2 seconds since last update AND we have any activity
+        has_any_activity = query_count > 0 or self._last_request_count > 0
+        should_update = (
+            not self._history.timestamps  # First update
+            or query_count > self._last_request_count  # New queries
+            or (has_any_activity and time_since_last_update >= 0.2)  # Periodic updates when active
+        )
+
+        if should_update:
             elapsed = time.time() - self._start_time
             self._history.timestamps.append(round(elapsed, 1))
             self._history.latencies.append(
@@ -78,7 +97,22 @@ class DashboardState:
             self._history.gpu_utilization_pct.append(
                 round(summary.get("gpu_utilization_pct", 0), 1)
             )
-            self._history.queue_wait_ms.append(round(summary.get("last_queue_wait_ms", 0), 2))
+            # Queue wait times (separate tracking)
+            self._history.tokenizer_queue_wait_ms.append(
+                round(summary.get("last_tokenizer_queue_wait_ms", 0), 2)
+            )
+            self._history.model_queue_wait_ms.append(
+                round(summary.get("last_model_queue_wait_ms", 0), 2)
+            )
+            self._history.queue_wait_ms.append(
+                round(summary.get("last_queue_wait_ms", 0), 2)
+            )  # Combined for backward compatibility
+
+            # Queue sizes
+            queue_sizes = summary.get("queue_sizes", {})
+            self._history.tokenizer_queue_size.append(queue_sizes.get("tokenizer_queue_size", 0))
+            self._history.model_queue_size.append(queue_sizes.get("model_queue_size", 0))
+
             self._history.tokenize_ms.append(round(summary.get("last_tokenize_ms", 0), 2))
             self._history.inference_ms.append(round(summary.get("last_inference_ms", 0), 2))
             self._history.overhead_ms.append(round(summary.get("last_overhead_ms", 0), 2))
@@ -94,31 +128,43 @@ class DashboardState:
                 total_requests = sum(ws.get("request_count", 0) for ws in tokenizer_worker_stats)
                 self._history.tokenizer_worker_latencies.append(round(avg_latency, 2))
                 self._history.tokenizer_worker_requests.append(total_requests)
-            
+
             # Pipeline throughput metrics (sum of all worker throughputs)
-            tokenizer_throughput = sum(
-                ws.get("throughput_qps", 0) for ws in tokenizer_worker_stats
-            ) if tokenizer_worker_stats else 0
+            tokenizer_throughput = (
+                sum(ws.get("throughput_qps", 0) for ws in tokenizer_worker_stats)
+                if tokenizer_worker_stats
+                else 0
+            )
             self._history.tokenizer_throughput_qps.append(round(tokenizer_throughput, 2))
-            
+
             model_worker_stats = summary.get("worker_stats", [])
-            inference_throughput = sum(
-                ws.get("throughput_qps", 0) for ws in model_worker_stats
-            ) if model_worker_stats else 0
+            inference_throughput = (
+                sum(ws.get("throughput_qps", 0) for ws in model_worker_stats)
+                if model_worker_stats
+                else 0
+            )
             self._history.inference_throughput_qps.append(round(inference_throughput, 2))
-            
+
             # Overall response throughput is the same as system throughput_qps
             overall_throughput = summary.get("throughput_qps", 0)
             self._history.overall_throughput_qps.append(round(overall_throughput, 2))
 
-            self._last_request_count = current_count
+            self._last_request_count = max(current_count, query_count)
 
     def get_metrics_response(self) -> dict:
         self.update_history()
 
-        if self._metrics_collector:
-            data = self._metrics_collector.summary()
-            data["history"] = self._history.to_dict()
+        if self._metrics_service:
+            try:
+                data = self._metrics_service.get_summary()
+                data["history"] = self._history.to_dict()
+            except Exception as e:
+                logger.error(f"Error getting metrics summary: {e}", exc_info=True)
+                data = {
+                    "error": f"Error getting metrics: {str(e)}",
+                    "history": self._history.to_dict(),
+                    "is_running": False,
+                }
         else:
             data = {"error": "No metrics available", "history": self._history.to_dict()}
 
@@ -134,25 +180,31 @@ class MetricsHandler(BaseHTTPRequestHandler):
         return DashboardState()
 
     def _send_response(self, content: bytes, content_type: str, status: int = 200):
-        self.send_response(status)
-        self.send_header("Content-Type", content_type)
-        self.send_header("Content-Length", str(len(content)))
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", content_type)
+            self.send_header("Content-Length", str(len(content)))
 
-        # Only allow CORS from localhost/127.0.0.1 by default for security
-        origin = self.headers.get("Origin", "")
-        if origin in (
-            "http://localhost:8080",
-            "http://127.0.0.1:8080",
-            "http://localhost",
-            "http://127.0.0.1",
-        ):
-            self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        # For non-browser requests, don't send CORS header
+            # Only allow CORS from localhost/127.0.0.1 by default for security
+            origin = self.headers.get("Origin", "")
+            if origin in (
+                "http://localhost:8080",
+                "http://127.0.0.1:8080",
+                "http://localhost",
+                "http://127.0.0.1",
+            ):
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Content-Type")
+            # For non-browser requests, don't send CORS header
 
-        self.end_headers()
-        self.wfile.write(content)
+            self.end_headers()
+            self.wfile.write(content)
+        except BrokenPipeError:
+            # Client disconnected before response could be sent - ignore
+            logger.debug("Client disconnected before response sent")
+        except Exception as e:
+            logger.error(f"Error sending response: {e}", exc_info=True)
 
     def _send_json(self, data: dict, status: int = 200):
         content = json.dumps(data, indent=2).encode("utf-8")
@@ -176,7 +228,16 @@ class MetricsHandler(BaseHTTPRequestHandler):
         if path == "/" or path == "/index.html":
             self._send_file(TEMPLATES_DIR / "index.html")
         elif path == "/metrics":
-            self._handle_metrics()
+            try:
+                self._handle_metrics()
+            except Exception as e:
+                logger.error(f"Error handling metrics request: {e}", exc_info=True)
+                error_data = {
+                    "error": f"Error getting metrics: {str(e)}",
+                    "history": {},
+                    "is_running": False,
+                }
+                self._send_json(error_data, status=500)
         elif path == "/reset":
             self._handle_reset()
         elif path.startswith("/static/"):
@@ -194,25 +255,25 @@ class MetricsHandler(BaseHTTPRequestHandler):
         self._send_json({"status": "reset"})
 
 
-def set_metrics_collector(collector: MetricsCollector) -> None:
-    DashboardState().set_metrics_collector(collector)
+def set_metrics_service(service: "MetricsService") -> None:
+    DashboardState().set_metrics_service(service)
 
 
 def start_dashboard(
-    port: int = 8080, metrics_collector: MetricsCollector = None, host: str = "0.0.0.0"
+    port: int = 8080, metrics_service: "MetricsService | None" = None, host: str = "0.0.0.0"
 ) -> HTTPServer:
     """Start the dashboard HTTP server on the specified host and port.
 
     Args:
         port: HTTP port to listen on (default 8080)
-        metrics_collector: Optional metrics collector to display
+        metrics_service: Optional metrics service to display
         host: Host to bind to (default "0.0.0.0", use "127.0.0.1" for local-only)
 
     Returns:
         HTTPServer instance that can be shut down with server.shutdown()
     """
-    if metrics_collector:
-        set_metrics_collector(metrics_collector)
+    if metrics_service:
+        set_metrics_service(metrics_service)
 
     server = HTTPServer((host, port), MetricsHandler)
     state = DashboardState()
@@ -241,7 +302,7 @@ def stop_dashboard() -> None:
 __all__ = [
     "start_dashboard",
     "stop_dashboard",
-    "set_metrics_collector",
+    "set_metrics_service",
     "MetricsHandler",
     "DashboardState",
 ]

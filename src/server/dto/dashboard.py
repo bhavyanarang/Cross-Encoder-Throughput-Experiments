@@ -12,18 +12,22 @@ class DashboardHistory:
     cpu_percent: list = field(default_factory=list)
     gpu_memory_mb: list = field(default_factory=list)
     gpu_utilization_pct: list = field(default_factory=list)
-    queue_wait_ms: list = field(default_factory=list)
+    queue_wait_ms: list = field(default_factory=list)  # Combined for backward compatibility
+    tokenizer_queue_wait_ms: list = field(default_factory=list)
+    model_queue_wait_ms: list = field(default_factory=list)
+    tokenizer_queue_size: list = field(default_factory=list)
+    model_queue_size: list = field(default_factory=list)
     tokenize_ms: list = field(default_factory=list)
     inference_ms: list = field(default_factory=list)
     padding_pct: list = field(default_factory=list)
     overhead_ms: list = field(default_factory=list)
     tokenizer_worker_latencies: list = field(default_factory=list)
     tokenizer_worker_requests: list = field(default_factory=list)
-    
+
     # Pipeline mode metrics (three-layer throughput analysis)
     tokenizer_throughput_qps: list = field(default_factory=list)  # Tokenizer pool throughput (q/s)
     inference_throughput_qps: list = field(default_factory=list)  # Inference pool throughput (q/s)
-    overall_throughput_qps: list = field(default_factory=list)    # Overall response throughput (q/s)
+    overall_throughput_qps: list = field(default_factory=list)  # Overall response throughput (q/s)
 
     def to_dict(self) -> dict:
         return {
@@ -35,6 +39,10 @@ class DashboardHistory:
             "gpu_memory_mb": self.gpu_memory_mb.copy(),
             "gpu_utilization_pct": self.gpu_utilization_pct.copy(),
             "queue_wait_ms": self.queue_wait_ms.copy(),
+            "tokenizer_queue_wait_ms": self.tokenizer_queue_wait_ms.copy(),
+            "model_queue_wait_ms": self.model_queue_wait_ms.copy(),
+            "tokenizer_queue_size": self.tokenizer_queue_size.copy(),
+            "model_queue_size": self.model_queue_size.copy(),
             "tokenize_ms": self.tokenize_ms.copy(),
             "inference_ms": self.inference_ms.copy(),
             "padding_pct": self.padding_pct.copy(),
@@ -55,6 +63,10 @@ class DashboardHistory:
         self.gpu_memory_mb.clear()
         self.gpu_utilization_pct.clear()
         self.queue_wait_ms.clear()
+        self.tokenizer_queue_wait_ms.clear()
+        self.model_queue_wait_ms.clear()
+        self.tokenizer_queue_size.clear()
+        self.model_queue_size.clear()
         self.tokenize_ms.clear()
         self.inference_ms.clear()
         self.padding_pct.clear()
@@ -82,7 +94,7 @@ class DashboardMetrics:
     stage_percentages: dict = field(default_factory=dict)
     tokenizer_throughput_qps: list = field(default_factory=list)  # Layer throughput (q/s)
     inference_throughput_qps: list = field(default_factory=list)  # Layer throughput (q/s)
-    overall_throughput_qps: list = field(default_factory=list)    # Overall response throughput (q/s)
+    overall_throughput_qps: list = field(default_factory=list)  # Overall response throughput (q/s)
 
     def get_summary(self) -> dict:
         def stats(arr):

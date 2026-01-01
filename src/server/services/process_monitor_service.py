@@ -1,25 +1,52 @@
 import logging
+import os
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from src.server.services.inference_service import InferenceService
     from src.server.pool.model_pool import ModelPool
+    from src.server.services.orchestrator_service import OrchestratorService
 
 logger = logging.getLogger(__name__)
 
 
-class GPUMemoryProvider:
+class ProcessMonitorService:
     def __init__(self):
-        self._inference_service: InferenceService | None = None
+        self._process = None
+        self._initialized = False
+        self._orchestrator: OrchestratorService | None = None
         self._pool: ModelPool | None = None
 
-    def set_inference_service(self, inference_service: "InferenceService") -> None:
-        self._inference_service = inference_service
+    def _init_process(self) -> None:
+        if self._initialized:
+            return
+        try:
+            import psutil
+
+            self._process = psutil.Process(os.getpid())
+            self._process.cpu_percent()
+        except ImportError:
+            self._process = None
+        self._initialized = True
+
+    def get_cpu_percent(self) -> float:
+        self._init_process()
+        if self._process:
+            try:
+                return self._process.cpu_percent(interval=None)
+            except Exception:
+                pass
+        return 0.0
+
+    def set_inference_service(self, orchestrator: "OrchestratorService") -> None:
+        """Set the orchestrator (which provides inference service functionality)."""
+        self._orchestrator = orchestrator
 
     def set_pool(self, pool: "ModelPool") -> None:
+        """Set the model pool for GPU memory queries."""
         self._pool = pool
 
     def _try_get_memory(self, source_name: str, getter: callable) -> float | None:
+        """Try to get GPU memory from a source, returning None on failure."""
         try:
             memory = getter()
             if memory > 0:
@@ -31,11 +58,10 @@ class GPUMemoryProvider:
             logger.debug(f"Error getting GPU memory from {source_name}: {e}")
         return None
 
-    def get_memory_mb(self) -> float:
-        if self._inference_service is not None:
-            memory = self._try_get_memory(
-                "inference service", self._inference_service.get_gpu_memory_mb
-            )
+    def get_gpu_memory_mb(self) -> float:
+        """Get GPU memory usage in MB from orchestrator, pool, or torch MPS."""
+        if self._orchestrator is not None:
+            memory = self._try_get_memory("orchestrator", self._orchestrator.get_gpu_memory_mb)
             if memory is not None:
                 return memory
 
@@ -64,3 +90,6 @@ class GPUMemoryProvider:
             logger.debug(f"Error getting GPU memory from main process: {e}")
 
         return 0.0
+
+
+__all__ = ["ProcessMonitorService"]

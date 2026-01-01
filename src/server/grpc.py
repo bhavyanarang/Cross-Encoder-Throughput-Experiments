@@ -30,6 +30,9 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
         pairs = [(p.query, p.document) for p in request.pairs]
         t_grpc_deserialize_ms = (time.perf_counter() - grpc_deserialize_start) * 1000
 
+        len(pairs)
+        self._request_count += 1
+
         result = self._inference_handler.schedule(pairs)
 
         grpc_serialize_start = time.perf_counter()
@@ -53,7 +56,8 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
 
             self._metrics.record_stage_timings(
                 t_tokenize=getattr(result, "t_tokenize_ms", 0),
-                t_queue_wait=getattr(result, "t_queue_wait_ms", 0),
+                t_tokenizer_queue_wait=getattr(result, "t_tokenizer_queue_wait_ms", 0),
+                t_model_queue_wait=getattr(result, "t_model_queue_wait_ms", 0),
                 t_model_inference=getattr(result, "t_model_inference_ms", 0),
                 t_overhead=getattr(result, "t_overhead_ms", 0),
                 t_mp_queue_send=getattr(result, "t_mp_queue_send_ms", 0),
@@ -61,6 +65,7 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
                 t_grpc_serialize=t_grpc_serialize_ms,
                 t_grpc_deserialize=t_grpc_deserialize_ms,
                 t_scheduler=getattr(result, "t_scheduler_ms", 0),
+                total_ms=total_latency,
             )
 
             padding_ratio = getattr(result, "padding_ratio", -1)
@@ -115,24 +120,6 @@ def serve(
     ssl_cert_path: str | None = None,
     ssl_key_path: str | None = None,
 ) -> grpc.Server:
-    """Start the gRPC inference server.
-
-    Args:
-        inference_handler: Handler implementing InferenceInterface
-        host: Host to bind to (default "127.0.0.1" for local-only, use "0.0.0.0" for all interfaces)
-        port: Port to listen on
-        max_workers: Max concurrent worker threads
-        metrics: Optional metrics service for recording request/response times
-        use_ssl: Whether to use SSL/TLS encryption
-        ssl_cert_path: Path to SSL certificate file (required if use_ssl=True)
-        ssl_key_path: Path to SSL private key file (required if use_ssl=True)
-
-    Returns:
-        gRPC server instance that has been started
-
-    Raises:
-        ValueError: If SSL is requested but cert/key paths are not provided
-    """
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     inference_pb2_grpc.add_InferenceServiceServicer_to_server(
         InferenceServicer(inference_handler, metrics), server

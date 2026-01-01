@@ -1,26 +1,22 @@
-"""Model worker for inference tasks."""
-
 import logging
 import time
 
 from src.server.dto import ModelConfig, WorkItem, WorkResult
-from src.server.dto.metrics.worker import WorkerMetrics
 from src.server.worker.base import BaseWorker, get_worker_gpu_memory, setup_worker_environment
 
 logger = logging.getLogger(__name__)
 
 
 class ModelWorker(BaseWorker[WorkItem, WorkResult]):
-    def __init__(self, worker_id: int, config: ModelConfig, metrics=None):
-        if metrics is None:
-            metrics = WorkerMetrics(worker_id=worker_id)
-        super().__init__(worker_id, metrics=metrics)
+    def __init__(self, worker_id: int, config: ModelConfig):
+        super().__init__(worker_id)
         self.config = config
         self._backend = None
 
     def initialize(self) -> None:
         setup_worker_environment()
         from src.server.backends import create_backend
+
         self._backend = create_backend(self.config)
         self._backend.load_model()
         self._backend.warmup(3)

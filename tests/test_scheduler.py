@@ -1,11 +1,7 @@
 import threading
 import time
 
-import numpy as np
-
-from src.server.dto import InferenceResult
-from src.server.dto.scheduler import PendingRequest
-from src.server.services.scheduler_service import SchedulerService
+from src.server.dto import PendingRequest
 
 
 class TestPendingRequest:
@@ -18,96 +14,50 @@ class TestPendingRequest:
         assert req.result is None
 
 
-class TestScheduler:
-    def test_scheduler_creation(self):
-        class MockPool:
-            pass
+class TestBatching:
+    def test_batching_info(self):
+        """Test batching configuration through orchestrator."""
+        from src.server.dto import Config
+        from src.server.services.orchestrator_service import OrchestratorService
 
-        class MockTokenizationService:
-            pass
+        config = Config()
+        config.batching.enabled = True
+        config.batching.max_batch_size = 16
+        config.batching.timeout_ms = 100
+        config.batching.length_aware = True
 
-        class MockInferenceService:
-            pass
+        orchestrator = OrchestratorService(config)
+        assert not orchestrator._batching_enabled  # Not enabled until setup
 
-        scheduler = SchedulerService(MockTokenizationService(), MockInferenceService())
-        assert scheduler is not None
+        orchestrator.setup()
+        assert orchestrator._batching_enabled
 
-    def test_scheduler_info(self):
-        class MockPool:
-            pass
-
-        class MockTokenizationService:
-            pass
-
-        class MockInferenceService:
-            pass
-
-        scheduler = SchedulerService(
-            MockTokenizationService(),
-            MockInferenceService(),
-            batching_enabled=True,
-            max_batch_size=16,
-            timeout_ms=100,
-            length_aware=True,
-        )
-        info = scheduler.get_info()
+        info = orchestrator.get_batching_info()
         assert info["batching_enabled"] is True
         assert info["max_batch_size"] == 16
         assert info["timeout_ms"] == 100
         assert info["length_aware"] is True
 
-    def test_scheduler_non_batching(self):
-        class MockPool:
-            pass
+    def test_batching_disabled(self):
+        """Test that batching can be disabled."""
+        from src.server.dto import Config
+        from src.server.services.orchestrator_service import OrchestratorService
 
-        class MockTokenizationService:
-            def tokenize_sync(self, pairs):
-                from src.server.dto.inference import TokenizedBatch
+        config = Config()
+        config.batching.enabled = False
 
-                class MockTokenizedBatch(TokenizedBatch):
-                    def __init__(self):
-                        self.features = {}
-                        self.tokenize_time_ms = 5.0
-                        self.total_tokens = 100
-                        self.real_tokens = 100
-                        self.padded_tokens = 0
-                        self.padding_ratio = 0.0
-                        self.max_seq_length = 512
-                        self.avg_seq_length = 256.0
+        orchestrator = OrchestratorService(config)
+        orchestrator.setup()
+        assert not orchestrator._batching_enabled
 
-                return MockTokenizedBatch()
+    def test_batching_stop(self):
+        """Test that batching stops cleanly."""
+        from src.server.dto import Config
+        from src.server.services.orchestrator_service import OrchestratorService
 
-        class MockInferenceService:
-            def infer_sync(self, tokenized_batch):
-                return InferenceResult(
-                    scores=np.array([0.5, 0.8]),
-                    t_model_inference_ms=10.0,
-                    total_ms=15.0,
-                )
+        config = Config()
+        config.batching.enabled = True
 
-        scheduler = SchedulerService(
-            MockTokenizationService(),
-            MockInferenceService(),
-            batching_enabled=False,
-        )
-        result = scheduler.schedule([("query", "document")])
-        assert isinstance(result, InferenceResult)
-        assert len(result.scores) == 2
-
-    def test_scheduler_stop(self):
-        class MockPool:
-            pass
-
-        class MockTokenizationService:
-            pass
-
-        class MockInferenceService:
-            pass
-
-        scheduler = SchedulerService(
-            MockTokenizationService(),
-            MockInferenceService(),
-            batching_enabled=True,
-        )
-
-        scheduler.stop()
+        orchestrator = OrchestratorService(config)
+        orchestrator.setup()
+        orchestrator.stop()

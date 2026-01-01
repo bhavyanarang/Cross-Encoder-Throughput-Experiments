@@ -9,14 +9,11 @@ import threading
 
 from src.client.grpc_client import InferenceClient
 from src.run_client import DatasetLoader
-from src.server.dto import PoolConfig
-from src.server.dto.config import ModelConfig
+from src.server.dto import Config
+from src.server.dto.config import ModelConfig, PoolConfig, TokenizerPoolConfig
 from src.server.dto.metrics import MetricsCollector
 from src.server.grpc import serve
-from src.server.services.inference_service import InferenceService
-from src.server.services.scheduler_service import SchedulerService
-from src.server.services.tokenization_service import TokenizationService
-from src.server.pool import ModelPool, TokenizerPool
+from src.server.services.orchestrator_service import OrchestratorService
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,30 +36,22 @@ def run_test(num_samples: int = 500, batch_size: int = 1, concurrency: int = 1):
 
     pool_config = PoolConfig(instances=[model_config])
 
-    tokenizer_pool = TokenizerPool(
-        model_name=model_config.name,
-        num_workers=2,
-        max_length=model_config.max_length,
+    config = Config(
+        model_pool=pool_config,
+        tokenizer_pool=TokenizerPoolConfig(
+            enabled=True,
+            num_workers=2,
+            model_name=model_config.name,
+        ),
+        description="Timing test",
     )
-    tokenizer_pool.start()
 
-    model_pool = ModelPool(pool_config)
-    model_pool.start()
-
-    tokenization_service = TokenizationService(tokenizer_pool)
-    tokenization_service.start()
-
-    inference_service = InferenceService(model_pool)
-    inference_service.start()
-
-    scheduler = SchedulerService(
-        tokenization_service=tokenization_service,
-        inference_service=inference_service,
-        batching_enabled=False,
-    )
+    orchestrator = OrchestratorService(config, experiment_name="timing_test")
+    orchestrator.setup()
+    orchestrator.start()
 
     metrics = MetricsCollector()
-    metrics.set_inference_service(inference_service)
+    metrics.set_inference_service(orchestrator)
     metrics.set_experiment_info(
         name="timing_test",
         description="Detailed timing analysis",
@@ -72,7 +61,7 @@ def run_test(num_samples: int = 500, batch_size: int = 1, concurrency: int = 1):
 
     server_thread = threading.Thread(
         target=serve,
-        args=(scheduler, "localhost", 50051, 10, metrics),
+        args=(orchestrator, "localhost", 50051, 10, metrics),
         daemon=True,
     )
     server_thread.start()
@@ -176,10 +165,7 @@ def run_test(num_samples: int = 500, batch_size: int = 1, concurrency: int = 1):
     print("\n" + "=" * 80)
 
     client.close()
-    inference_service.stop()
-    model_pool.stop()
-    tokenization_service.stop()
-    tokenizer_pool.stop()
+    orchestrator.stop()
 
     return summary
 

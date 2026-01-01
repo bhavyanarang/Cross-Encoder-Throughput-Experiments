@@ -1,9 +1,8 @@
-"""Tokenizer pool for managing tokenization workers in pipeline mode."""
-
 import logging
 import queue
 import threading
 import time
+from itertools import count
 
 from src.server.dto.pipeline import InferenceQueueItem, TokenizationQueueItem
 from src.server.pool.base import BaseWorkerPool
@@ -15,12 +14,6 @@ _STOP = object()
 
 
 class TokenizerPool(BaseWorkerPool):
-    """Tokenizer pool operating in pipeline mode only.
-    
-    In pipeline mode, tokenization requests are submitted asynchronously via a queue,
-    and results are pushed to the inference queue for downstream processing.
-    """
-    
     def __init__(self, model_name: str, num_workers: int = 1, max_length: int = 512):
         super().__init__(num_workers)
         self.model_name = model_name
@@ -28,15 +21,21 @@ class TokenizerPool(BaseWorkerPool):
         self._work_queues: list[queue.Queue] = []
         self._worker_threads: list[threading.Thread] = []
         self._worker_instances: list[TokenizerWorker] = []
-        self._round_robin_idx = 0
-        self._round_robin_lock = threading.Lock()
-        
-        # Inference queue to push tokenized results to
+        self._round_robin_counter = count()  # Lock-free atomic counter
+
         self._inference_queue: queue.Queue | None = None
+        self._total_batches = 0
+        self._total_queries = 0
+        self._start_time: float | None = None
+        self._stats_lock = threading.Lock()
 
     def _worker_thread(self, worker: TokenizerWorker, work_queue: queue.Queue) -> None:
         try:
             worker.initialize()
+
+            total_batches = 0
+            total_queries = 0
+            time.time()
 
             while True:
                 try:
@@ -45,26 +44,31 @@ class TokenizerPool(BaseWorkerPool):
                     if item is _STOP:
                         break
 
-                    # Pipeline mode only
                     if not isinstance(item, TokenizationQueueItem):
-                        logger.warning("Received non-TokenizationQueueItem in pipeline mode, ignoring")
+                        logger.warning(
+                            "Received non-TokenizationQueueItem in pipeline mode, ignoring"
+                        )
                         continue
-                    
+
                     tokenization_item = item
                     request = tokenization_item.request
                     pairs = tokenization_item.pairs
                     enqueue_time = tokenization_item.enqueue_time
-                    
+
                     try:
                         tokenized = worker.process(pairs)
-                        
-                        # Record queue wait time
+
+                        total_batches += 1
+                        total_queries += len(pairs)
+                        with self._stats_lock:
+                            self._total_batches += 1
+                            self._total_queries += len(pairs)
+
                         queue_wait_ms = (time.perf_counter() - enqueue_time) * 1000
                         request.t_queue_tokenization_wait_ms = queue_wait_ms
                         request.tokenized_batch = tokenized
                         request.tokenizer_worker_id = worker.worker_id
-                        
-                        # Push to inference queue
+
                         if self._inference_queue:
                             try:
                                 inference_item = InferenceQueueItem(
@@ -80,7 +84,7 @@ class TokenizerPool(BaseWorkerPool):
                             logger.error("Inference queue not set in pipeline mode")
                             request.error = RuntimeError("Inference queue not configured")
                             request.result_event.set()
-                            
+
                     except Exception as e:
                         logger.error(f"Tokenization error: {e}")
                         request.error = e
@@ -93,6 +97,10 @@ class TokenizerPool(BaseWorkerPool):
     def start(self, timeout_s: float = 120.0) -> None:
         if self._is_started:
             return
+
+        self._start_time = time.time()
+        self._total_batches = 0
+        self._total_queries = 0
 
         for i in range(self.num_workers):
             work_queue = queue.Queue(maxsize=1000)
@@ -126,72 +134,64 @@ class TokenizerPool(BaseWorkerPool):
         self._work_queues.clear()
         self._worker_instances.clear()
         self._is_started = False
+
+        if self._start_time:
+            elapsed = time.time() - self._start_time
+            with self._stats_lock:
+                batches = self._total_batches
+                queries = self._total_queries
+            if elapsed > 0 and batches > 0:
+                throughput = queries / elapsed
+                logger.info(
+                    f"Tokenizer Pool Statistics: {batches} batches, {queries} queries "
+                    f"processed in {elapsed:.1f}s ({throughput:.1f} q/s)"
+                )
+
         logger.info("Tokenizer pool stopped")
 
     def set_inference_queue(self, inference_queue: queue.Queue) -> None:
-        """
-        Set the inference queue to automatically push tokenized results to.
-        
-        When set, tokenized batches will be automatically pushed to this queue
-        instead of being returned directly. This enables the decoupled pipeline.
-        """
         self._inference_queue = inference_queue
 
     def submit(self, work_item: TokenizationQueueItem) -> None:
-        """
-        Submit a tokenization work item (required by BaseWorkerPool abstract interface).
-        
-        In pipeline mode, this delegates to submit_pipeline().
-        
-        Args:
-            work_item: TokenizationQueueItem to process
-            
-        Raises:
-            RuntimeError: If tokenizer pool not started or queue is full
-        """
         self.submit_pipeline(work_item)
 
     def submit_pipeline(self, tokenization_item: TokenizationQueueItem) -> None:
-        """
-        Submit a request to the tokenization queue for pipeline processing.
-        
-        This method is used in the queue-based pipeline mode where tokenization
-        results are automatically pushed to the inference queue.
-        
-        Args:
-            tokenization_item: Item containing request and pairs to tokenize
-            
-        Raises:
-            RuntimeError: If tokenizer pool not started or queue is full
-        """
         if not self._is_started:
             raise RuntimeError("Tokenizer pool not started")
-        
-        selected_worker_id = 0
-        if self.num_workers == 1:
-            selected_queue = self._work_queues[0]
-            selected_worker_id = 0
-        else:
-            with self._round_robin_lock:
-                idx = self._round_robin_idx
-                self._round_robin_idx = (self._round_robin_idx + 1) % self.num_workers
-                selected_queue = self._work_queues[idx]
-                selected_worker_id = idx
-        
+
+        # Lock-free round-robin using atomic counter
+        selected_worker_id = next(self._round_robin_counter) % self.num_workers
+        selected_queue = self._work_queues[selected_worker_id]
+
         try:
             selected_queue.put_nowait(tokenization_item)
         except queue.Full:
-            raise RuntimeError("Tokenizer pool queue full") from None
-
+            raise RuntimeError(f"Tokenizer pool queue {selected_worker_id} full") from None
 
     def get_info(self) -> dict:
-        queue_sizes = [q.qsize() for q in self._work_queues] if self._is_started else []
+        queue_sizes = []
+        total_worker_queue_size = 0
+        inference_queue_size = 0
+
+        if self._is_started:
+            try:
+                for q in self._work_queues:
+                    size = q.qsize()
+                    queue_sizes.append(size)
+                    total_worker_queue_size += size
+
+                if self._inference_queue:
+                    inference_queue_size = self._inference_queue.qsize()
+            except Exception as e:
+                logger.debug(f"Error getting tokenizer queue sizes: {e}")
+
         return {
             "model_name": self.model_name,
             "num_workers": self.num_workers,
             "is_loaded": self._is_started,
             "queue_sizes": queue_sizes,
-            "total_queue_size": sum(queue_sizes),
+            "total_queue_size": total_worker_queue_size,
+            "inference_queue_size": inference_queue_size,
         }
 
     def get_worker_metrics(self) -> list[dict]:
@@ -208,13 +208,6 @@ class TokenizerPool(BaseWorkerPool):
         if self._is_started:
             for worker in self._worker_instances:
                 worker.reset_metrics()
-
-    @property
-    def is_loaded(self) -> bool:
-        return self._is_started
-
-    def __len__(self) -> int:
-        return self.num_workers
 
 
 __all__ = ["TokenizerPool"]

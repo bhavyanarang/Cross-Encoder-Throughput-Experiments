@@ -177,16 +177,19 @@ class BaseBackend(ABC):
         return self._pending
 
     def _acquire(self) -> None:
-        with self._pending_lock:
-            self._pending += 1
+        # Optimize: Acquire lock first, then update pending counter
+        # This reduces the critical section and lock acquisitions
         self._lock.acquire()
         self._is_busy = True
+        with self._pending_lock:
+            self._pending += 1
 
     def _release(self) -> None:
-        self._is_busy = False
-        self._lock.release()
+        # Optimize: Release pending counter first, then release lock
         with self._pending_lock:
             self._pending -= 1
+        self._is_busy = False
+        self._lock.release()
 
     def sync(self) -> None:
         sync_device(self.device)

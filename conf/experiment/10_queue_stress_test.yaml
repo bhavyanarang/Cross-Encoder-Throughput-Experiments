@@ -1,0 +1,48 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+# Queue Stress Test Experiment
+# Creates a bottleneck to observe queue growth
+# Low tokenizer capacity + high concurrency = queue buildup
+
+name: "Queue Stress Test"
+description: "High concurrency with single tokenizer worker to observe queue growth"
+
+# Model pool configuration
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: mps
+      device: mps
+      quantization: fp16
+      compile_model: false
+      max_length: 200
+
+# Tokenizer pool - keep at 1 worker to create bottleneck
+tokenizer_pool:
+  enabled: true
+  num_workers: 1  # Single worker = bottleneck
+  model_name: ""
+
+# Batching configuration
+batching:
+  enabled: false
+  max_batch_size: 128
+  timeout_ms: 100.0
+  length_aware: false
+
+# Pipeline configuration
+pipeline:
+  enabled: true
+
+# Experiment benchmark configuration (for client)
+# Very high concurrency to flood the tokenizer
+experiment:
+  batch_sizes: [256]
+  concurrency_levels: [16]  # Extremely high concurrency to create significant bottleneck
+  warmup_iterations: 10

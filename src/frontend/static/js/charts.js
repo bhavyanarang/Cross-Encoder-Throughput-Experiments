@@ -2,6 +2,11 @@
  * ML Inference Dashboard - Chart Configuration and Utilities
  */
 
+// Check if Chart.js library is loaded
+if (typeof Chart === 'undefined') {
+    console.error('[charts.js] ❌ Chart.js library not loaded! Make sure it is loaded before this script.');
+}
+
 // Chart color scheme matching GitHub Dark theme
 const COLORS = {
     blue: { line: '#58a6ff', fill: 'rgba(88,166,255,0.08)' },
@@ -47,12 +52,21 @@ function createChartConfig(color) {
                         color: '#6e7681',
                         font: { size: 9 },
                         maxTicksLimit: 8,
-                        callback: function(value, index) {
-                            const labels = this.chart.data.labels;
-                            if (labels.length > 12) {
-                                return index % Math.ceil(labels.length / 8) === 0 ? labels[index] : '';
+                        callback: function(value, index, ticks) {
+                            try {
+                                // In Chart.js v4, use this.getLabelForValue or access chart through context
+                                const chart = this.chart;
+                                if (!chart || !chart.data || !chart.data.labels) {
+                                    return value;
+                                }
+                                const labels = chart.data.labels;
+                                if (labels.length > 12) {
+                                    return index % Math.ceil(labels.length / 8) === 0 ? labels[index] : '';
+                                }
+                                return labels[index];
+                            } catch (e) {
+                                return value;
                             }
-                            return labels[index];
                         }
                     }
                 },
@@ -106,74 +120,54 @@ const INSTANCE_COLORS = [
 
 // Initialize all charts
 function initCharts() {
-    charts.latency = new Chart(
-        document.getElementById('latencyChart'),
-        createChartConfig(COLORS.blue)
-    );
-    charts.throughput = new Chart(
-        document.getElementById('throughputChart'),
-        createChartConfig(COLORS.blue)
-    );
-    charts.queue = new Chart(
-        document.getElementById('queueChart'),
-        createChartConfig(COLORS.orange)
-    );
-    charts.tokenize = new Chart(
-        document.getElementById('tokenizeChart'),
-        createChartConfig(COLORS.red)
-    );
-    charts.inference = new Chart(
-        document.getElementById('inferenceChart'),
-        createChartConfig(COLORS.green)
-    );
-    charts.cpu = new Chart(
-        document.getElementById('cpuChart'),
-        createChartConfig(COLORS.gray)
-    );
-    charts.gpu = new Chart(
-        document.getElementById('gpuChart'),
-        createChartConfig(COLORS.purple)
-    );
-    charts.queries = new Chart(
-        document.getElementById('queriesChart'),
-        createChartConfig(COLORS.gray)
-    );
-    charts.padding = new Chart(
-        document.getElementById('paddingChart'),
-        createChartConfig(COLORS.purple)
-    );
-    charts.utilization = new Chart(
-        document.getElementById('utilizationChart'),
-        createChartConfig(COLORS.green)
-    );
-    charts.overhead = new Chart(
-        document.getElementById('overheadChart'),
-        createChartConfig(COLORS.orange)
-    );
-    
-    // Pipeline throughput charts (initialized only if elements exist)
-    const overallThroughputEl = document.getElementById('overallThroughputChart');
-    if (overallThroughputEl) {
-        charts.overallThroughput = new Chart(
-            overallThroughputEl,
-            createChartConfig(COLORS.blue)
-        );
+
+
+    if (typeof Chart === 'undefined') {
+        console.error('[initCharts] ❌ Chart.js not loaded yet! Cannot initialize charts.');
+        return;
     }
-    
-    const tokenizerThroughputEl = document.getElementById('tokenizerThroughputChart');
-    if (tokenizerThroughputEl) {
-        charts.tokenizerThroughput = new Chart(
-            tokenizerThroughputEl,
-            createChartConfig(COLORS.red)
-        );
+
+    const chartDefinitions = [
+        { name: 'latency', id: 'latencyChart', color: COLORS.blue },
+        { name: 'throughput', id: 'throughputChart', color: COLORS.blue },
+        { name: 'tokenize', id: 'tokenizeChart', color: COLORS.red },
+        { name: 'tokenizerQueueWait', id: 'tokenizerQueueWaitChart', color: COLORS.orange },
+        { name: 'tokenizerQueueSize', id: 'tokenizerQueueSizeChart', color: COLORS.red },
+        { name: 'tokenizerThroughput', id: 'tokenizerThroughputChart', color: COLORS.red },
+        { name: 'inference', id: 'inferenceChart', color: COLORS.green },
+        { name: 'modelQueueWait', id: 'modelQueueWaitChart', color: COLORS.purple },
+        { name: 'modelQueueSize', id: 'modelQueueSizeChart', color: COLORS.green },
+        { name: 'inferenceThroughput', id: 'inferenceThroughputChart', color: COLORS.green },
+        { name: 'cpu', id: 'cpuChart', color: COLORS.gray },
+        { name: 'gpu', id: 'gpuChart', color: COLORS.purple },
+        { name: 'queries', id: 'queriesChart', color: COLORS.gray },
+        { name: 'padding', id: 'paddingChart', color: COLORS.purple },
+        { name: 'utilization', id: 'utilizationChart', color: COLORS.green },
+        { name: 'overhead', id: 'overheadChart', color: COLORS.orange }
+    ];
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (const def of chartDefinitions) {
+        try {
+            const canvas = document.getElementById(def.id);
+            if (!canvas) {
+                failCount++;
+                continue;
+            }
+
+            const config = createChartConfig(def.color);
+            charts[def.name] = new Chart(canvas, config);
+            successCount++;
+        } catch (err) {
+            console.error(`[initCharts] ❌ Failed to create chart ${def.name}:`, err.message);
+            failCount++;
+        }
     }
-    
-    const inferenceThroughputEl = document.getElementById('inferenceThroughputChart');
-    if (inferenceThroughputEl) {
-        charts.inferenceThroughput = new Chart(
-            inferenceThroughputEl,
-            createChartConfig(COLORS.green)
-        );
+
+    if (successCount === 0) {
+        console.error('[initCharts] ❌ No charts were successfully created!');
     }
 }
 
@@ -314,10 +308,24 @@ function initInstanceCharts(instanceNames) {
 
 // Update a single chart
 function updateChart(chart, labels, data) {
-    if (!chart || !data) return;
-    chart.data.labels = labels;
-    chart.data.datasets[0].data = data;
-    chart.update('none');
+    if (!chart) {
+        return;
+    }
+    if (!data || !Array.isArray(data)) {
+        return;
+    }
+    if (!labels || !Array.isArray(labels)) {
+        return;
+    }
+    try {
+        chart.data.labels = labels;
+        chart.data.datasets[0].data = data;
+        chart.update('none');
+        if (data.length > 0) {
+        }
+    } catch (err) {
+        console.error('[updateChart] Error updating chart:', err);
+    }
 }
 
 // Update multi-line chart with per-instance data
@@ -345,22 +353,29 @@ function updateAllCharts(history) {
 
     const labels = (history.timestamps || []).map(t => t.toFixed(0) + 's');
 
+    // Overall metrics
     updateChart(charts.latency, labels, history.latencies);
     updateChart(charts.throughput, labels, history.throughput);
-    updateChart(charts.queue, labels, history.queue_wait_ms);
+
+    // Tokenization section charts
     updateChart(charts.tokenize, labels, history.tokenize_ms);
+    updateChart(charts.tokenizerQueueWait, labels, history.tokenizer_queue_wait_ms || []);
+    updateChart(charts.tokenizerQueueSize, labels, history.tokenizer_queue_size || []);
+    updateChart(charts.tokenizerThroughput, labels, history.tokenizer_throughput_qps || []);
+    updateChart(charts.overhead, labels, history.overhead_ms || []);
+
+    // Inference section charts
     updateChart(charts.inference, labels, history.inference_ms);
+    updateChart(charts.modelQueueWait, labels, history.model_queue_wait_ms || []);
+    updateChart(charts.modelQueueSize, labels, history.model_queue_size || []);
+    updateChart(charts.inferenceThroughput, labels, history.inference_throughput_qps || []);
+
+    // System metrics
     updateChart(charts.cpu, labels, history.cpu_percent);
     updateChart(charts.gpu, labels, history.gpu_memory_mb);
     updateChart(charts.queries, labels, history.queries);
     updateChart(charts.padding, labels, history.padding_pct);
     updateChart(charts.utilization, labels, history.gpu_utilization_pct);
-    updateChart(charts.overhead, labels, history.overhead_ms || []);
-
-    // Pipeline throughput charts
-    updateChart(charts.overallThroughput, labels, history.overall_throughput_qps || []);
-    updateChart(charts.tokenizerThroughput, labels, history.tokenizer_throughput_qps || []);
-    updateChart(charts.inferenceThroughput, labels, history.inference_throughput_qps || []);
 
     // Update per-instance charts if available
     if (history.instance_names && history.instance_names.length > 1) {

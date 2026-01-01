@@ -1,7 +1,6 @@
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
-from threading import Lock
 
 import grpc
 import numpy as np
@@ -75,13 +74,13 @@ class InferenceClient:
             batches.append(batch)
 
         latencies = []
-        lock = Lock()
+        # Use thread-safe list operations instead of lock when possible
+        # In CPython, list.append() is atomic due to GIL
         start = time.perf_counter()
 
         def run_batch(batch):
             _, lat = self.infer(batch)
-            with lock:
-                latencies.append(lat)
+            latencies.append(lat)  # Atomic operation in CPython
             return lat
 
         if concurrency == 1:

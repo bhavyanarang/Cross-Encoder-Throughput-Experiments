@@ -13,4 +13,3 @@ echo "Port 8080 (HTTP):"
 lsof -nP -iTCP:8080 -sTCP:LISTEN || echo "  ✓ Free"
 
 echo ""
-

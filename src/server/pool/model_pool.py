@@ -1,12 +1,12 @@
-"""Model pool for managing model inference workers in pipeline mode."""
-
 import logging
 import multiprocessing as mp
 import queue
 import threading
 import time
+from itertools import count
 
 from src.server.dto import ModelConfig, PoolConfig
+from src.server.pool.base import BaseWorkerPool
 from src.server.worker.model_worker import ModelWorker
 
 logger = logging.getLogger(__name__)
@@ -17,20 +17,19 @@ _GET_METRICS = "__GET_METRICS__"
 
 
 class _InferenceWorkItem:
-    """Work item for pipeline mode inference routing."""
     def __init__(self, tokenized_batch, request_id):
         self.tokenized_batch = tokenized_batch
-        self.request_id = request_id
+        self.req_id = request_id
 
 
 def _worker_main(
     worker_id: int,
     config_dict: dict,
-    input_queue,  # mp.Queue[WorkItem] - per-worker queue
-    output_queue,  # mp.Queue[WorkResult]
-    ready_event,  # mp.Event
-    memory_queue,  # mp.Queue
-    metrics_queue=None,  # Optional mp.Queue
+    input_queue,
+    output_queue,
+    ready_event,
+    memory_queue,
+    metrics_queue=None,
 ):
     cfg = ModelConfig(**config_dict)
     worker = ModelWorker(worker_id, cfg)
@@ -58,19 +57,17 @@ def _worker_main(
                         pass
                 continue
 
-            # Check if this is a pipeline inference work item
-            if hasattr(item, 'tokenized_batch') and hasattr(item, 'request_id'):
-                # Pipeline mode: process tokenized batch and put result in output queue
+            if hasattr(item, "tokenized_batch") and hasattr(item, "req_id"):
+                from src.server.dto import WorkItem
+
+                work_item = WorkItem(req_id=item.req_id, tokenized_batch=item.tokenized_batch)
                 try:
-                    result = worker.process(item.tokenized_batch)
-                    # Put result with request_id so main process can route it back
-                    output_queue.put((item.request_id, result, None))
+                    result = worker.process(work_item)
+                    output_queue.put((item.req_id, result, None))
                 except Exception as e:
                     logger.error(f"Worker {worker_id} inference error: {e}")
-                    # Put error with request_id
-                    output_queue.put((item.request_id, None, e))
+                    output_queue.put((item.req_id, None, e))
             else:
-                # Legacy mode: process and put to output queue
                 result = worker.process(item)
                 output_queue.put(result)
 
@@ -84,33 +81,29 @@ def _worker_main(
             logger.error(f"Worker {worker_id} error: {e}")
 
 
-class ModelPool:
-    """Model pool operating in pipeline mode only.
-    
-    In pipeline mode, inference requests are submitted asynchronously via a queue,
-    and results are delivered back to the request object via an event.
-    """
-    
+class ModelPool(BaseWorkerPool):
     def __init__(self, config: PoolConfig):
+        super().__init__(len(config.instances))
         self.config = config
-        self.num_workers = len(config.instances)
         self._processes: list[mp.Process] = []
-        self._input_queues: list[mp.Queue] = []  # Per-worker input queues
+        self._input_queues: list[mp.Queue] = []
         self._output_queue = mp.Queue()
         self._memory_queue = mp.Queue()
         self._metrics_queue = mp.Queue()
         self._ready_events: list[mp.Event] = []
-        self._is_started = False
         self._result_thread: threading.Thread | None = None
         self._metrics_thread: threading.Thread | None = None
         self._request_counts: dict[int, int] = {}
         self._worker_metrics: dict[int, dict] = {}
         self._metrics_lock = threading.Lock()
-        self._shutdown_event = threading.Event()  # Signal for background threads to stop
-        
-        # Pipeline mode (always enabled)
+        self._shutdown_event = threading.Event()
         self._inference_queue: queue.Queue | None = None
         self._pipeline_consumer_thread: threading.Thread | None = None
+        self._round_robin_counter = count()  # Lock-free atomic counter
+        self._total_inference_batches = 0
+        self._total_inference_queries = 0
+        self._pipeline_start_time: float | None = None
+        self._stats_lock = threading.Lock()
 
     def start(self, timeout_s: float = 120.0) -> None:
         if self._is_started:
@@ -119,8 +112,6 @@ class ModelPool:
         for i, inst in enumerate(self.config.instances):
             ready = mp.Event()
             self._ready_events.append(ready)
-            
-            # Create per-worker input queue
             input_queue = mp.Queue()
             self._input_queues.append(input_queue)
 
@@ -140,9 +131,12 @@ class ModelPool:
             p.start()
             self._processes.append(p)
 
+        per_worker_timeout = 60.0
         for i, ev in enumerate(self._ready_events):
-            if not ev.wait(timeout_s):
-                raise RuntimeError(f"Worker {i} failed to start")
+            logger.info(f"Waiting for worker {i} to initialize (timeout: {per_worker_timeout}s)...")
+            if not ev.wait(per_worker_timeout):
+                logger.warning(f"Worker {i} failed to start within {per_worker_timeout}s timeout")
+                raise RuntimeError(f"Worker {i} failed to start within {per_worker_timeout}s")
 
         self._result_thread = threading.Thread(target=self._result_loop, daemon=True)
         self._result_thread.start()
@@ -150,33 +144,40 @@ class ModelPool:
         self._metrics_thread.start()
         self._is_started = True
         logger.info(f"Pool ready with {self.num_workers} workers")
-    
+
+    def submit(self, work_item) -> None:
+        if not self._is_started:
+            raise RuntimeError("Model pool not started")
+
+        # Lock-free round-robin using atomic counter
+        worker_idx = next(self._round_robin_counter) % self.num_workers
+
+        try:
+            self._input_queues[worker_idx].put_nowait(work_item)
+        except queue.Full:
+            raise RuntimeError("Model pool queue full") from None
+
     def set_inference_queue(self, inference_queue: queue.Queue) -> None:
-        """
-        Set the inference queue for pipeline mode processing.
-        
-        Args:
-            inference_queue: Queue to consume tokenized batches from
-        """
         if not self._is_started:
             raise RuntimeError("Pool must be started before setting inference queue")
-        
-        self._inference_queue = inference_queue
+
+        super().set_inference_queue(inference_queue)
+        self._pipeline_start_time = time.time()
+        self._total_inference_batches = 0
+        self._total_inference_queries = 0
         self._pipeline_consumer_thread = threading.Thread(
             target=self._pipeline_consumer_loop, daemon=True
         )
         self._pipeline_consumer_thread.start()
-        
+
         logger.info("Model pool inference queue set, pipeline mode active")
 
     def stop(self, timeout_s: float = 30.0) -> None:
         if not self._is_started:
             return
 
-        # Signal result and metrics threads to stop
         self._shutdown_event.set()
 
-        # Stop worker processes - send _STOP to each worker's per-worker queue
         for input_queue in self._input_queues:
             try:
                 input_queue.put(_STOP, block=False)
@@ -185,7 +186,6 @@ class ModelPool:
 
         deadline = time.time() + timeout_s
 
-        # Wait for worker processes to exit
         for p in self._processes:
             remaining = max(0, deadline - time.time())
             p.join(timeout=remaining)
@@ -194,7 +194,6 @@ class ModelPool:
                 p.terminate()
                 p.join(timeout=1.0)
 
-        # Wait for background threads to exit
         if self._result_thread:
             remaining = max(0, deadline - time.time())
             self._result_thread.join(timeout=remaining)
@@ -206,14 +205,25 @@ class ModelPool:
             self._metrics_thread.join(timeout=remaining)
             if self._metrics_thread.is_alive():
                 logger.warning("Metrics thread did not exit cleanly")
-        
+
         if self._pipeline_consumer_thread:
             remaining = max(0, deadline - time.time())
             self._pipeline_consumer_thread.join(timeout=remaining)
             if self._pipeline_consumer_thread.is_alive():
                 logger.warning("Pipeline consumer thread did not exit cleanly")
 
-        # Clean up multiprocessing queues to prevent resource leaks
+        if self._pipeline_start_time:
+            elapsed = time.time() - self._pipeline_start_time
+            with self._stats_lock:
+                batches = self._total_inference_batches
+                queries = self._total_inference_queries
+            if elapsed > 0 and batches > 0:
+                throughput = queries / elapsed
+                logger.info(
+                    f"Model Pool Statistics: {batches} batches, {queries} queries "
+                    f"sent to workers in {elapsed:.1f}s ({throughput:.1f} q/s)"
+                )
+
         for input_queue in self._input_queues:
             try:
                 input_queue.close()
@@ -245,58 +255,42 @@ class ModelPool:
         logger.info("Pool stopped")
 
     def _result_loop(self) -> None:
-        """Drain results from worker processes (not used in pipeline mode).
-        
-        In pipeline mode, results are handled directly in _pipeline_consumer_loop.
-        This thread ensures the output queue doesn't back up.
-        """
         while not self._shutdown_event.is_set():
             try:
-                # Use timeout so we can check shutdown_event periodically
+                if self._inference_queue is not None:
+                    time.sleep(0.5)
+                    continue
+
                 result = self._output_queue.get(timeout=0.5)
-                # In pipeline mode, results should be empty as they're consumed by pipeline loop
                 if result is not None:
-                    logger.debug(f"Drained stale result from output queue")
+                    logger.debug("Drained stale result from output queue")
             except (queue.Empty, EOFError):
-                # Normal conditions
                 continue
             except Exception as e:
                 logger.error(f"Result loop error: {e}", exc_info=True)
                 continue
 
     def _metrics_loop(self) -> None:
-        """Collect worker metrics until shutdown is signaled."""
         while not self._shutdown_event.is_set():
             try:
                 worker_id, metrics_stats = self._metrics_queue.get(timeout=0.5)
                 with self._metrics_lock:
                     self._worker_metrics[worker_id] = metrics_stats
             except (queue.Empty, OSError, EOFError):
-                # Normal conditions when queue is empty or closed
                 continue
             except Exception as e:
                 logger.error(f"Metrics loop error: {e}", exc_info=True)
                 continue
 
     def _pipeline_consumer_loop(self) -> None:
-        """
-        Consume items from the inference queue, send to workers, and deliver results.
-        
-        This loop runs in the main process and:
-        1. Takes tokenized batches from the inference queue
-        2. Sends them to worker processes for inference
-        3. Waits for results from worker processes
-        4. Delivers results directly to requests
-        """
         if not self._inference_queue:
             logger.error("Pipeline consumer loop started without inference queue")
             return
-        
-        pending_results = {}  # Maps request_id -> (request, enqueue_time)
-        
+
+        pending_results = {}
+
         while not self._shutdown_event.is_set():
             try:
-                # Check for results from workers with small timeout
                 try:
                     worker_result = self._output_queue.get_nowait()
                     if isinstance(worker_result, tuple) and len(worker_result) == 3:
@@ -306,57 +300,74 @@ class ModelPool:
                             if error:
                                 request.error = error
                             else:
-                                request.inference_result = result
+                                from src.server.dto import InferenceResult
+
+                                if result:
+                                    t_tokenize_ms = 0.0
+                                    if request.tokenized_batch:
+                                        t_tokenize_ms = request.tokenized_batch.tokenize_time_ms
+
+                                    request.inference_result = InferenceResult(
+                                        scores=result.scores,
+                                        t_tokenize_ms=t_tokenize_ms,
+                                        t_model_inference_ms=result.t_model_inference_ms,
+                                        t_queue_wait_ms=result.t_queue_wait_ms,
+                                        total_ms=result.total_ms,
+                                        total_tokens=result.total_tokens,
+                                        real_tokens=result.real_tokens,
+                                        padded_tokens=result.padded_tokens,
+                                        padding_ratio=result.padding_ratio,
+                                        max_seq_length=result.max_seq_length,
+                                        avg_seq_length=result.avg_seq_length,
+                                        batch_size=result.batch_size,
+                                        worker_id=result.worker_id,
+                                        tokenizer_worker_id=request.tokenizer_worker_id,
+                                    )
                             request.result_event.set()
                 except queue.Empty:
                     pass
-                
-                # Get new inference items with timeout
+
                 try:
                     inference_item = self._inference_queue.get(timeout=0.5)
                 except queue.Empty:
                     continue
-                
+
                 from src.server.dto.pipeline import InferenceQueueItem
+
                 if not isinstance(inference_item, InferenceQueueItem):
                     continue
-                
+
                 request = inference_item.request
                 tokenized_batch = inference_item.tokenized_batch
                 enqueue_time = inference_item.enqueue_time
-                
-                # Record queue wait time
+
                 queue_wait_ms = (time.perf_counter() - enqueue_time) * 1000
                 request.t_queue_inference_wait_ms = queue_wait_ms
-                
+
                 try:
-                    # Route to a worker (round-robin)
-                    worker_idx = len(self._input_queues) % self.num_workers if self.num_workers > 0 else 0
-                    if worker_idx >= len(self._input_queues):
-                        worker_idx = 0
-                    
+                    # Lock-free round-robin using atomic counter
+                    worker_idx = next(self._round_robin_counter) % self.num_workers
                     selected_queue = self._input_queues[worker_idx]
-                    
-                    # Create work item with only picklable data
                     work_item = _InferenceWorkItem(tokenized_batch, request.request_id)
                     selected_queue.put_nowait(work_item)
-                    
-                    # Track this request so we can deliver results when they arrive
                     pending_results[request.request_id] = (request, enqueue_time)
-                    
+
+                    with self._stats_lock:
+                        self._total_inference_batches += 1
+                        self._total_inference_queries += tokenized_batch.batch_size
+
                 except queue.Full:
-                    logger.error(f"Worker queue full, dropping inference request")
+                    logger.error("Worker queue full, dropping inference request")
                     request.error = RuntimeError("Inference queue full")
                     request.result_event.set()
                 except Exception as e:
                     logger.error(f"Pipeline routing error: {e}", exc_info=True)
                     request.error = e
                     request.result_event.set()
-                    
+
             except Exception as e:
                 logger.error(f"Pipeline consumer loop error: {e}", exc_info=True)
                 continue
-
 
     def get_gpu_memory_mb(self) -> float:
         if not self._is_started:
@@ -402,10 +413,17 @@ class ModelPool:
         return 0.0
 
     def get_info(self) -> dict:
+        queue_size = 0
+        if self._inference_queue:
+            try:
+                queue_size = self._inference_queue.qsize()
+            except Exception as e:
+                logger.debug(f"Error getting model queue size: {e}")
         return {
             "num_instances": self.num_workers,
             "is_loaded": self._is_started,
             "request_counts": dict(self._request_counts),
+            "queue_size": queue_size,
         }
 
     def get_worker_metrics(self) -> list[dict]:
@@ -440,13 +458,6 @@ class ModelPool:
     def reset_worker_metrics(self) -> None:
         with self._metrics_lock:
             self._worker_metrics.clear()
-
-    @property
-    def is_loaded(self) -> bool:
-        return self._is_started
-
-    def __len__(self) -> int:
-        return self.num_workers
 
 
 __all__ = ["ModelPool"]

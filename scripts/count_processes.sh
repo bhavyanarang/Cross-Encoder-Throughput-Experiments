@@ -34,4 +34,3 @@ OUTPUT_FILE="/tmp/process_count_${MODE}.txt"
 echo "Main: $MAIN_COUNT" > "$OUTPUT_FILE"
 echo "Python: $PYTHON_COUNT" >> "$OUTPUT_FILE"
 echo "Saved to: $OUTPUT_FILE"
-

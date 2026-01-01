@@ -2,29 +2,19 @@ import threading
 from collections import deque
 from dataclasses import dataclass, field
 
-import numpy as np
-
 
 @dataclass
 class StageMetrics:
+    """DTO for storing stage latency data. No computation logic."""
+
     latencies: list = field(default_factory=list)
 
     def record(self, duration_ms: float) -> None:
+        """Record a latency measurement (data storage only)."""
         self.latencies.append(duration_ms)
 
-    def get_stats(self) -> dict:
-        if not self.latencies:
-            return {"p50_ms": 0, "p95_ms": 0, "p99_ms": 0, "avg_ms": 0, "count": 0}
-        arr = np.array(self.latencies)
-        return {
-            "p50_ms": float(np.percentile(arr, 50)),
-            "p95_ms": float(np.percentile(arr, 95)),
-            "p99_ms": float(np.percentile(arr, 99)),
-            "avg_ms": float(np.mean(arr)),
-            "count": len(arr),
-        }
-
     def reset(self) -> None:
+        """Reset all recorded latencies (data storage only)."""
         self.latencies = []
 
 
@@ -40,20 +30,18 @@ class StageTracker:
         # Zero values (e.g., no queue wait) don't consume time and shouldn't affect averages
         if value_ms <= 0:
             return
-            
+
         self.metrics.record(value_ms)
         self.last_value_ms = value_ms
         if self.recent_history is not None and timestamp is not None:
             self.recent_history.append((timestamp, value_ms))
 
     def reset(self) -> None:
+        """Reset tracker data (data storage only)."""
         self.metrics.reset()
         self.last_value_ms = 0.0
         if self.recent_history is not None:
             self.recent_history.clear()
-
-    def get_stats(self) -> dict:
-        return self.metrics.get_stats()
 
 
 class StageTrackerManager:
@@ -76,13 +64,12 @@ class StageTrackerManager:
             self._trackers[name].record(value_ms, timestamp)
 
     def reset_all(self) -> None:
+        """Reset all trackers (data storage only)."""
         for tracker in self._trackers.values():
             tracker.reset()
 
-    def get_all_stats(self) -> dict[str, dict]:
-        return {name: tracker.get_stats() for name, tracker in self._trackers.items()}
-
     def get_all_last_values(self) -> dict[str, float]:
+        """Get last values for all trackers (data access only)."""
         return {
             f"last_{name}_ms": tracker.last_value_ms for name, tracker in self._trackers.items()
         }
