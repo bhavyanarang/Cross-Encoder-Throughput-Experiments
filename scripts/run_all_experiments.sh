@@ -7,7 +7,7 @@ set -e
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-EXPERIMENTS_DIR="$PROJECT_ROOT/experiments"
+EXPERIMENTS_DIR="$PROJECT_ROOT/conf/experiment"
 OUTPUT_DIR="$PROJECT_ROOT/experiments/results"
 SERVER_PID=""
 CLIENT_PID=""
@@ -137,7 +137,7 @@ mkdir -p "$OUTPUT_DIR"
 
 # Count total experiments first
 for config in "$EXPERIMENTS_DIR"/*.yaml; do
-    if [[ "$(basename "$config")" == "base_config.yaml" ]]; then
+    if [[ "$(basename "$config")" == "default.yaml" ]]; then
         continue
     fi
     TOTAL=$((TOTAL + 1))
@@ -149,8 +149,8 @@ echo ""
 # Run each experiment
 CURRENT_NUM=0
 for config in "$EXPERIMENTS_DIR"/*.yaml; do
-    # Skip base_config.yaml
-    if [[ "$(basename "$config")" == "base_config.yaml" ]]; then
+    # Skip default.yaml
+    if [[ "$(basename "$config")" == "default.yaml" ]]; then
         continue
     fi
 
@@ -166,7 +166,7 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
 
     # Use run_experiment.sh which handles sweep detection automatically
     # This ensures sweep configs are properly expanded before server starts
-    if "$SCRIPT_DIR/run_experiment.sh" "$config"; then
+    if "$SCRIPT_DIR/run_experiment.sh" "$EXPERIMENT_NAME"; then
         echo -e "${GREEN}✓ Experiment completed successfully!${NC}"
         SUCCESS=$((SUCCESS + 1))
         COMPLETED_EXPERIMENTS+=("$EXPERIMENT_NAME")

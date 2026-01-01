@@ -1,98 +1,96 @@
-# 08_dynamic_batch_timeout_sweep_mlx_200ms
+# 08_dynamic_batch_timeout_sweep_mps_10ms
 
 _Dynamic batching timeout sweep across backends and timeout values_
 
-**Timestamp:** 2025-12-26 16:26:43
+**Timestamp:** 2026-01-01 21:18:55
 
 **Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2`
 
-**Backend:** `mlx` | **Device:** `mps`
+**Backend:** `mps` | **Device:** `mps`
 
-**Dynamic Batching:** enabled (max_batch=96, timeout=200ms)
+**Dynamic Batching:** enabled (max_batch=96, timeout=10ms)
 
-## Results Summary
+## Summary
 
 | Batch | Conc | Pairs | Time(s) | Lat Avg | Lat P95 | Lat P99 | TP Avg | TP P95 |
 |-------|------|-------|---------|---------|---------|---------|--------|--------|
-| 32 | 4 | 16000 | 23.86 | 190.4ms | 263.9ms | 414.2ms | 670.6 | 209.1 |
+| 32 | 4 | 12256 | 54.42 | 560.1ms | 578.0ms | 597.0ms | 225.2 | 58.3 |
 
 ## Detailed Metrics
 
-### Config 1: batch=32, concurrency=4
+### Run 1
 
-**Total:** 16000 pairs in 23.86s
+**Total:** 12256 pairs in 54.42s
 
-#### Latency (ms)
+### Latency
+
 | Metric | Value |
 |--------|-------|
-| Average | 190.45 |
-| Min | 102.92 |
-| Max | 436.46 |
-| Std Dev | 39.72 |
-| P50 | 180.68 |
-| P90 | 237.98 |
-| P95 | 263.94 |
-| P99 | 414.19 |
+| Average | 560.13 |
+| Min | 48.22 |
+| Max | 2026.03 |
+| Std Dev | 115.40 |
+| P50 | 559.46 |
+| P90 | 574.12 |
+| P95 | 578.03 |
+| P99 | 597.00 |
 
-#### Throughput (pairs/s)
+### Throughput
+
 | Metric | Value |
 |--------|-------|
-| Average | 670.56 |
-| Min | 73.32 |
-| Max | 310.93 |
-| Std Dev | 27.15 |
-| P50 | 177.11 |
-| P90 | 203.17 |
-| P95 | 209.06 |
-| P99 | 228.29 |
+| Average | 225.22 |
+| Min | 15.79 |
+| Max | 663.62 |
+| Std Dev | 64.51 |
+| P50 | 57.20 |
+| P90 | 58.15 |
+| P95 | 58.27 |
+| P99 | 489.28 |
 
-#### Latency vs Throughput Analysis
+### Latency vs Throughput Analysis
 
 | Latency Range | Avg Throughput | Min Throughput | Max Throughput | Count |
 |---------------|----------------|----------------|----------------|-------|
-| < 180.7ms (P50) | 193.19 | 177.13 | 310.93 | 250 |
-| 180.7-201.7ms (P50-P75) | 169.17 | 158.72 | 177.10 | 125 |
-| 201.7-238.0ms (P75-P90) | 150.74 | 134.49 | 158.57 | 75 |
-| >= 238.0ms (P90+) | 118.13 | 73.32 | 134.27 | 50 |
+| < 559.5ms (P50) | 75.11 | 57.21 | 663.62 | 191 |
+| 559.5-568.1ms (P50-P75) | 56.79 | 56.33 | 57.20 | 96 |
+| 568.1-574.1ms (P75-P90) | 56.06 | 55.74 | 56.32 | 57 |
+| >= 574.1ms (P90+) | 52.61 | 15.79 | 55.74 | 39 |
 
-**Correlation:** -0.933 (negative correlation expected: lower latency = higher throughput)
+**Correlation:** -0.622 (negative correlation expected: lower latency = higher throughput)
 
 ## Overall Summary
 
 | Metric | Value | Config |
 |--------|-------|--------|
-| Best Throughput | 670.56 p/s | batch=32, conc=4 |
-| Best Latency | 190.45ms | batch=32, conc=4 |
-| Avg Throughput | 670.56 p/s | all configs |
-| Avg Latency | 190.45ms | all configs |
+| Best Throughput | 225.22 p/s | batch=32, conc=4 |
+| Best Latency | 560.13ms | batch=32, conc=4 |
+| Avg Throughput | 225.22 p/s | all configs |
+| Avg Latency | 560.13ms | all configs |
 
-## Dashboard Metrics Summary
+## Dashboard Metrics
 
 | Metric | Avg | Min | Max | P50 | P95 |
 |--------|-----|-----|-----|-----|-----|
-| GPU Memory (MB) | 3326.0 | 1086.6 | 4096.6 | 3630.6 | 4096.6 |
-| GPU Utilization (%) | 97.5 | 13.0 | 100.0 | 100.0 | 100.0 |
-| CPU Usage (%) | 1.7 | 0.7 | 2.3 | 1.7 | 2.2 |
-| Tokenization (ms) | 45.2 | 11.3 | 67.3 | 44.4 | 57.8 |
-| Inference (ms) | 136.9 | 27.0 | 371.0 | 125.8 | 186.7 |
-| Queue Wait (ms) | 7.0 | 1.1 | 165.8 | 1.3 | 2.2 |
-| Padding Waste (%) | 48.9 | 37.1 | 74.2 | 47.8 | 57.3 |
+| GPU Memory (MB) | 1226.8 | 1058.4 | 1324.6 | 1214.8 | 1324.6 |
+| GPU Utilization (%) | 27.9 | 0.0 | 62.3 | 29.1 | 42.3 |
+| CPU Usage (%) | 10.7 | 0.6 | 30.4 | 8.9 | 24.4 |
+| Tokenization (ms) | 11.3 | 0.0 | 22.4 | 10.8 | 14.3 |
+| Inference (ms) | 36.0 | 0.0 | 68.2 | 31.7 | 61.8 |
+| Queue Wait (ms) | 11.8 | 0.0 | 40.9 | 10.9 | 15.1 |
+| Padding Waste (%) | 40.9 | 0.0 | 58.3 | 41.2 | 52.7 |
 
-### Stage Breakdown
+### Stage Timing
 
 | Stage | Percentage |
 |-------|------------|
-| Tokenization | 24.6% |
-| Queue Wait | 2.0% |
-| Model Inference | 72.7% |
-| Other/gRPC | 0.7% |
+| Tokenization | 2.3% |
+| Queue Wait | 2.3% |
+| Model Inference | 7.4% |
+| Other/gRPC | 0.0% |
 
-### Per-Worker Statistics
+### Worker Metrics
 
 | Worker ID | Avg Latency (ms) | P95 Latency (ms) | Throughput (q/s) | Queries |
 |-----------|------------------|------------------|------------------|--------|
-| 0 | 187.4 | 260.2 | 658.1 | 16160 |
-
-## Dashboard Time-Series Data
-
-Full time-series data is available in: `distribution/08_dynamic_batch_timeout_sweep_timeseries.md`
+| 0 | 41.1 | 68.0 | 0.0 | 12416 |

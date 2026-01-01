@@ -96,11 +96,11 @@ class OrchestratorService:
             self._batch_thread.start()
             logger.info(
                 f"Batching enabled: max_batch_size={self._max_batch_size}, "
-                f"timeout_disabled=True (processes immediately), "
+                f"timeout_ms={self._timeout_ms}, "
                 f"length_aware={self._length_aware}"
             )
             logger.info(
-                "Batch thread started - batching is ACTIVE (no timeout, processes immediately)"
+                f"Batch thread started - batching is ACTIVE (waits up to {self._timeout_ms}ms)"
             )
         else:
             logger.info("Batching disabled - using direct pipeline processing")
@@ -258,30 +258,38 @@ class OrchestratorService:
         while not self._batch_shutdown_event.is_set():
             batch: list[PendingRequest] = []
 
-            with self._batch_condition:
-                while self._batch_queue.empty() and not self._batch_shutdown_event.is_set():
-                    if self._batch_condition.wait(timeout=0.001):
+            # Wait for first item
+            try:
+                while not self._batch_shutdown_event.is_set():
+                    try:
+                        first_item = self._batch_queue.get(timeout=0.01)
+                        batch.append(first_item)
                         break
+                    except queue.Empty:
+                        continue
+            except Exception:
+                pass
 
+            if not batch or self._batch_shutdown_event.is_set():
                 if self._batch_shutdown_event.is_set():
                     break
-
-            if self._batch_shutdown_event.is_set():
-                break
-
-            try:
-                first_item = self._batch_queue.get(block=False)
-                batch.append(first_item)
-            except queue.Empty:
                 continue
 
+            # Collect additional items with timeout
+            deadline = time.perf_counter() + (self._timeout_ms / 1000.0)
+
             while len(batch) < self._max_batch_size and not self._batch_shutdown_event.is_set():
+                remaining = deadline - time.perf_counter()
+                if remaining <= 0:
+                    break
+
                 try:
-                    item = self._batch_queue.get(block=False)
+                    item = self._batch_queue.get(timeout=remaining)
                     batch.append(item)
-                    if len(batch) >= self._max_batch_size:
-                        break
                 except queue.Empty:
+                    # If queue is empty but we haven't reached timeout, we should continue waiting
+                    # But queue.get(timeout=remaining) already waits until remaining time
+                    # So if we are here, it means we timed out or queue is empty after timeout
                     break
 
             if batch:
@@ -332,13 +340,14 @@ class OrchestratorService:
             idx = 0
             for i, req in enumerate(batch):
                 n = pair_counts[i]
-                queue_wait_ms = (batch_start_time - req.submit_time) * 1000
+                batch_queue_wait_ms = (batch_start_time - req.submit_time) * 1000
+                total_queue_wait_ms = batch_queue_wait_ms + result.t_queue_wait_ms
 
                 req.result = type(result)(
                     scores=result.scores[idx : idx + n],
                     t_tokenize_ms=result.t_tokenize_ms,
                     t_model_inference_ms=result.t_model_inference_ms,
-                    t_queue_wait_ms=queue_wait_ms,
+                    t_queue_wait_ms=total_queue_wait_ms,
                     total_ms=result.total_ms,
                     total_tokens=result.total_tokens,
                     real_tokens=result.real_tokens,
@@ -348,6 +357,9 @@ class OrchestratorService:
                     avg_seq_length=result.avg_seq_length,
                     batch_size=len(all_pairs),
                     worker_id=getattr(result, "worker_id", -1),
+                    tokenizer_worker_id=getattr(result, "tokenizer_worker_id", -1),
+                    t_tokenizer_queue_wait_ms=getattr(result, "t_tokenizer_queue_wait_ms", 0.0),
+                    t_model_queue_wait_ms=getattr(result, "t_model_queue_wait_ms", 0.0),
                 )
                 idx += n
                 req.result_future.set()

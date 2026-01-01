@@ -17,6 +17,7 @@ class DashboardHistory:
     model_queue_wait_ms: list = field(default_factory=list)
     tokenizer_queue_size: list = field(default_factory=list)
     model_queue_size: list = field(default_factory=list)
+    batch_queue_size: list = field(default_factory=list)
     tokenize_ms: list = field(default_factory=list)
     inference_ms: list = field(default_factory=list)
     padding_pct: list = field(default_factory=list)
@@ -43,6 +44,7 @@ class DashboardHistory:
             "model_queue_wait_ms": self.model_queue_wait_ms.copy(),
             "tokenizer_queue_size": self.tokenizer_queue_size.copy(),
             "model_queue_size": self.model_queue_size.copy(),
+            "batch_queue_size": self.batch_queue_size.copy(),
             "tokenize_ms": self.tokenize_ms.copy(),
             "inference_ms": self.inference_ms.copy(),
             "padding_pct": self.padding_pct.copy(),
@@ -67,6 +69,7 @@ class DashboardHistory:
         self.model_queue_wait_ms.clear()
         self.tokenizer_queue_size.clear()
         self.model_queue_size.clear()
+        self.batch_queue_size.clear()
         self.tokenize_ms.clear()
         self.inference_ms.clear()
         self.padding_pct.clear()
@@ -88,6 +91,11 @@ class DashboardMetrics:
     tokenize_ms: list = field(default_factory=list)
     inference_ms: list = field(default_factory=list)
     queue_wait_ms: list = field(default_factory=list)
+    tokenizer_queue_wait_ms: list = field(default_factory=list)
+    model_queue_wait_ms: list = field(default_factory=list)
+    tokenizer_queue_size: list = field(default_factory=list)
+    model_queue_size: list = field(default_factory=list)
+    batch_queue_size: list = field(default_factory=list)
     padding_pct: list = field(default_factory=list)
     overhead_ms: list = field(default_factory=list)
     worker_stats: list = field(default_factory=list)

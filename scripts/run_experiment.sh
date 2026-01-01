@@ -103,17 +103,28 @@ else
     HYDRA_CONFIG="experiment=${EXPERIMENT_NAME}"
 fi
 
-# Validate Hydra config exists
-HYDRA_CONFIG_PATH="$PROJECT_ROOT/conf/experiment/${EXPERIMENT_NAME}.yaml"
-if [ ! -f "$HYDRA_CONFIG_PATH" ]; then
-    echo -e "${RED}Error: Hydra config not found: $HYDRA_CONFIG_PATH${NC}"
-    echo "Available experiments:"
-    ls -1 "$PROJECT_ROOT/conf/experiment/"*.yaml 2>/dev/null | xargs -n1 basename | sed 's/.yaml$//' | sed 's/^/  - /' || echo "  (none found)"
-    exit 1
+# Check if this is a sweep temp config
+if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
+    HYDRA_CONFIG_PATH="$SWEEP_TEMP_CONFIG_PATH"
+    if [ ! -f "$HYDRA_CONFIG_PATH" ]; then
+        echo -e "${RED}Error: Sweep temp config not found: $HYDRA_CONFIG_PATH${NC}"
+        exit 1
+    fi
+else
+    # Validate Hydra config exists in conf/experiment/
+    HYDRA_CONFIG_PATH="$PROJECT_ROOT/conf/experiment/${EXPERIMENT_NAME}.yaml"
+    if [ ! -f "$HYDRA_CONFIG_PATH" ]; then
+        echo -e "${RED}Error: Hydra config not found: $HYDRA_CONFIG_PATH${NC}"
+        echo "Available experiments:"
+        ls -1 "$PROJECT_ROOT/conf/experiment/"*.yaml 2>/dev/null | xargs -n1 basename | sed 's/.yaml$//' | sed 's/^/  - /' || echo "  (none found)"
+        exit 1
+    fi
 fi
 
 # Check if config has sweep parameters (arrays in Hydra config)
-HAS_SWEEPS=$(python3 << PYTHON
+# BUT: Don't check if we're already running from sweep script (SWEEP_TEMP_CONFIG_PATH is set)
+if [ -z "$SWEEP_TEMP_CONFIG_PATH" ]; then
+    HAS_SWEEPS=$(python3 << PYTHON
 import sys
 import yaml
 from pathlib import Path
@@ -148,21 +159,33 @@ try:
 except Exception:
     print("false")
 PYTHON
-)
+    )
 
-# If sweeps detected, use sweep script
-if [ "$HAS_SWEEPS" = "true" ]; then
-    echo -e "${BLUE}Detected sweep parameters, using sweep handler...${NC}"
-    "$SCRIPT_DIR/run_sweep_experiment.sh" "$HYDRA_CONFIG_PATH"
-    exit $?
+    # If sweeps detected, use sweep script
+    if [ "$HAS_SWEEPS" = "true" ]; then
+        echo -e "${BLUE}Detected sweep parameters, using sweep handler...${NC}"
+        "$SCRIPT_DIR/run_sweep_experiment.sh" "$HYDRA_CONFIG_PATH"
+        exit $?
+    fi
+else
+    # Already part of a sweep, don't check again
+    HAS_SWEEPS="false"
 fi
 
 # Generate client config from Hydra config
+# If in a sweep, pass the temp config path so it uses the right config
 TEMP_CLIENT_CONFIG=$(mktemp)
-python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" || {
-    echo -e "${RED}Error: Failed to convert Hydra config to client format${NC}"
-    exit 1
-}
+if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
+    python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" --config-path "$SWEEP_TEMP_CONFIG_PATH" || {
+        echo -e "${RED}Error: Failed to convert Hydra config to client format${NC}"
+        exit 1
+    }
+else
+    python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" || {
+        echo -e "${RED}Error: Failed to convert Hydra config to client format${NC}"
+        exit 1
+    }
+fi
 CLIENT_CONFIG_PATH="$TEMP_CLIENT_CONFIG"
 
 # Check if we're part of a sweep (consolidated output)
@@ -219,7 +242,46 @@ fi
 
 # Start server in background
 echo "Starting server..."
-python -m src.main $HYDRA_CONFIG &
+if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
+    # For sweep temp configs, copy to conf/experiment with proper Hydra defaults
+    TEMP_HYDRA_CONFIG="$PROJECT_ROOT/conf/experiment/${EXPERIMENT_NAME}.yaml"
+
+    # Add Hydra defaults if not present
+    python3 << PYTHON_FIX_HYDRA
+import yaml
+from pathlib import Path
+
+temp_config_path = "$HYDRA_CONFIG_PATH"
+final_config_path = "$TEMP_HYDRA_CONFIG"
+
+with open(temp_config_path) as f:
+    config = yaml.safe_load(f)
+
+# Ensure defaults are present for Hydra composition
+if 'defaults' not in config or not config['defaults']:
+    config['defaults'] = [
+        {'override /model_pool': 'default'},
+        {'override /batching': 'default'},
+        {'override /tokenizer_pool': 'default'},
+        {'override /server': 'default'},
+    ]
+
+# Ensure @package directive
+if not str(config).startswith('# @package'):
+    # Re-add the package directive as a comment
+    pass
+
+with open(final_config_path, 'w') as f:
+    # Write package directive first
+    f.write('# @package _global_\n\n')
+    # Write rest of config
+    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+PYTHON_FIX_HYDRA
+
+    python -m src.main experiment=$EXPERIMENT_NAME &
+else
+    python -m src.main $HYDRA_CONFIG &
+fi
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
@@ -329,6 +391,14 @@ if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
     wait "$SERVER_PID" 2>/dev/null || true
 fi
 SERVER_PID=""
+
+# Clean up temp sweep config if it was created
+if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
+    TEMP_HYDRA_CONFIG="$PROJECT_ROOT/conf/experiment/${EXPERIMENT_NAME}.yaml"
+    if [ -f "$TEMP_HYDRA_CONFIG" ]; then
+        rm -f "$TEMP_HYDRA_CONFIG"
+    fi
+fi
 
 # Ensure ports are actually free
 if lsof -ti:8080 > /dev/null 2>&1; then

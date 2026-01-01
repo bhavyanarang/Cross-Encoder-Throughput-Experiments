@@ -6,11 +6,11 @@ defaults:
   - override /tokenizer_pool: default
   - override /server: default
 
-# Multi-Model Pool Experiment
-# Tests multiple model instances with round-robin routing
+# Multi-Model Pool Experiment (Batching Enabled)
+# Tests multiple model instances with round-robin routing and dynamic batching
 
-name: "Multi-Model Pool (2x MPS)"
-description: "Two MPS model instances with round-robin routing for parallel inference"
+name: "Multi-Model Pool (2x MPS) + Batching"
+description: "Two MPS model instances with round-robin routing and dynamic batching enabled"
 
 # Multi-model pool configuration
 model_pool:
@@ -23,10 +23,14 @@ model_pool:
       max_length: 200
   routing_strategy: round_robin
 
+tokenizer_pool:
+  enabled: true
+  num_workers: 1
+
 # Batching configuration
 batching:
-  enabled: false
-  max_batch_size: 4
+  enabled: true
+  max_batch_size: 8
   timeout_ms: 100.0
   length_aware: false
 
@@ -36,6 +40,6 @@ pipeline:
 
 # Experiment benchmark configuration (for client)
 experiment:
-  batch_sizes: [128]
-  concurrency_levels: [4]
+  batch_sizes: [64]
+  concurrency_levels: [8]
   warmup_iterations: 10

@@ -101,6 +101,11 @@ class DashboardCollector:
                 tokenize_ms=history.get("tokenize_ms", []),
                 inference_ms=history.get("inference_ms", []),
                 queue_wait_ms=history.get("queue_wait_ms", []),
+                tokenizer_queue_wait_ms=history.get("tokenizer_queue_wait_ms", []),
+                model_queue_wait_ms=history.get("model_queue_wait_ms", []),
+                tokenizer_queue_size=history.get("tokenizer_queue_size", []),
+                model_queue_size=history.get("model_queue_size", []),
+                batch_queue_size=history.get("batch_queue_size", []),
                 padding_pct=history.get("padding_pct", []),
                 worker_stats=data.get("worker_stats", []),
                 stage_percentages=data.get("stage_percentages", {}),
@@ -143,12 +148,12 @@ class BenchmarkRunner:
             if self.state.interrupted:
                 return None
 
-            elapsed = time.perf_counter() - start
-            if elapsed > 60.0:
-                logger.info(
-                    f"Reached 1-minute timeout, stopping benchmark (completed {completed[0]}/{num_requests} requests)"
-                )
-                return None
+            time.perf_counter() - start
+            # if elapsed > 60.0:
+            #     logger.info(
+            #         f"Reached 1-minute timeout, stopping benchmark (completed {completed[0]}/{num_requests} requests)"
+            #     )
+            #     return None
             _, latency_ms = self.client.infer(batch)
             throughput = batch_size / (latency_ms / 1000)
             # Atomic operations in CPython - no lock needed
@@ -597,6 +602,16 @@ class ResultsWriter:
             f.write(f"{ws.get('throughput_qps', 0):.1f} | ")
             f.write(f"{ws.get('query_count', 0)} |\n")
 
+    def _get_sweep_count(self, output_file: Path) -> int:
+        """Count the number of sweeps already in the timeseries file"""
+        try:
+            with open(output_file) as f:
+                content = f.read()
+                # Count "## Configuration - Sweep" occurrences
+                return content.count("## Configuration - Sweep")
+        except Exception:
+            return 0
+
     def _write_dashboard_timeseries(
         self,
         output_file: Path,
@@ -612,7 +627,12 @@ class ResultsWriter:
             "Throughput": metrics.throughput,
             "Tokenize (ms)": metrics.tokenize_ms,
             "Inference (ms)": metrics.inference_ms,
-            "Queue (ms)": metrics.queue_wait_ms,
+            "Queue Wait (ms)": metrics.queue_wait_ms,
+            "Tokenizer Queue Wait (ms)": metrics.tokenizer_queue_wait_ms,
+            "Model Queue Wait (ms)": metrics.model_queue_wait_ms,
+            "Tokenizer Queue Size": metrics.tokenizer_queue_size,
+            "Model Queue Size": metrics.model_queue_size,
+            "Batch Queue Size": metrics.batch_queue_size,
             "Padding (%)": metrics.padding_pct,
         }
 
@@ -657,13 +677,44 @@ class ResultsWriter:
                 f.write(f"**Experiment:** {output_file.stem.replace('_timeseries', '')}\n\n")
                 f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
+                # Write config for first sweep configuration
+                if config:
+                    f.write("## Configuration - Sweep 1\n\n")
+
+                    key_order = [
+                        "batch_size",
+                        "concurrency",
+                        "backend",
+                        "device",
+                        "model",
+                        "batching_enabled",
+                        "max_batch_size",
+                        "timeout_ms",
+                    ]
+
+                    config_items = []
+                    for key in key_order:
+                        if key in config:
+                            val = config[key]
+
+                            if isinstance(val, bool):
+                                display_val = "Yes" if val else "No"
+                            else:
+                                display_val = str(val)
+                            config_items.append(f"{key}: {display_val}")
+
+                    if config_items:
+                        f.write("**Parameters:** " + " | ".join(config_items) + "\n\n")
+
                 headers = ["Index"] + list(data_lists.keys())
                 f.write("| " + " | ".join(headers) + " |\n")
                 f.write("|" + "|".join(["-----"] * len(headers)) + "|\n")
             else:
                 f.write("\n---\n\n")
                 if config:
-                    f.write("### Configuration\n\n")
+                    f.write(
+                        f"## Configuration - Sweep {self._get_sweep_count(output_file) + 1}\n\n"
+                    )
 
                     key_order = [
                         "batch_size",

@@ -230,7 +230,7 @@ FIRST_LINE=true
 while IFS= read -r line; do
     if [[ $line == TEMP_DIR:* ]]; then
         TEMP_DIR="${line#TEMP_DIR:}"
-    el    if [[ $line == NO_SWEEP:* ]]; then
+    elif [[ $line == NO_SWEEP:* ]]; then
         # No sweeps, run normally using Hydra config
         NO_SWEEP_CONFIG="${line#NO_SWEEP:}"
         EXPERIMENT_NAME=$(basename "$NO_SWEEP_CONFIG" .yaml)
@@ -288,6 +288,7 @@ for i in "${!CONFIGS[@]}"; do
     # Convert temp config to client format
     TEMP_CLIENT_CONFIG=$(mktemp)
     CONFIG_EXPERIMENT_NAME=$(basename "$config" .yaml)
+
     python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$CONFIG_EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" --config-path "$config" || {
         echo -e "${RED}Failed to convert config for client${NC}"
         FAILED=$((FAILED + 1))
@@ -295,19 +296,21 @@ for i in "${!CONFIGS[@]}"; do
         continue
     }
 
-    # Temporarily copy temp config to conf/experiment/ so run_experiment.sh can find it
-    TEMP_HYDRA_CONFIG="$PROJECT_ROOT/conf/experiment/${CONFIG_EXPERIMENT_NAME}.yaml"
-    cp "$config" "$TEMP_HYDRA_CONFIG"
+    # Export sweep environment to run_experiment.sh
+    # run_experiment.sh will detect SWEEP_TEMP_CONFIG_PATH and handle it specially
+    export SWEEP_TEMP_CONFIG_PATH="$config"
 
-    # Run experiment with temp config
-    if "$SCRIPT_DIR/run_experiment.sh" "$CONFIG_EXPERIMENT_NAME"; then
+    # Run experiment with temp config - pass a unique name based on config number
+    # run_experiment.sh will use SWEEP_TEMP_CONFIG_PATH to find the actual config
+    if "$SCRIPT_DIR/run_experiment.sh" "sweep_config_$config_num"; then
         SUCCESS=$((SUCCESS + 1))
     else
         FAILED=$((FAILED + 1))
     fi
 
     # Cleanup
-    rm -f "$TEMP_CLIENT_CONFIG" "$TEMP_HYDRA_CONFIG"
+    unset SWEEP_TEMP_CONFIG_PATH
+    rm -f "$TEMP_CLIENT_CONFIG"
 
     # Brief pause between sweep configs to ensure cleanup completes
     if [ $config_num -lt $total ]; then

@@ -311,7 +311,22 @@ class ModelPool(BaseWorkerPool):
                                         scores=result.scores,
                                         t_tokenize_ms=t_tokenize_ms,
                                         t_model_inference_ms=result.t_model_inference_ms,
-                                        t_queue_wait_ms=result.t_queue_wait_ms,
+                                        t_queue_wait_ms=result.t_queue_wait_ms
+                                        + getattr(request, "t_queue_tokenization_wait_ms", 0.0)
+                                        + getattr(request, "t_queue_inference_wait_ms", 0.0),
+                                        t_tokenizer_queue_wait_ms=getattr(
+                                            request, "t_queue_tokenization_wait_ms", 0.0
+                                        ),
+                                        t_model_queue_wait_ms=getattr(
+                                            request, "t_queue_inference_wait_ms", 0.0
+                                        ),
+                                        t_overhead_ms=getattr(result, "t_overhead_ms", 0.0),
+                                        t_mp_queue_send_ms=getattr(
+                                            result, "t_mp_queue_send_ms", 0.0
+                                        ),
+                                        t_mp_queue_receive_ms=getattr(
+                                            result, "t_mp_queue_receive_ms", 0.0
+                                        ),
                                         total_ms=result.total_ms,
                                         total_tokens=result.total_tokens,
                                         real_tokens=result.real_tokens,
@@ -414,16 +429,25 @@ class ModelPool(BaseWorkerPool):
 
     def get_info(self) -> dict:
         queue_size = 0
-        if self._inference_queue:
+        worker_queue_size = 0
+        if self._is_started:
             try:
-                queue_size = self._inference_queue.qsize()
+                if self._inference_queue:
+                    queue_size = self._inference_queue.qsize()
+
+                # Also count items waiting in worker queues
+                for q in self._input_queues:
+                    worker_queue_size += q.qsize()
             except Exception as e:
                 logger.debug(f"Error getting model queue size: {e}")
+
         return {
             "num_instances": self.num_workers,
             "is_loaded": self._is_started,
             "request_counts": dict(self._request_counts),
-            "queue_size": queue_size,
+            "queue_size": queue_size + worker_queue_size,
+            "inference_queue_size": queue_size,
+            "worker_queue_size": worker_queue_size,
         }
 
     def get_worker_metrics(self) -> list[dict]:

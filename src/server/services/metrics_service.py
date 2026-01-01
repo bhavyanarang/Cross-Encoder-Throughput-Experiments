@@ -475,10 +475,17 @@ class MetricsService(BaseService):
 
         # Note: Model queue size should match tokenizer's inference_queue_size
         # since they both reference the same _inference_queue
+
+        batch_queue_size = 0
+        if self._orchestrator:
+            batch_info = self._orchestrator.get_batching_info()
+            batch_queue_size = batch_info.get("pending", 0)
+
         return {
             "tokenizer_queue_size": tokenizer_queue_size,
             "model_queue_size": model_queue_size,
-            "total_queue_size": tokenizer_queue_size + model_queue_size,
+            "batch_queue_size": batch_queue_size,
+            "total_queue_size": tokenizer_queue_size + model_queue_size + batch_queue_size,
         }
 
     def reset(self) -> None:
