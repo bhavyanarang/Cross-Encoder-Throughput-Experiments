@@ -1,7 +1,6 @@
 import logging
 import threading
 import time
-from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
@@ -17,19 +16,10 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MetricsCollector:
-    latencies: list = field(default_factory=list)
-    start_time: float = field(default_factory=time.time)
-    request_count: int = 0
-    query_count: int = 0
-    last_update_time: float = field(default_factory=time.time)
-
     experiment_name: str = ""
     experiment_description: str = ""
     backend_type: str = ""
     device: str = ""
-
-    recent_queries: deque = field(default_factory=lambda: deque(maxlen=200))
-    recent_latencies: deque = field(default_factory=lambda: deque(maxlen=200))
 
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
@@ -75,22 +65,8 @@ class MetricsCollector:
         self.device = device
         logger.info(f"Experiment: {name} | Backend: {backend} | Device: {device}")
 
-    @property
-    def last_latency_ms(self) -> float:
-        if self.recent_latencies:
-            _, last_lat = self.recent_latencies[-1]
-            return last_lat
-        return 0.0
-
     def record(self, duration_ms: float, num_queries: int = 1):
-        now = time.time()
-        self.latencies.append(duration_ms)
-        self.recent_queries.append((now, num_queries))
-        self.recent_latencies.append((now, duration_ms))
-        with self._lock:
-            self.request_count += 1
-            self.query_count += num_queries
-            self.last_update_time = now
+        pass
 
     def record_stage_timings(
         self,
@@ -106,7 +82,7 @@ class MetricsCollector:
         t_scheduler: float = 0.0,
         total_ms: float = 0.0,
     ) -> None:
-        now = time.time()
+        time.time()
         stage_values = {
             "tokenize": t_tokenize,
             "tokenizer_queue_wait": t_tokenizer_queue_wait,
@@ -129,7 +105,7 @@ class MetricsCollector:
             for name, value in stage_values.items():
                 try:
                     tracker = self._stage_tracker_manager.get(name)
-                    tracker.record(value, now if tracker.recent_history is not None else None)
+                    tracker.record(value)
                 except KeyError:
                     pass
 
@@ -148,17 +124,7 @@ class MetricsCollector:
 
     def reset(self):
         logger.info("Metrics reset")
-        now = time.time()
 
         with self._lock:
-            self.latencies = []
-            self.start_time = now
-            self.request_count = 0
-            self.query_count = 0
-            self.last_update_time = now
-
-            self.recent_queries.clear()
-            self.recent_latencies.clear()
-
             self._stage_tracker_manager.reset_all()
             self._padding_tracker.reset()

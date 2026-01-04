@@ -21,7 +21,6 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
     ):
         self._inference_handler = inference_handler
         self._metrics = metrics
-        self._request_count = 0
 
     def Infer(self, request, context):
         total_start = time.perf_counter()
@@ -29,9 +28,6 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
         grpc_deserialize_start = time.perf_counter()
         pairs = [(p.query, p.document) for p in request.pairs]
         t_grpc_deserialize_ms = (time.perf_counter() - grpc_deserialize_start) * 1000
-
-        len(pairs)
-        self._request_count += 1
 
         result = self._inference_handler.schedule(pairs)
 
@@ -44,8 +40,6 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
         t_grpc_serialize_ms = (time.perf_counter() - grpc_serialize_start) * 1000
 
         total_latency = (time.perf_counter() - total_start) * 1000
-
-        self._request_count += 1
 
         result.t_grpc_deserialize_ms = t_grpc_deserialize_ms
         result.t_grpc_serialize_ms = t_grpc_serialize_ms
@@ -100,16 +94,6 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
 
         return response
 
-    def GetMetrics(self, request, context):
-        if self._metrics:
-            summary = self._metrics.get_summary()
-            return inference_pb2.MetricsResponse(
-                qps=summary.get("throughput_qps", 0),
-                latency_avg_ms=summary.get("avg_ms", 0),
-                total_requests=self._request_count,
-            )
-        return inference_pb2.MetricsResponse(total_requests=self._request_count)
-
 
 def serve(
     inference_handler: "InferenceInterface",
@@ -118,8 +102,8 @@ def serve(
     max_workers: int = 10,
     metrics: Optional["MetricsService"] = None,
     use_ssl: bool = False,
-    ssl_cert_path: Optional[str] = None,
-    ssl_key_path: Optional[str] = None,
+    ssl_cert_path: str | None = None,
+    ssl_key_path: str | None = None,
 ) -> grpc.Server:
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     inference_pb2_grpc.add_InferenceServiceServicer_to_server(

@@ -56,7 +56,6 @@ class TestOrchestratorInferenceMethods:
         orchestrator = OrchestratorService(minimal_config)
         orchestrator.setup()
 
-        original_get_gpu_memory_mb = orchestrator.pool.get_gpu_memory_mb
         orchestrator.pool.get_gpu_memory_mb = MagicMock(return_value=100.0)
 
         orchestrator.pipeline._inference_started = True

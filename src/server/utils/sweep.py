@@ -60,7 +60,7 @@ def expand_sweep_config(config: dict[str, Any]) -> list[dict[str, Any]]:
     for combination in product(*param_values):
         new_config = deepcopy(config)
 
-        for param_name, value in zip(param_names, combination):
+        for param_name, value in zip(param_names, combination, strict=False):
             parts = param_name.split(".")
             target = new_config
 
@@ -89,7 +89,7 @@ def expand_sweep_config(config: dict[str, Any]) -> list[dict[str, Any]]:
                     target[0][final_key] = value
                 else:
                     target[0] = {final_key: value}
-        param_dict = dict(zip(param_names, combination))
+        param_dict = dict(zip(param_names, combination, strict=False))
         if "model.quantization_mode" in param_dict:
             qmode = param_dict["model.quantization_mode"]
             if qmode == "int8":

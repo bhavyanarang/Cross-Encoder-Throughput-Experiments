@@ -2,8 +2,6 @@ import logging
 import os
 from datetime import datetime
 
-from src.server.dto import DashboardMetrics
-
 logger = logging.getLogger(__name__)
 
 
@@ -13,7 +11,6 @@ class ResultsWriter:
         results: list,
         config: dict,
         output_file: str,
-        dashboard_metrics: DashboardMetrics = None,
         append: bool = False,
         timeseries_file: str = None,
     ):

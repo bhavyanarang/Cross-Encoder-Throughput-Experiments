@@ -1,6 +1,7 @@
 import logging
 import os
-from typing import TYPE_CHECKING, Callable, Optional
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.server.pool.model_pool import ModelPool
@@ -13,8 +14,8 @@ class ProcessMonitorService:
     def __init__(self):
         self._process = None
         self._initialized = False
-        self._orchestrator: Optional["OrchestratorService"] = None
-        self._pool: Optional["ModelPool"] = None
+        self._orchestrator: OrchestratorService | None = None
+        self._pool: ModelPool | None = None
 
     def _init_process(self) -> None:
         if self._initialized:
@@ -43,7 +44,7 @@ class ProcessMonitorService:
     def set_pool(self, pool: "ModelPool") -> None:
         self._pool = pool
 
-    def _try_get_memory(self, source_name: str, getter: Callable[[], float]) -> Optional[float]:
+    def _try_get_memory(self, source_name: str, getter: Callable[[], float]) -> float | None:
         try:
             memory = getter()
             if memory > 0:

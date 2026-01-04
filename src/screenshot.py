@@ -7,7 +7,6 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -45,7 +44,7 @@ def parse_timeseries_markdown(markdown_path: Path) -> dict:
         values = [v.strip() for v in line.split("|")[1:-1]]
         if len(values) != len(headers):
             continue
-        for header, value in zip(headers, values):
+        for header, value in zip(headers, values, strict=False):
             if value == "-":
                 data[header].append(None)
             else:
@@ -154,7 +153,7 @@ def compute_summary_stats(timeseries_data: dict) -> dict:
 def generate_static_dashboard(
     timeseries_path: Path,
     output_path: Path,
-    experiment_config: Optional[dict] = None,
+    experiment_config: dict | None = None,
 ) -> bool:
     try:
         timeseries_data = parse_timeseries_markdown(timeseries_path)
@@ -259,7 +258,7 @@ def generate_static_dashboard(
         return False
 
 
-def find_timeseries_file(experiment_name: str, distribution_dir: Path) -> Optional[Path]:
+def find_timeseries_file(experiment_name: str, distribution_dir: Path) -> Path | None:
     patterns = [
         f"{experiment_name}_timeseries.md",
         f"{experiment_name.replace('_results', '')}_timeseries.md",

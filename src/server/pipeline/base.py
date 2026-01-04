@@ -38,32 +38,12 @@ class BasePipeline(ABC):
         self._pending_requests: dict[int, PipelineRequest] = {}
         self._pending_requests_lock = threading.Lock()
 
-        self._request_count = 0
-        self._request_count_lock = threading.Lock()
-        self._last_log_time = time.time()
-        self._requests_in_window = 0
-        self._pairs_in_window = 0
-
     def _get_next_request_id(self) -> int:
         return next(self._next_request_id_counter)
-
-    def _track_request_metrics(self, num_pairs: int) -> None:
-        with self._request_count_lock:
-            self._request_count += 1
-            self._requests_in_window += 1
-            self._pairs_in_window += num_pairs
-            current_time = time.time()
-            time_elapsed = current_time - self._last_log_time
-
-            if time_elapsed >= 1.0:
-                self._last_log_time = current_time
-                self._requests_in_window = 0
-                self._pairs_in_window = 0
 
     def _create_request(self, pairs: list[tuple[str, str]]) -> "PipelineRequest":
         from src.server.dto.pipeline import PipelineRequest
 
-        self._track_request_metrics(len(pairs))
         req_id = self._get_next_request_id()
         request = PipelineRequest(
             request_id=req_id,

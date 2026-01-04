@@ -2,7 +2,6 @@ import logging
 import signal
 import sys
 import threading
-from typing import Optional
 
 from src.server.dto import Config, InferenceResult
 from src.server.pipeline.queue_based import QueueBasedPipeline
@@ -179,7 +178,7 @@ class OrchestratorService:
         return self.config.batching.timeout_ms
 
     @property
-    def _batch_thread(self) -> Optional[threading.Thread]:
+    def _batch_thread(self) -> threading.Thread | None:
         if self.pipeline:
             return self.pipeline._batch_thread
         return None

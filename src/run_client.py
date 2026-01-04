@@ -5,7 +5,6 @@ import logging
 import signal
 from pathlib import Path
 
-from src.client.collector import DashboardCollector
 from src.client.grpc_client import InferenceClient
 from src.client.loader import DatasetLoader
 from src.client.runner import BenchmarkRunner
@@ -57,7 +56,6 @@ def main():
                 config = yaml.safe_load(f)
 
     loader = DatasetLoader()
-    collector = DashboardCollector(f"http://{args.host}:8080")
     writer = ResultsWriter()
 
     try:
@@ -74,16 +72,11 @@ def main():
             concurrency=args.concurrency,
         )
 
-        dashboard_metrics = None
-        if args.experiment:
-            dashboard_metrics = collector.collect_history()
-
         if args.output:
             writer.save(
                 results=[result],
                 config=config,
                 output_file=args.output,
-                dashboard_metrics=dashboard_metrics,
                 append=args.append,
                 timeseries_file=args.timeseries_file,
             )

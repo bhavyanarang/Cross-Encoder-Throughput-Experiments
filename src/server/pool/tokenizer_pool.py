@@ -3,7 +3,6 @@ import multiprocessing as mp
 import queue
 import threading
 import time
-from typing import Optional
 
 from src.server.dto.pipeline import InferenceQueueItem, TokenizationQueueItem
 from src.server.pool.base import BaseWorkerPool
@@ -21,7 +20,6 @@ def _tokenizer_worker_main(
     max_length: int,
     input_queue: mp.Queue,
     output_queue: mp.Queue,
-    metrics_queue: mp.Queue,
     ready_event: mp.Event,
 ):
     try:
@@ -37,11 +35,6 @@ def _tokenizer_worker_main(
                     break
 
                 if item == _GET_METRICS:
-                    try:
-                        metrics = worker.get_metrics_stats()
-                        metrics_queue.put((worker_id, metrics), block=False)
-                    except Exception:
-                        pass
                     continue
 
                 req_id, pairs, enqueue_time = item
@@ -70,21 +63,20 @@ class TokenizerPool(BaseWorkerPool):
         self.max_length = max_length
 
         self._processes: list[mp.Process] = []
-        self._input_queue: Optional[mp.Queue] = None
+        self._input_queue: mp.Queue | None = None
         self._output_queue = mp.Queue()
-        self._metrics_queue = mp.Queue()
         self._ready_events: list[mp.Event] = []
 
-        self._result_thread: Optional[threading.Thread] = None
+        self._result_thread: threading.Thread | None = None
 
-        self._inference_queue: Optional[queue.Queue] = None
+        self._inference_queue: queue.Queue | None = None
 
         self._pending_items: dict[int, TokenizationQueueItem] = {}
         self._pending_lock = threading.Lock()
 
         self._total_batches = 0
         self._total_queries = 0
-        self._start_time: Optional[float] = None
+        self._start_time: float | None = None
         self._stats_lock = threading.Lock()
 
     def start(self, timeout_s: float = 120.0) -> None:
@@ -110,7 +102,6 @@ class TokenizerPool(BaseWorkerPool):
                     self.max_length,
                     self._input_queue,
                     self._output_queue,
-                    self._metrics_queue,
                     ready_event,
                 ),
                 daemon=True,
@@ -124,8 +115,6 @@ class TokenizerPool(BaseWorkerPool):
 
         self._result_thread = threading.Thread(target=self._result_loop, daemon=True)
         self._result_thread.start()
-
-        self.start_metrics_thread()
 
         self._is_started = True
         logger.info(f"Tokenizer pool ready with {self.num_workers} workers (MP, Shared Queue)")
@@ -152,8 +141,6 @@ class TokenizerPool(BaseWorkerPool):
 
         if self._result_thread:
             self._result_thread.join(timeout=1.0)
-
-        self.stop_metrics_thread(timeout_s=1.0)
 
         self._processes.clear()
         self._input_queue = None
@@ -285,16 +272,37 @@ class TokenizerPool(BaseWorkerPool):
         }
 
     def get_worker_metrics(self) -> list[dict]:
-        if not self._is_started or not self._input_queue:
+        if not self._is_started:
             return []
 
-        for _ in range(self.num_workers):
-            try:
-                self._input_queue.put(_GET_METRICS)
-            except Exception:
-                pass
-
-        return super().get_worker_metrics()
+        metrics_list = []
+        for i in range(self.num_workers):
+            metrics = self.get_worker_metrics_by_id(i)
+            metrics_list.append(metrics if metrics else {})
+        return metrics_list
 
     def get_worker_metrics_by_id(self, worker_id: int) -> dict:
-        return super().get_worker_metrics_by_id(worker_id)
+        if not self._is_started or worker_id >= self.num_workers:
+            return {}
+
+        try:
+            from prometheus_client import REGISTRY
+
+            for collector in REGISTRY._collector_to_names:
+                for metric_family in collector.collect():
+                    if metric_family.name == "worker_throughput_qps":
+                        for sample in metric_family.samples:
+                            if (
+                                sample.labels.get("worker_id") == str(worker_id)
+                                and sample.labels.get("worker_type") == "tokenizer"
+                            ):
+                                return {
+                                    "worker_id": worker_id,
+                                    "throughput_qps": sample.value,
+                                    "avg_ms": 0.0,
+                                    "query_count": 0,
+                                }
+        except Exception as e:
+            logger.debug(f"Failed to query Prometheus for tokenizer worker {worker_id}: {e}")
+
+        return {}

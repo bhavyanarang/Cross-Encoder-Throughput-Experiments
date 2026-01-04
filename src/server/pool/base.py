@@ -2,7 +2,7 @@ import logging
 import queue
 import threading
 from abc import ABC, abstractmethod
-from typing import Generic, Optional, TypeVar
+from typing import Generic, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -14,13 +14,9 @@ class BaseWorkerPool(ABC, Generic[T, R]):
     def __init__(self, num_workers: int):
         self.num_workers = num_workers
         self._is_started = False
-        self._inference_queue: Optional[queue.Queue] = None
-
-        self._metrics_queue = None
-        self._metrics_thread: Optional[threading.Thread] = None
-        self._worker_metrics: dict[int, dict] = {}
-        self._metrics_lock = threading.Lock()
+        self._inference_queue: queue.Queue | None = None
         self._shutdown_event = threading.Event()
+        self._workers: list = []
 
     @abstractmethod
     def start(self, timeout_s: float = 120.0) -> None:
@@ -48,49 +44,24 @@ class BaseWorkerPool(ABC, Generic[T, R]):
             "is_loaded": self._is_started,
         }
 
-    def _metrics_loop(self) -> None:
-        if self._metrics_queue is None:
-            logger.warning("Metrics queue not initialized, skipping metrics loop")
-            return
-
-        while not self._shutdown_event.is_set():
-            try:
-                try:
-                    worker_id, metrics_stats = self._metrics_queue.get(timeout=0.5)
-                except (queue.Empty, EOFError, OSError):
-                    continue
-
-                with self._metrics_lock:
-                    self._worker_metrics[worker_id] = metrics_stats
-            except Exception as e:
-                logger.error(f"Metrics loop error: {e}", exc_info=True)
-                continue
-
-    def start_metrics_thread(self) -> None:
-        if self._metrics_queue:
-            self._metrics_thread = threading.Thread(target=self._metrics_loop, daemon=True)
-            self._metrics_thread.start()
-
-    def stop_metrics_thread(self, timeout_s: float = 1.0) -> None:
-        if self._metrics_thread:
-            self._metrics_thread.join(timeout=timeout_s)
-            if self._metrics_thread.is_alive():
-                logger.warning("Metrics thread did not exit cleanly")
-
     def get_worker_metrics(self) -> list[dict]:
-        with self._metrics_lock:
-            return [self._worker_metrics.get(i, {}) for i in range(self.num_workers)]
+        metrics_list = []
+        for i in range(self.num_workers):
+            try:
+                metrics = self.get_worker_metrics_by_id(i)
+                metrics_list.append(metrics if metrics else {})
+            except Exception as e:
+                logger.debug(f"Failed to get metrics for worker {i}: {e}")
+                metrics_list.append({})
+        return metrics_list
 
     def get_worker_metrics_by_id(self, worker_id: int) -> dict:
         if not self._is_started or worker_id >= self.num_workers:
             return {}
-
-        with self._metrics_lock:
-            return self._worker_metrics.get(worker_id, {})
+        return {}
 
     def reset_worker_metrics(self) -> None:
-        with self._metrics_lock:
-            self._worker_metrics.clear()
+        pass
 
     def get_aggregate_throughput_qps(self) -> float:
         worker_metrics = self.get_worker_metrics()

@@ -7,7 +7,7 @@ from src.server.dto.config import (
     ServerConfig,
     TokenizerPoolConfig,
 )
-from src.server.dto.dashboard import DashboardHistory, DashboardMetrics
+from src.server.dto.dashboard import DashboardMetrics
 from src.server.dto.inference import (
     InferenceResult,
     TokenizedBatch,
@@ -41,7 +41,6 @@ __all__ = [
     "StageStats",
     "MetricsCollector",
     "StageMetrics",
-    "DashboardHistory",
     "DashboardMetrics",
     "PendingRequest",
     "BenchmarkState",

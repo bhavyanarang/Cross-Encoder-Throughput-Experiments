@@ -1,87 +1,23 @@
+import logging
 from dataclasses import dataclass, field
 
-import numpy as np
-
-
-@dataclass
-class DashboardHistory:
-    timestamps: list = field(default_factory=list)
-    latencies: list = field(default_factory=list)
-    throughput: list = field(default_factory=list)
-    queries: list = field(default_factory=list)
-    cpu_percent: list = field(default_factory=list)
-    gpu_memory_mb: list = field(default_factory=list)
-    gpu_utilization_pct: list = field(default_factory=list)
-    queue_wait_ms: list = field(default_factory=list)
-    tokenizer_queue_wait_ms: list = field(default_factory=list)
-    model_queue_wait_ms: list = field(default_factory=list)
-    tokenizer_queue_size: list = field(default_factory=list)
-    model_queue_size: list = field(default_factory=list)
-    batch_queue_size: list = field(default_factory=list)
-    tokenize_ms: list = field(default_factory=list)
-    inference_ms: list = field(default_factory=list)
-    padding_pct: list = field(default_factory=list)
-    overhead_ms: list = field(default_factory=list)
-    tokenizer_worker_latencies: list = field(default_factory=list)
-    tokenizer_worker_requests: list = field(default_factory=list)
-
-    tokenizer_throughput_qps: list = field(default_factory=list)
-    inference_throughput_qps: list = field(default_factory=list)
-    overall_throughput_qps: list = field(default_factory=list)
-
-    def to_dict(self) -> dict:
-        return {
-            "timestamps": self.timestamps.copy(),
-            "latencies": self.latencies.copy(),
-            "throughput": self.throughput.copy(),
-            "queries": self.queries.copy(),
-            "cpu_percent": self.cpu_percent.copy(),
-            "gpu_memory_mb": self.gpu_memory_mb.copy(),
-            "gpu_utilization_pct": self.gpu_utilization_pct.copy(),
-            "queue_wait_ms": self.queue_wait_ms.copy(),
-            "tokenizer_queue_wait_ms": self.tokenizer_queue_wait_ms.copy(),
-            "model_queue_wait_ms": self.model_queue_wait_ms.copy(),
-            "tokenizer_queue_size": self.tokenizer_queue_size.copy(),
-            "model_queue_size": self.model_queue_size.copy(),
-            "batch_queue_size": self.batch_queue_size.copy(),
-            "tokenize_ms": self.tokenize_ms.copy(),
-            "inference_ms": self.inference_ms.copy(),
-            "padding_pct": self.padding_pct.copy(),
-            "overhead_ms": self.overhead_ms.copy(),
-            "tokenizer_worker_latencies": self.tokenizer_worker_latencies.copy(),
-            "tokenizer_worker_requests": self.tokenizer_worker_requests.copy(),
-            "tokenizer_throughput_qps": self.tokenizer_throughput_qps.copy(),
-            "inference_throughput_qps": self.inference_throughput_qps.copy(),
-            "overall_throughput_qps": self.overall_throughput_qps.copy(),
-        }
-
-    def reset(self):
-        self.timestamps.clear()
-        self.latencies.clear()
-        self.throughput.clear()
-        self.queries.clear()
-        self.cpu_percent.clear()
-        self.gpu_memory_mb.clear()
-        self.gpu_utilization_pct.clear()
-        self.queue_wait_ms.clear()
-        self.tokenizer_queue_wait_ms.clear()
-        self.model_queue_wait_ms.clear()
-        self.tokenizer_queue_size.clear()
-        self.model_queue_size.clear()
-        self.batch_queue_size.clear()
-        self.tokenize_ms.clear()
-        self.inference_ms.clear()
-        self.padding_pct.clear()
-        self.overhead_ms.clear()
-        self.tokenizer_worker_latencies.clear()
-        self.tokenizer_worker_requests.clear()
-        self.tokenizer_throughput_qps.clear()
-        self.inference_throughput_qps.clear()
-        self.overall_throughput_qps.clear()
+logger = logging.getLogger(__name__)
 
 
 @dataclass
 class DashboardMetrics:
+    """
+    DEPRECATED: Use Prometheus queries in Grafana instead.
+
+    This class is kept for backward compatibility only.
+    All metrics are now exposed via Prometheus at /metrics endpoint.
+
+    Use Prometheus queries like:
+    - histogram_quantile(0.95, request_latency_seconds)
+    - rate(request_count_total[1m])
+    - gpu_memory_mb
+    """
+
     gpu_memory_mb: list = field(default_factory=list)
     gpu_utilization_pct: list = field(default_factory=list)
     cpu_percent: list = field(default_factory=list)
@@ -104,25 +40,13 @@ class DashboardMetrics:
     overall_throughput_qps: list = field(default_factory=list)
 
     def get_summary(self) -> dict:
-        def stats(arr):
-            if not arr:
-                return {"avg": 0, "min": 0, "max": 0, "p50": 0, "p95": 0}
-            a = np.array(arr)
-            return {
-                "avg": float(np.mean(a)),
-                "min": float(np.min(a)),
-                "max": float(np.max(a)),
-                "p50": float(np.percentile(a, 50)),
-                "p95": float(np.percentile(a, 95)),
-            }
+        """
+        DEPRECATED: Use Prometheus queries in Grafana instead.
 
-        return {
-            "gpu_memory_mb": stats(self.gpu_memory_mb),
-            "gpu_utilization_pct": stats(self.gpu_utilization_pct),
-            "cpu_percent": stats(self.cpu_percent),
-            "tokenize_ms": stats(self.tokenize_ms),
-            "inference_ms": stats(self.inference_ms),
-            "queue_wait_ms": stats(self.queue_wait_ms),
-            "padding_pct": stats(self.padding_pct),
-            "overhead_ms": stats(self.overhead_ms),
-        }
+        This method is kept for backward compatibility only.
+        All metric aggregation should be done via Prometheus queries.
+        """
+        logger.warning(
+            "DashboardMetrics.get_summary() is deprecated. Use Prometheus queries instead."
+        )
+        return {}

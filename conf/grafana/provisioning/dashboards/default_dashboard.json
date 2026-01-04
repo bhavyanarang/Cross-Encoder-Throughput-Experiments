@@ -31,6 +31,214 @@
           "color": {
             "mode": "thresholds"
           },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      },
+      "id": 200,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "expr": "increase(request_count_total[5m])",
+          "refId": "A"
+        }
+      ],
+      "title": "Requests (5m)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "ms",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      },
+      "id": 201,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(request_latency_seconds_bucket[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Latency P50",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "ms",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 200
+              },
+              {
+                "color": "red",
+                "value": 1000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      },
+      "id": 202,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(request_latency_seconds_bucket[5m]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Latency P95",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "unit": "rps",
+          "thresholds": {
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "id": 203,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "expr": "rate(request_count_total[1m])",
+          "refId": "A"
+        }
+      ],
+      "title": "Throughput (RPS)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "steps": [
               {
@@ -46,7 +254,7 @@
         "h": 3,
         "w": 3,
         "x": 0,
-        "y": 1
+        "y": 4
       },
       "id": 1,
       "options": {
@@ -104,7 +312,7 @@
         "h": 3,
         "w": 3,
         "x": 3,
-        "y": 1
+        "y": 4
       },
       "id": 2,
       "options": {
@@ -154,7 +362,7 @@
         "h": 3,
         "w": 3,
         "x": 6,
-        "y": 1
+        "y": 4
       },
       "id": 3,
       "options": {
@@ -204,7 +412,7 @@
         "h": 3,
         "w": 3,
         "x": 9,
-        "y": 1
+        "y": 4
       },
       "id": 4,
       "options": {
@@ -254,7 +462,7 @@
         "h": 3,
         "w": 3,
         "x": 12,
-        "y": 1
+        "y": 4
       },
       "id": 5,
       "options": {
@@ -304,7 +512,7 @@
         "h": 3,
         "w": 3,
         "x": 15,
-        "y": 1
+        "y": 4
       },
       "id": 6,
       "options": {
@@ -362,7 +570,7 @@
         "h": 3,
         "w": 3,
         "x": 18,
-        "y": 1
+        "y": 4
       },
       "id": 7,
       "options": {
@@ -412,7 +620,7 @@
         "h": 3,
         "w": 3,
         "x": 21,
-        "y": 1
+        "y": 4
       },
       "id": 8,
       "options": {
@@ -442,7 +650,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 4
+        "y": 7
       },
       "id": 101,
       "title": "Latency Distribution",
@@ -474,7 +682,7 @@
         "h": 6,
         "w": 12,
         "x": 0,
-        "y": 5
+        "y": 8
       },
       "id": 10,
       "options": {
@@ -533,7 +741,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 5
+        "y": 8
       },
       "id": 11,
       "options": {
@@ -564,7 +772,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 11
+        "y": 14
       },
       "id": 102,
       "title": "Pipeline Stage Breakdown",
@@ -593,7 +801,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 12
+        "y": 15
       },
       "id": 20,
       "options": {
@@ -648,7 +856,7 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 12
+        "y": 15
       },
       "id": 21,
       "options": {
@@ -702,7 +910,7 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 12
+        "y": 15
       },
       "id": 22,
       "options": {
@@ -740,7 +948,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 21
       },
       "id": 103,
       "title": "Worker Statistics",
@@ -769,7 +977,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 19
+        "y": 22
       },
       "id": 30,
       "options": {
@@ -814,7 +1022,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 19
+        "y": 22
       },
       "id": 31,
       "options": {
@@ -858,7 +1066,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 19
+        "y": 22
       },
       "id": 32,
       "options": {
@@ -902,7 +1110,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 19
+        "y": 22
       },
       "id": 33,
       "options": {
@@ -930,7 +1138,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 27
       },
       "id": 104,
       "title": "System Resources",
@@ -959,7 +1167,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 25
+        "y": 28
       },
       "id": 40,
       "options": {
@@ -1004,7 +1212,7 @@
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 25
+        "y": 28
       },
       "id": 41,
       "options": {
@@ -1049,7 +1257,7 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 25
+        "y": 28
       },
       "id": 42,
       "options": {

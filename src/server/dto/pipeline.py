@@ -21,7 +21,7 @@ class PipelineRequest:
     inference_result: Optional["InferenceResult"] = None
     inference_worker_id: int = -1
 
-    error: Optional[Exception] = None
+    error: Exception | None = None
 
     t_queue_tokenization_wait_ms: float = 0.0
     t_queue_inference_wait_ms: float = 0.0

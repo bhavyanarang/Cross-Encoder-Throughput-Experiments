@@ -2,7 +2,7 @@ import logging
 import queue
 import threading
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -29,7 +29,7 @@ class QueueBasedPipeline(BasePipeline):
     ):
         super().__init__(config, tokenizer_pool, model_pool, metrics_service, experiment_name)
 
-        self._inference_queue: Optional[queue.Queue] = None
+        self._inference_queue: queue.Queue | None = None
 
         self._batching_enabled = False
         self._max_batch_size = 8
@@ -37,7 +37,7 @@ class QueueBasedPipeline(BasePipeline):
         self._length_aware = False
         self._batch_queue: queue.Queue[PendingRequest] = queue.Queue()
         self._batch_condition = threading.Condition()
-        self._batch_thread: Optional[threading.Thread] = None
+        self._batch_thread: threading.Thread | None = None
         self._batching_running = False
         self._batch_shutdown_event = threading.Event()
 

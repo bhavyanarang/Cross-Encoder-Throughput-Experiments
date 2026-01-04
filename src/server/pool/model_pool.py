@@ -4,7 +4,6 @@ import queue
 import threading
 import time
 from itertools import count
-from typing import Optional
 
 from src.server.dto import ModelConfig, PoolConfig
 from src.server.pool.base import BaseWorkerPool
@@ -30,7 +29,6 @@ def _worker_main(
     output_queue,
     ready_event,
     memory_queue,
-    metrics_queue=None,
 ):
     cfg = ModelConfig(**config_dict)
     worker = ModelWorker(worker_id, cfg)
@@ -50,12 +48,6 @@ def _worker_main(
                     pass
                 continue
             if item == _GET_METRICS:
-                if metrics_queue is not None:
-                    try:
-                        metrics_stats = worker.get_metrics_stats()
-                        metrics_queue.put((worker_id, metrics_stats), block=False)
-                    except Exception:
-                        pass
                 continue
 
             if hasattr(item, "tokenized_batch") and hasattr(item, "req_id"):
@@ -71,13 +63,6 @@ def _worker_main(
             else:
                 result = worker.process(item)
                 output_queue.put(result)
-
-            if metrics_queue is not None:
-                try:
-                    metrics_stats = worker.get_metrics_stats()
-                    metrics_queue.put((worker_id, metrics_stats), block=False)
-                except Exception:
-                    pass
         except Exception as e:
             logger.error(f"Worker {worker_id} error: {e}")
 
@@ -90,18 +75,17 @@ class ModelPool(BaseWorkerPool):
         self._input_queues: list[mp.Queue] = []
         self._output_queue = mp.Queue()
         self._memory_queue = mp.Queue()
-        self._metrics_queue = mp.Queue()
         self._ready_events: list[mp.Event] = []
-        self._result_thread: Optional[threading.Thread] = None
+        self._result_thread: threading.Thread | None = None
 
         self._request_counts: dict[int, int] = {}
 
-        self._inference_queue: Optional[queue.Queue] = None
-        self._pipeline_consumer_thread: Optional[threading.Thread] = None
+        self._inference_queue: queue.Queue | None = None
+        self._pipeline_consumer_thread: threading.Thread | None = None
         self._round_robin_counter = count()
         self._total_inference_batches = 0
         self._total_inference_queries = 0
-        self._pipeline_start_time: Optional[float] = None
+        self._pipeline_start_time: float | None = None
         self._stats_lock = threading.Lock()
 
     def start(self, timeout_s: float = 120.0) -> None:
@@ -125,7 +109,6 @@ class ModelPool(BaseWorkerPool):
                     self._output_queue,
                     ready,
                     self._memory_queue,
-                    self._metrics_queue,
                 ),
                 daemon=True,
             )
@@ -141,8 +124,6 @@ class ModelPool(BaseWorkerPool):
 
         self._result_thread = threading.Thread(target=self._result_loop, daemon=True)
         self._result_thread.start()
-
-        self.start_metrics_thread()
 
         self._is_started = True
         logger.info(f"Pool ready with {self.num_workers} workers")
@@ -201,8 +182,6 @@ class ModelPool(BaseWorkerPool):
             if self._result_thread.is_alive():
                 logger.warning("Result thread did not exit cleanly")
 
-        self.stop_metrics_thread(max(0, deadline - time.time()))
-
         if self._pipeline_consumer_thread:
             remaining = max(0, deadline - time.time())
             self._pipeline_consumer_thread.join(timeout=remaining)
@@ -239,12 +218,6 @@ class ModelPool(BaseWorkerPool):
             self._memory_queue.join_thread()
         except Exception as e:
             logger.debug(f"Error closing memory queue: {e}")
-
-        try:
-            self._metrics_queue.close()
-            self._metrics_queue.join_thread()
-        except Exception as e:
-            logger.debug(f"Error closing metrics queue: {e}")
 
         self._processes.clear()
         self._input_queues.clear()
@@ -437,25 +410,31 @@ class ModelPool(BaseWorkerPool):
         if not self._is_started:
             return []
 
-        for input_queue in self._input_queues:
-            try:
-                input_queue.put(_GET_METRICS, block=False)
-            except Exception:
-                pass
-
-        time.sleep(0.1)
-
-        return super().get_worker_metrics()
+        metrics_list = []
+        for i in range(self.num_workers):
+            metrics = self.get_worker_metrics_by_id(i)
+            metrics_list.append(metrics if metrics else {})
+        return metrics_list
 
     def get_worker_metrics_by_id(self, worker_id: int) -> dict:
         if not self._is_started or worker_id >= self.num_workers:
             return {}
 
         try:
-            self._input_queues[worker_id].put(_GET_METRICS, block=False)
-        except Exception:
-            pass
+            from prometheus_client import REGISTRY
 
-        time.sleep(0.1)
+            for collector in REGISTRY._collector_to_names:
+                for metric_family in collector.collect():
+                    if metric_family.name == "worker_throughput_qps":
+                        for sample in metric_family.samples:
+                            if sample.labels.get("worker_id") == str(worker_id):
+                                return {
+                                    "worker_id": worker_id,
+                                    "throughput_qps": sample.value,
+                                    "avg_ms": 0.0,
+                                    "query_count": 0,
+                                }
+        except Exception as e:
+            logger.debug(f"Failed to query Prometheus for worker {worker_id}: {e}")
 
-        return super().get_worker_metrics_by_id(worker_id)
+        return {}

@@ -1,4 +1,4 @@
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -9,7 +9,7 @@ class ModelConfig(BaseModel):
     backend: Literal["pytorch", "mps", "mlx", "onnx", "compiled", "tensorrt"] = "mps"
     quantization: Literal["fp32", "fp16", "int8", "int4"] = "fp16"
     compile_model: bool = False
-    compile_mode: Optional[str] = Field(
+    compile_mode: str | None = Field(
         default=None, description="torch.compile mode (default, reduce-overhead, max-autotune)"
     )
     max_length: int = 512

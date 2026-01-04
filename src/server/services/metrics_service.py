@@ -1,7 +1,6 @@
 import logging
 import threading
-import time
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
@@ -20,9 +19,9 @@ class MetricsService(BaseService):
         super().__init__()
         self._collector = MetricsCollector()
         self._process_monitor_service = ProcessMonitorService()
-        self._orchestrator: Optional["OrchestratorService"] = None
+        self._orchestrator: OrchestratorService | None = None
         self._collection_interval = collection_interval_seconds
-        self._collection_thread: Optional[threading.Thread] = None
+        self._collection_thread: threading.Thread | None = None
         self._shutdown_event = threading.Event()
         self._prometheus_port = prometheus_port
 
@@ -78,6 +77,45 @@ class MetricsService(BaseService):
             "overhead_latency_seconds", "Pipeline overhead latency"
         )
         self.prom_padding_ratio = Gauge("padding_ratio", "Padding ratio (0-1)")
+
+        self.prom_tokenizer_throughput = Gauge(
+            "tokenizer_throughput_qps", "Tokenizer throughput in QPS"
+        )
+        self.prom_inference_throughput = Gauge(
+            "inference_throughput_qps", "Inference throughput in QPS"
+        )
+        self.prom_overall_throughput = Gauge("overall_throughput_qps", "Overall throughput in QPS")
+
+        self.prom_gpu_utilization = Gauge("gpu_utilization_pct", "GPU Utilization Percentage")
+
+        self.prom_mp_queue_send_latency = Histogram(
+            "mp_queue_send_latency_seconds", "Multiprocessing queue send latency"
+        )
+        self.prom_mp_queue_receive_latency = Histogram(
+            "mp_queue_receive_latency_seconds", "Multiprocessing queue receive latency"
+        )
+        self.prom_grpc_serialize_latency = Histogram(
+            "grpc_serialize_latency_seconds", "gRPC serialization latency"
+        )
+        self.prom_grpc_deserialize_latency = Histogram(
+            "grpc_deserialize_latency_seconds", "gRPC deserialization latency"
+        )
+        self.prom_scheduler_latency = Histogram("scheduler_latency_seconds", "Scheduler latency")
+
+        self.prom_padded_tokens = Counter("padded_tokens_total", "Total number of padded tokens")
+        self.prom_total_tokens = Counter("total_tokens_total", "Total number of tokens processed")
+        self.prom_max_seq_length = Gauge("max_seq_length", "Maximum sequence length")
+        self.prom_avg_seq_length = Gauge("avg_seq_length", "Average sequence length")
+
+        self.prom_tokenizer_queue_wait_latency = Histogram(
+            "tokenizer_queue_wait_latency_seconds", "Tokenizer queue wait latency"
+        )
+        self.prom_model_queue_wait_latency = Histogram(
+            "model_queue_wait_latency_seconds", "Model queue wait latency"
+        )
+        self.prom_pipeline_overhead_latency = Histogram(
+            "pipeline_overhead_latency_seconds", "Pipeline overhead latency"
+        )
 
     def start(self) -> None:
         self._is_started = True
@@ -172,9 +210,28 @@ class MetricsService(BaseService):
         if t_tokenize > 0:
             self.prom_tokenization_latency.observe(t_tokenize / 1000.0)
 
+        if t_tokenizer_queue_wait > 0:
+            self.prom_tokenizer_queue_wait_latency.observe(t_tokenizer_queue_wait / 1000.0)
+        if t_model_queue_wait > 0:
+            self.prom_model_queue_wait_latency.observe(t_model_queue_wait / 1000.0)
+
         total_queue = t_tokenizer_queue_wait + t_model_queue_wait
         if total_queue > 0:
             self.prom_queue_wait_latency.observe(total_queue / 1000.0)
+
+        if t_overhead > 0:
+            self.prom_pipeline_overhead_latency.observe(t_overhead / 1000.0)
+
+        if t_mp_queue_send > 0:
+            self.prom_mp_queue_send_latency.observe(t_mp_queue_send / 1000.0)
+        if t_mp_queue_receive > 0:
+            self.prom_mp_queue_receive_latency.observe(t_mp_queue_receive / 1000.0)
+        if t_grpc_serialize > 0:
+            self.prom_grpc_serialize_latency.observe(t_grpc_serialize / 1000.0)
+        if t_grpc_deserialize > 0:
+            self.prom_grpc_deserialize_latency.observe(t_grpc_deserialize / 1000.0)
+        if t_scheduler > 0:
+            self.prom_scheduler_latency.observe(t_scheduler / 1000.0)
 
     def record_padding_stats(
         self,
@@ -192,13 +249,30 @@ class MetricsService(BaseService):
             avg_seq_length=avg_seq_length,
         )
 
-    def record_worker_stats(self, worker_id: int, latency_ms: float, num_queries: int = 1) -> None:
+        if padding_ratio >= 0:
+            self.prom_padding_ratio.set(padding_ratio)
+        if padded_tokens > 0:
+            self.prom_padded_tokens.inc(padded_tokens)
+        if total_tokens > 0:
+            self.prom_total_tokens.inc(total_tokens)
+        if max_seq_length > 0:
+            self.prom_max_seq_length.set(max_seq_length)
+        if avg_seq_length > 0:
+            self.prom_avg_seq_length.set(avg_seq_length)
+
+    def record_worker_stats(
+        self, worker_id: int, latency_ms: float, num_queries: int = 1, throughput_qps: float = 0.0
+    ) -> None:
         self.prom_worker_latency.labels(worker_id=str(worker_id), worker_type="model").set(
             latency_ms
         )
         self.prom_worker_requests.labels(worker_id=str(worker_id), worker_type="model").inc(
             num_queries
         )
+        if throughput_qps > 0:
+            self.prom_worker_throughput.labels(worker_id=str(worker_id), worker_type="model").set(
+                throughput_qps
+            )
 
     def record_tokenizer_worker_stats(
         self, worker_id: int, latency_ms: float, total_tokens: int = 0, num_queries: int = 1
@@ -210,93 +284,19 @@ class MetricsService(BaseService):
             num_queries
         )
 
-    def get_summary(self) -> dict:
-        collector = self._collector
-        
-        avg_latency = 0.0
-        if collector.latencies:
-            avg_latency = sum(collector.latencies) / len(collector.latencies)
-        
-        stage_percentages = {}
-        stage_averages = {}
-        
-        stage_mapping = {
-            "tokenize": "tokenize_pct",
-            "tokenizer_queue_wait": "tokenizer_queue_wait_pct",
-            "model_queue_wait": "model_queue_wait_pct",
-            "model_inference": "inference_pct",
-            "overhead": "overhead_pct",
-            "mp_queue_send": "mp_queue_send_pct",
-            "mp_queue_receive": "mp_queue_receive_pct",
-            "grpc_serialize": "grpc_serialize_pct",
-            "grpc_deserialize": "grpc_deserialize_pct",
-            "scheduler": "scheduler_pct",
-            "pipeline_overhead": "pipeline_overhead_pct",
-        }
-        
-        total_stage_time = 0.0
-        
-        with collector._lock:
-            for stage_name, pct_key in stage_mapping.items():
-                try:
-                    tracker = collector._stage_tracker_manager.get(stage_name)
-                    if tracker.metrics.latencies:
-                        avg = sum(tracker.metrics.latencies) / len(tracker.metrics.latencies)
-                        stage_averages[stage_name] = avg
-                        total_stage_time += avg
-                except KeyError:
-                    pass
-        
-        if avg_latency > 0:
-            for stage_name, pct_key in stage_mapping.items():
-                if stage_name in stage_averages:
-                    pct = (stage_averages[stage_name] / avg_latency) * 100.0
-                    stage_percentages[pct_key] = round(pct, 1)
-                else:
-                    stage_percentages[pct_key] = 0.0
-        
-        accounted_pct = sum(v for k, v in stage_percentages.items() if k != "other_pct")
-        other_pct = max(0.0, 100.0 - accounted_pct)
-        stage_percentages["other_pct"] = round(other_pct, 1)
-        
-        return {
-            "query_count": collector.query_count,
-            "request_count": collector.request_count,
-            "avg_ms": avg_latency,
-            "stage_percentages": stage_percentages,
-        }
+    def record_throughput_stats(
+        self, tokenizer_qps: float = 0.0, inference_qps: float = 0.0, overall_qps: float = 0.0
+    ) -> None:
+        if tokenizer_qps > 0:
+            self.prom_tokenizer_throughput.set(tokenizer_qps)
+        if inference_qps > 0:
+            self.prom_inference_throughput.set(inference_qps)
+        if overall_qps > 0:
+            self.prom_overall_throughput.set(overall_qps)
 
-    def _is_active(self) -> bool:
-        collector = self._collector
-        if collector.request_count == 0:
-            return False
-
-        time_since_update = time.time() - collector.last_update_time
-        if time_since_update < 10.0:
-            return True
-
-        if collector.recent_latencies:
-            most_recent_time, _ = collector.recent_latencies[-1]
-            if (time.time() - most_recent_time) < 30.0:
-                return True
-
-        return False
-
-    def _get_worker_stats(self, collector: MetricsCollector) -> list[dict]:
-        if collector._model_pool:
-            try:
-                return collector._model_pool.get_worker_metrics()
-            except Exception as e:
-                logger.warning(f"Failed to get worker stats from pool: {e}")
-        return []
-
-    def _get_tokenizer_worker_stats(self, collector: MetricsCollector) -> list[dict]:
-        if collector._tokenizer_pool:
-            try:
-                return collector._tokenizer_pool.get_worker_metrics()
-            except Exception as e:
-                logger.warning(f"Failed to get tokenizer worker stats from pool: {e}")
-        return []
+    def record_gpu_utilization(self, gpu_utilization_pct: float = 0.0) -> None:
+        if gpu_utilization_pct >= 0:
+            self.prom_gpu_utilization.set(gpu_utilization_pct)
 
     def _get_queue_sizes(self, collector: MetricsCollector) -> dict:
         tokenizer_queue_size = 0
@@ -360,9 +360,6 @@ class MetricsService(BaseService):
     def get_gpu_memory_mb(self) -> float:
         return self._process_monitor_service.get_gpu_memory_mb()
 
-    def is_active(self) -> bool:
-        return self._is_active()
-
     def get_collector(self) -> MetricsCollector:
         return self._collector
 
@@ -386,10 +383,36 @@ class MetricsService(BaseService):
             gpu_mem = self.get_gpu_memory_mb()
             self.prom_gpu_memory.set(gpu_mem)
 
+            # Try to get GPU utilization if available
+            try:
+                gpu_util = self._process_monitor_service.get_gpu_utilization()
+                if gpu_util is not None:
+                    self.record_gpu_utilization(gpu_util)
+            except (AttributeError, NotImplementedError):
+                pass
+
             queue_info = self._get_queue_sizes(self._collector)
             self.prom_tokenizer_queue_size.set(queue_info.get("tokenizer_queue_size", 0))
             self.prom_model_queue_size.set(queue_info.get("model_queue_size", 0))
             self.prom_batch_queue_size.set(queue_info.get("batch_queue_size", 0))
+
+            # Record throughput stats from pools
+            if self._orchestrator:
+                try:
+                    tokenizer_qps = (
+                        self._orchestrator.tokenizer_pool.get_aggregate_throughput_qps()
+                        if self._orchestrator.tokenizer_pool
+                        else 0.0
+                    )
+                    inference_qps = (
+                        self._orchestrator.pool.get_aggregate_throughput_qps()
+                        if self._orchestrator.pool
+                        else 0.0
+                    )
+                    overall_qps = tokenizer_qps + inference_qps
+                    self.record_throughput_stats(tokenizer_qps, inference_qps, overall_qps)
+                except Exception as e:
+                    logger.debug(f"Could not record throughput stats: {e}")
         except Exception as e:
             logger.warning(f"Error updating system metrics: {e}")
 
@@ -403,15 +426,27 @@ class MetricsService(BaseService):
                         if worker_id >= 0:
                             latency_ms = worker_metrics.get("avg_ms", 0.0)
                             query_count = worker_metrics.get("query_count", 0)
+                            throughput_qps = worker_metrics.get("throughput_qps", 0.0)
                             if latency_ms > 0 and query_count > 0:
-                                self.record_worker_stats(worker_id, latency_ms, query_count)
+                                self.record_worker_stats(
+                                    worker_id, latency_ms, query_count, throughput_qps
+                                )
             except Exception as e:
                 logger.warning(f"Failed to collect inference worker metrics: {e}")
 
         if self._orchestrator and self._orchestrator.tokenization_is_started:
             try:
-                self._orchestrator.get_tokenizer_worker_metrics()
-                pass
+                tokenizer_worker_metrics = self._orchestrator.get_tokenizer_worker_metrics()
+                for worker_metrics in tokenizer_worker_metrics:
+                    if worker_metrics:
+                        worker_id = worker_metrics.get("worker_id", -1)
+                        if worker_id >= 0:
+                            latency_ms = worker_metrics.get("avg_ms", 0.0)
+                            num_queries = worker_metrics.get("query_count", 0)
+                            if latency_ms > 0 and num_queries > 0:
+                                self.record_tokenizer_worker_stats(
+                                    worker_id, latency_ms, 0, num_queries
+                                )
             except Exception as e:
                 logger.warning(f"Failed to collect tokenizer worker metrics: {e}")
 

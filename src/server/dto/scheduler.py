@@ -12,4 +12,4 @@ class PendingRequest:
     result_future: threading.Event
     result: Optional["InferenceResult"] = None
     submit_time: float = 0.0
-    error: Optional[Exception] = None
+    error: Exception | None = None

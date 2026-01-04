@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class ModelWorker(BaseWorker[WorkItem, WorkResult]):
     def __init__(self, worker_id: int, config: ModelConfig):
-        super().__init__(worker_id)
+        super().__init__(worker_id, worker_type="model")
         self.config = config
         self._backend = None
 
