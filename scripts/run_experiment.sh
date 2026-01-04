@@ -240,6 +240,14 @@ if lsof -ti:50051 > /dev/null 2>&1; then
     sleep 1
 fi
 
+
+# Start observability stack
+echo "Starting observability services..."
+"$SCRIPT_DIR/start_services.sh"
+
+# Capture start time (seconds)
+START_TIME=$(date +%s.%N)
+
 # Start server in background
 echo "Starting server..."
 if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
@@ -299,7 +307,7 @@ while [ $WAIT_TIME -lt $MAX_WAIT ]; do
     fi
 
     # Try to connect to the server
-    if curl -s http://localhost:8080/metrics > /dev/null 2>&1; then
+    if curl -s http://localhost:8000/metrics > /dev/null 2>&1; then
         SERVER_READY=true
         break
     fi
@@ -318,7 +326,7 @@ echo -e "${GREEN}Server is ready!${NC}"
 
 # Reset metrics before running the benchmark
 echo "Resetting metrics..."
-curl -s http://localhost:8080/reset > /dev/null 2>&1 || true
+curl -s http://localhost:8000/reset > /dev/null 2>&1 || true
 
 # Run client
 echo ""
@@ -356,22 +364,16 @@ if [ $CLIENT_EXIT -eq 0 ]; then
     echo "Latency vs Throughput data included in results"
     echo -e "==========================================${NC}"
 
-    # Generate static dashboard from timeseries data
-    echo ""
-    echo "Generating static dashboard from timeseries data..."
-    SNAPSHOT_DIR="$PROJECT_ROOT/images"
-    mkdir -p "$SNAPSHOT_DIR"
-    SNAPSHOT_FILE="$SNAPSHOT_DIR/${EXPERIMENT_NAME}.html"
+    # Capture end time
+    END_TIME=$(date +%s.%N)
 
-    # Generate static dashboard from timeseries markdown
-    if python -m src.screenshot --experiment "$EXPERIMENT_NAME" --output "$SNAPSHOT_FILE" 2>&1 | grep -v "Warning\|Error" || true; then
-        if [ -f "$SNAPSHOT_FILE" ]; then
-            echo -e "${GREEN}Static dashboard saved: $SNAPSHOT_FILE${NC}"
-        else
-            echo -e "${YELLOW}Warning: Dashboard file not created${NC}"
-        fi
+    # Snapshot Grafana Dashboard
+    echo ""
+    echo "Snapshotting Grafana dashboard..."
+    if python3 "$PROJECT_ROOT/src/utils/snapshot_dashboard.py" --start "$START_TIME" --end "$END_TIME" --name "Run: $EXPERIMENT_NAME"; then
+        echo -e "${GREEN}Dashboard snapshot saved.${NC}"
     else
-        echo -e "${YELLOW}Warning: Dashboard generation had issues${NC}"
+        echo -e "${YELLOW}Warning: Dashboard snapshot failed.${NC}"
     fi
 else
     echo -e "\n${RED}=========================================="
