@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 1s  # High resolution for local experiments
+
+scrape_configs:
+  - job_name: 'cross_encoder_server'
+    static_configs:
+      - targets: ['localhost:8000']
+    metrics_path: /metrics
