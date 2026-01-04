@@ -3,7 +3,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from src.server.dto.metrics.padding import PaddingTracker
 from src.server.dto.metrics.stage import StageTrackerManager
@@ -37,8 +37,8 @@ class MetricsCollector:
     _padding_tracker: PaddingTracker = field(default_factory=PaddingTracker)
 
     # Pool references for getting worker metrics with throughput calculations
-    _model_pool: "ModelPool | None" = field(default=None)
-    _tokenizer_pool: "TokenizerPool | None" = field(default=None)
+    _model_pool: Optional["ModelPool"] = field(default=None)
+    _tokenizer_pool: Optional["TokenizerPool"] = field(default=None)
 
     def __post_init__(self):
         self._stage_tracker_manager.register("tokenize", track_recent=True)

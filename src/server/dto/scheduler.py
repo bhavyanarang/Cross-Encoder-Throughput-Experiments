@@ -1,6 +1,6 @@
 import threading
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from src.server.dto import InferenceResult
@@ -10,6 +10,6 @@ if TYPE_CHECKING:
 class PendingRequest:
     pairs: list[tuple[str, str]]
     result_future: threading.Event
-    result: "InferenceResult | None" = None
+    result: Optional["InferenceResult"] = None
     submit_time: float = 0.0
-    error: Exception | None = None
+    error: Optional[Exception] = None

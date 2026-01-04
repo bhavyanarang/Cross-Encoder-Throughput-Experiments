@@ -9,11 +9,11 @@ import logging
 import queue
 import threading
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import torch
 
-from src.frontend.server import start_dashboard
+
 from src.server.dto import Config, InferenceResult, PendingRequest
 from src.server.dto.inference import TokenizedBatch
 from src.server.dto.pipeline import InferenceQueueItem, PipelineRequest, TokenizationQueueItem
@@ -54,7 +54,7 @@ class QueueBasedPipeline(BasePipeline):
         """Initialize the queue-based pipeline."""
         super().__init__(config, tokenizer_pool, model_pool, metrics_service, experiment_name)
 
-        self._inference_queue: queue.Queue = None
+        self._inference_queue: Optional[queue.Queue] = None
 
         # Batching configuration
         self._batching_enabled = False
@@ -63,7 +63,7 @@ class QueueBasedPipeline(BasePipeline):
         self._length_aware = False
         self._batch_queue: queue.Queue[PendingRequest] = queue.Queue()
         self._batch_condition = threading.Condition()
-        self._batch_thread: threading.Thread | None = None
+        self._batch_thread: Optional[threading.Thread] = None
         self._batching_running = False
         self._batch_shutdown_event = threading.Event()
 
@@ -144,7 +144,6 @@ class QueueBasedPipeline(BasePipeline):
             logger.info("Pipeline setup complete - inference only mode")
 
         self.metrics.start()
-        start_dashboard(self.config.server.http_port, self.metrics)
 
     def stop(self) -> None:
         """Stop the queue-based pipeline services gracefully."""

@@ -11,7 +11,7 @@ through the tokenization and inference queues. This design ensures that:
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from src.server.dto import InferenceResult, TokenizedBatch
@@ -35,15 +35,15 @@ class PipelineRequest:
     result_event: threading.Event = field(default_factory=threading.Event)
 
     # Will be set after tokenization
-    tokenized_batch: "TokenizedBatch | None" = None
+    tokenized_batch: Optional["TokenizedBatch"] = None
     tokenizer_worker_id: int = -1
 
     # Will be set after inference
-    inference_result: "InferenceResult | None" = None
+    inference_result: Optional["InferenceResult"] = None
     inference_worker_id: int = -1
 
     # Error tracking
-    error: Exception | None = None
+    error: Optional[Exception] = None
 
     # Timing - populated as request progresses
     t_queue_tokenization_wait_ms: float = 0.0

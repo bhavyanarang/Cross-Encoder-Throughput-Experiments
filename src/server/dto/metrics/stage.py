@@ -1,6 +1,7 @@
 import threading
 from collections import deque
 from dataclasses import dataclass, field
+from typing import Optional
 
 
 @dataclass
@@ -23,9 +24,9 @@ class StageTracker:
         self.name = name
         self.metrics = StageMetrics()
         self.last_value_ms = 0.0
-        self.recent_history: deque | None = deque(maxlen=recent_maxlen) if track_recent else None
+        self.recent_history: Optional[deque] = deque(maxlen=recent_maxlen) if track_recent else None
 
-    def record(self, value_ms: float, timestamp: float | None = None) -> None:
+    def record(self, value_ms: float, timestamp: Optional[float] = None) -> None:
         # Only record non-zero values to maintain consistency
         # Zero values (e.g., no queue wait) don't consume time and shouldn't affect averages
         if value_ms <= 0:
@@ -63,7 +64,7 @@ class StageTrackerManager:
     def get(self, name: str) -> StageTracker:
         return self._trackers[name]
 
-    def record(self, name: str, value_ms: float, timestamp: float | None = None) -> None:
+    def record(self, name: str, value_ms: float, timestamp: Optional[float] = None) -> None:
         if name in self._trackers:
             self._trackers[name].record(value_ms, timestamp)
 

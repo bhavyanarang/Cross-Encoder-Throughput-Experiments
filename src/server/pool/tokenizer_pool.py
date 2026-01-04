@@ -3,6 +3,7 @@ import multiprocessing as mp
 import queue
 import threading
 import time
+from typing import Optional
 
 from src.server.dto.pipeline import InferenceQueueItem, TokenizationQueueItem
 from src.server.pool.base import BaseWorkerPool
@@ -77,15 +78,15 @@ class TokenizerPool(BaseWorkerPool):
 
         # Multiprocessing primitives
         self._processes: list[mp.Process] = []
-        self._input_queue: mp.Queue | None = None  # Shared input queue for all workers
+        self._input_queue: Optional[mp.Queue] = None  # Shared input queue for all workers
         self._output_queue = mp.Queue()
         self._metrics_queue = mp.Queue()
         self._ready_events: list[mp.Event] = []
 
         # Helper threads
-        self._result_thread: threading.Thread | None = None
+        self._result_thread: Optional[threading.Thread] = None
 
-        self._inference_queue: queue.Queue | None = None
+        self._inference_queue: Optional[queue.Queue] = None
 
         # Track pending items to map results back to request objects
         # Key: request_id, Value: TokenizationQueueItem
@@ -96,7 +97,7 @@ class TokenizerPool(BaseWorkerPool):
 
         self._total_batches = 0
         self._total_queries = 0
-        self._start_time: float | None = None
+        self._start_time: Optional[float] = None
         self._stats_lock = threading.Lock()
 
     def start(self, timeout_s: float = 120.0) -> None:

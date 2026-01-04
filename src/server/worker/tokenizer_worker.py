@@ -1,6 +1,7 @@
 import logging
 import time
 from collections import deque
+from typing import Optional
 
 from src.server.dto.inference import TokenizedBatch
 from src.server.utils.tokenizer import TokenizerService
@@ -14,7 +15,7 @@ class TokenizerWorker(BaseWorker[list[tuple[str, str]], TokenizedBatch]):
         super().__init__(worker_id)
         self.model_name = model_name
         self.max_length = max_length
-        self._tokenizer: TokenizerService | None = None
+        self._tokenizer: Optional[TokenizerService] = None
         self._token_timestamps: deque = deque(maxlen=100)
         self._last_token_throughput_window_start: float = time.time()
         self._last_token_count: int = 0

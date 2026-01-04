@@ -1,7 +1,7 @@
 import logging
 import time
 from concurrent import futures
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import grpc
 import numpy as np
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
     def __init__(
-        self, inference_handler: "InferenceInterface", metrics: "MetricsService | None" = None
+        self, inference_handler: "InferenceInterface", metrics: Optional["MetricsService"] = None
     ):
         self._inference_handler = inference_handler
         self._metrics = metrics
@@ -116,10 +116,10 @@ def serve(
     host: str = "127.0.0.1",
     port: int = 50051,
     max_workers: int = 10,
-    metrics: "MetricsService | None" = None,
+    metrics: Optional["MetricsService"] = None,
     use_ssl: bool = False,
-    ssl_cert_path: str | None = None,
-    ssl_key_path: str | None = None,
+    ssl_cert_path: Optional[str] = None,
+    ssl_key_path: Optional[str] = None,
 ) -> grpc.Server:
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=max_workers))
     inference_pb2_grpc.add_InferenceServiceServicer_to_server(

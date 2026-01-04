@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -9,7 +9,7 @@ class ModelConfig(BaseModel):
     backend: Literal["pytorch", "mps", "mlx", "onnx", "compiled", "tensorrt"] = "mps"
     quantization: Literal["fp32", "fp16", "int8", "int4"] = "fp16"
     compile_model: bool = False
-    compile_mode: str | None = Field(
+    compile_mode: Optional[str] = Field(
         default=None, description="torch.compile mode (default, reduce-overhead, max-autotune)"
     )
     max_length: int = 512
@@ -42,6 +42,7 @@ class ServerConfig(BaseModel):
     host: str = "0.0.0.0"
     grpc_port: int = 50051
     http_port: int = 8080
+    prometheus_port: int = 8000
     grpc_workers: int = 10
 
 

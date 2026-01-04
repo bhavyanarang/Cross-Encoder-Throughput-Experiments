@@ -4,7 +4,7 @@ import logging
 import queue
 import threading
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -16,11 +16,11 @@ class BaseWorkerPool(ABC, Generic[T, R]):
     def __init__(self, num_workers: int):
         self.num_workers = num_workers
         self._is_started = False
-        self._inference_queue: queue.Queue | None = None
+        self._inference_queue: Optional[queue.Queue] = None
 
         # Metrics handling
         self._metrics_queue = None  # Should be set by subclass (likely mp.Queue)
-        self._metrics_thread: threading.Thread | None = None
+        self._metrics_thread: Optional[threading.Thread] = None
         self._worker_metrics: dict[int, dict] = {}
         self._metrics_lock = threading.Lock()
         self._shutdown_event = threading.Event()

@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Optional
 
 import yaml
 from omegaconf import DictConfig, OmegaConf
@@ -193,7 +194,7 @@ def hydra_config_to_config(cfg: DictConfig) -> Config:
     )
 
 
-def get_experiment_name(config: Config, config_path: str | None = None) -> str:
+def get_experiment_name(config: Config, config_path: Optional[str] = None) -> str:
     if config.name:
         return config.name
     if config_path:

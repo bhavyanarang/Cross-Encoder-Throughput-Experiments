@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from src.server.pool.model_pool import ModelPool
@@ -13,8 +13,8 @@ class ProcessMonitorService:
     def __init__(self):
         self._process = None
         self._initialized = False
-        self._orchestrator: OrchestratorService | None = None
-        self._pool: ModelPool | None = None
+        self._orchestrator: Optional["OrchestratorService"] = None
+        self._pool: Optional["ModelPool"] = None
 
     def _init_process(self) -> None:
         if self._initialized:
@@ -45,7 +45,7 @@ class ProcessMonitorService:
         """Set the model pool for GPU memory queries."""
         self._pool = pool
 
-    def _try_get_memory(self, source_name: str, getter: callable) -> float | None:
+    def _try_get_memory(self, source_name: str, getter: callable) -> Optional[float]:
         """Try to get GPU memory from a source, returning None on failure."""
         try:
             memory = getter()

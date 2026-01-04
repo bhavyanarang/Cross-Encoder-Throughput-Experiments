@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Optional
 
 import numpy as np
 
@@ -24,7 +24,7 @@ class BaseBackend(ABC):
         device: str = "mps",
         quantization: QuantizationType = "fp16",
         max_length: int = 512,
-        tokenizer_pool: "TokenizerPool | None" = None,
+        tokenizer_pool: Optional["TokenizerPool"] = None,
     ):
         self.model_name = model_name
         self.device = resolve_device(device)

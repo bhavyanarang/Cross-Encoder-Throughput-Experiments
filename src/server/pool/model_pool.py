@@ -4,6 +4,7 @@ import queue
 import threading
 import time
 from itertools import count
+from typing import Optional
 
 from src.server.dto import ModelConfig, PoolConfig
 from src.server.pool.base import BaseWorkerPool
@@ -91,18 +92,18 @@ class ModelPool(BaseWorkerPool):
         self._memory_queue = mp.Queue()
         self._metrics_queue = mp.Queue()
         self._ready_events: list[mp.Event] = []
-        self._result_thread: threading.Thread | None = None
+        self._result_thread: Optional[threading.Thread] = None
 
         self._request_counts: dict[int, int] = {}
         # _worker_metrics and locks are in BaseWorkerPool
 
         # self._shutdown_event is in BaseWorkerPool
-        self._inference_queue: queue.Queue | None = None
-        self._pipeline_consumer_thread: threading.Thread | None = None
+        self._inference_queue: Optional[queue.Queue] = None
+        self._pipeline_consumer_thread: Optional[threading.Thread] = None
         self._round_robin_counter = count()  # Lock-free atomic counter
         self._total_inference_batches = 0
         self._total_inference_queries = 0
-        self._pipeline_start_time: float | None = None
+        self._pipeline_start_time: Optional[float] = None
         self._stats_lock = threading.Lock()
 
     def start(self, timeout_s: float = 120.0) -> None:

@@ -2,6 +2,7 @@ import logging
 import signal
 import sys
 import threading
+from typing import Optional
 
 from src.server.dto import Config, InferenceResult
 from src.server.pipeline.queue_based import QueueBasedPipeline
@@ -35,7 +36,9 @@ class OrchestratorService:
         )
 
         self.pool = ModelPool(self.config.model_pool)
-        self.metrics = MetricsService()
+        
+        self.metrics = MetricsService(prometheus_port=self.config.server.prometheus_port)
+        
         self.metrics.set_inference_service(self)
         self.metrics.set_tokenization_service(self)
         self.metrics.set_model_pool(self.pool)
@@ -179,7 +182,7 @@ class OrchestratorService:
         return self.config.batching.timeout_ms
 
     @property
-    def _batch_thread(self) -> threading.Thread | None:
+    def _batch_thread(self) -> Optional[threading.Thread]:
         if self.pipeline:
             return self.pipeline._batch_thread
         return None
