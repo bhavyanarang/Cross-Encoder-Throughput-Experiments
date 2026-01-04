@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 if TYPE_CHECKING:
     from src.server.pool.model_pool import ModelPool
@@ -38,15 +38,12 @@ class ProcessMonitorService:
         return 0.0
 
     def set_inference_service(self, orchestrator: "OrchestratorService") -> None:
-        """Set the orchestrator (which provides inference service functionality)."""
         self._orchestrator = orchestrator
 
     def set_pool(self, pool: "ModelPool") -> None:
-        """Set the model pool for GPU memory queries."""
         self._pool = pool
 
-    def _try_get_memory(self, source_name: str, getter: callable) -> Optional[float]:
-        """Try to get GPU memory from a source, returning None on failure."""
+    def _try_get_memory(self, source_name: str, getter: Callable[[], float]) -> Optional[float]:
         try:
             memory = getter()
             if memory > 0:
@@ -59,7 +56,6 @@ class ProcessMonitorService:
         return None
 
     def get_gpu_memory_mb(self) -> float:
-        """Get GPU memory usage in MB from orchestrator, pool, or torch MPS."""
         if self._orchestrator is not None:
             memory = self._try_get_memory("orchestrator", self._orchestrator.get_gpu_memory_mb)
             if memory is not None:

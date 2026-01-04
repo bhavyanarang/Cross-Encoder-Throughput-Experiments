@@ -1,10 +1,8 @@
-"""Base worker pool class for managing pools of workers."""
-
 import logging
 import queue
 import threading
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar, Optional
+from typing import Generic, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +16,7 @@ class BaseWorkerPool(ABC, Generic[T, R]):
         self._is_started = False
         self._inference_queue: Optional[queue.Queue] = None
 
-        # Metrics handling
-        self._metrics_queue = None  # Should be set by subclass (likely mp.Queue)
+        self._metrics_queue = None
         self._metrics_thread: Optional[threading.Thread] = None
         self._worker_metrics: dict[int, dict] = {}
         self._metrics_lock = threading.Lock()
@@ -52,14 +49,12 @@ class BaseWorkerPool(ABC, Generic[T, R]):
         }
 
     def _metrics_loop(self) -> None:
-        """Common loop for collecting metrics from workers."""
         if self._metrics_queue is None:
             logger.warning("Metrics queue not initialized, skipping metrics loop")
             return
 
         while not self._shutdown_event.is_set():
             try:
-                # Use a short timeout to check shutdown event frequently
                 try:
                     worker_id, metrics_stats = self._metrics_queue.get(timeout=0.5)
                 except (queue.Empty, EOFError, OSError):
@@ -72,20 +67,17 @@ class BaseWorkerPool(ABC, Generic[T, R]):
                 continue
 
     def start_metrics_thread(self) -> None:
-        """Start the metrics collection thread."""
         if self._metrics_queue:
             self._metrics_thread = threading.Thread(target=self._metrics_loop, daemon=True)
             self._metrics_thread.start()
 
     def stop_metrics_thread(self, timeout_s: float = 1.0) -> None:
-        """Stop the metrics collection thread."""
         if self._metrics_thread:
             self._metrics_thread.join(timeout=timeout_s)
             if self._metrics_thread.is_alive():
                 logger.warning("Metrics thread did not exit cleanly")
 
     def get_worker_metrics(self) -> list[dict]:
-        """Get cached worker metrics."""
         with self._metrics_lock:
             return [self._worker_metrics.get(i, {}) for i in range(self.num_workers)]
 

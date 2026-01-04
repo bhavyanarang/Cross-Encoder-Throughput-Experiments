@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""Convert Hydra config to client-readable YAML format."""
 
 import sys
 from pathlib import Path
@@ -11,8 +10,6 @@ from omegaconf import OmegaConf
 def hydra_to_client_config(
     experiment_name: str, project_root: Path, config_path: Path = None
 ) -> dict:
-    """Convert Hydra experiment config to client-readable format."""
-
     if config_path:
         hydra_config_path = Path(config_path)
     else:
@@ -21,17 +18,14 @@ def hydra_to_client_config(
     if not hydra_config_path.exists():
         raise FileNotFoundError(f"Hydra config not found: {hydra_config_path}")
 
-    # Load Hydra config
     cfg = OmegaConf.load(hydra_config_path)
     cfg_dict = OmegaConf.to_container(cfg, resolve=True)
 
-    # Convert to client format
     client_config = {
         "name": cfg_dict.get("name", experiment_name),
         "description": cfg_dict.get("description", ""),
     }
 
-    # Convert model_pool to legacy model format for client compatibility
     if "model_pool" in cfg_dict and "instances" in cfg_dict["model_pool"]:
         instances = cfg_dict["model_pool"]["instances"]
         if instances and len(instances) > 0:
@@ -42,7 +36,6 @@ def hydra_to_client_config(
                 "device": first_instance.get("device", "mps"),
             }
 
-            # Handle quantization
             quantization = first_instance.get("quantization", "fp16")
             if quantization == "fp16":
                 client_config["model"]["mps"] = {"fp16": True}
@@ -52,7 +45,6 @@ def hydra_to_client_config(
                 client_config["model"]["quantized"] = True
                 client_config["model"]["quantization_mode"] = "int8"
 
-    # Convert batching
     if "batching" in cfg_dict:
         batching = cfg_dict["batching"]
         client_config["batching"] = {
@@ -62,7 +54,6 @@ def hydra_to_client_config(
             "length_aware_batching": batching.get("length_aware", False),
         }
 
-    # Keep experiment section as-is (for client benchmark config)
     if "experiment" in cfg_dict:
         client_config["experiment"] = cfg_dict["experiment"]
 
@@ -80,7 +71,6 @@ if __name__ == "__main__":
     project_root = Path(__file__).parent.parent
     config_path = None
 
-    # Parse --config-path option
     if "--config-path" in sys.argv:
         idx = sys.argv.index("--config-path")
         if idx + 1 < len(sys.argv):

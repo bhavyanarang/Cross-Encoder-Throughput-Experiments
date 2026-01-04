@@ -25,7 +25,7 @@ class TestTokenizerPool:
         assert info["model_name"] == "test-model"
         assert info["num_workers"] == 3
         assert info["is_loaded"] is False
-        assert info["queue_sizes"] == []
+        assert len(info["queue_sizes"]) == 3
         assert info["total_queue_size"] == 0
 
     def test_tokenizer_pool_len(self):
@@ -37,7 +37,6 @@ class TestTokenizerPool:
         assert len(pool) == 5
 
     def test_tokenizer_pool_submit_not_started(self):
-        """Test that submit raises error when pool is not started."""
         from src.server.dto.pipeline import TokenizationQueueItem
 
         pool = TokenizerPool(
@@ -46,7 +45,6 @@ class TestTokenizerPool:
             max_length=512,
         )
 
-        # Create a mock request
         class MockRequest:
             pass
 

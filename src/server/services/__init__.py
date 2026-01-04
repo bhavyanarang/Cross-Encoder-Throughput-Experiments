@@ -5,7 +5,6 @@ from src.server.services.service_base import BaseService, PoolBasedService
 from src.server.worker import BaseWorker, get_worker_gpu_memory, setup_worker_environment
 
 
-# Lazy imports to avoid circular dependencies
 def __getattr__(name):
     if name == "ModelPool":
         from src.server.pool.model_pool import ModelPool

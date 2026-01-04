@@ -1,16 +1,9 @@
-"""
-Comprehensive tests for stage breakdown percentage calculations.
-Ensures that stage percentages always sum to 100% and display correctly.
-"""
-
 import pytest
 
 from src.server.services.metrics_service import MetricsService
 
 
 class TestStageBreakdownPercentages:
-    """Test that stage breakdown percentages always sum to 100%."""
-
     def test_stage_percentages_sum_to_100_with_all_stages(self):
         service = MetricsService()
         service.get_collector()
@@ -254,7 +247,6 @@ class TestStageBreakdownPercentages:
         summary = service.get_summary()
         stage_pct = summary["stage_percentages"]
 
-        # Simulate frontend display logic: top 3 + other
         components = [
             ("tokenize", stage_pct.get("tokenize_pct", 0)),
             ("queue_wait", stage_pct.get("queue_wait_pct", 0)),
@@ -268,7 +260,6 @@ class TestStageBreakdownPercentages:
             ("other", stage_pct.get("other_pct", 0)),
         ]
 
-        # Get top 3
         sorted_comps = sorted(
             [(name, pct) for name, pct in components if pct > 0],
             key=lambda x: x[1],
@@ -277,11 +268,9 @@ class TestStageBreakdownPercentages:
         top3 = sorted_comps[:3]
         rest = sorted_comps[3:]
 
-        # Calculate other from rest
         other_from_rest = sum(pct for _, pct in rest if _ != "other")
         display_total = sum(pct for _, pct in top3) + other_from_rest
 
-        # After normalization in frontend, should fill 100%
         if display_total > 0:
             scale_factor = 100.0 / display_total
             normalized_total = display_total * scale_factor
@@ -291,8 +280,6 @@ class TestStageBreakdownPercentages:
 
 
 class TestStageBreakdownEdgeCases:
-    """Test edge cases for stage breakdown calculation."""
-
     def test_zero_average_latency_handling(self):
         service = MetricsService()
         service.record_stage_timings(
@@ -306,7 +293,6 @@ class TestStageBreakdownEdgeCases:
 
         summary = service.get_summary()
 
-        # Should not crash, percentages should be 0 or "other" should be 100
         stage_pct = summary.get("stage_percentages", {})
         if stage_pct:
             total = sum(v for k, v in stage_pct.items() if k.endswith("_pct"))

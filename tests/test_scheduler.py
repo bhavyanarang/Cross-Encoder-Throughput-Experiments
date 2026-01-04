@@ -15,19 +15,16 @@ class TestPendingRequest:
 
 
 class TestBatching:
-    def test_batching_info(self):
-        """Test batching configuration through orchestrator."""
-        from src.server.dto import Config
+    def test_batching_info(self, minimal_config):
         from src.server.services.orchestrator_service import OrchestratorService
 
-        config = Config()
-        config.batching.enabled = True
-        config.batching.max_batch_size = 16
-        config.batching.timeout_ms = 100
-        config.batching.length_aware = True
+        minimal_config.batching.enabled = True
+        minimal_config.batching.max_batch_size = 16
+        minimal_config.batching.timeout_ms = 100
+        minimal_config.batching.length_aware = True
 
-        orchestrator = OrchestratorService(config)
-        assert not orchestrator._batching_enabled  # Not enabled until setup
+        orchestrator = OrchestratorService(minimal_config)
+        assert not orchestrator._batching_enabled
 
         orchestrator.setup()
         assert orchestrator._batching_enabled
@@ -38,26 +35,24 @@ class TestBatching:
         assert info["timeout_ms"] == 100
         assert info["length_aware"] is True
 
-    def test_batching_disabled(self):
-        """Test that batching can be disabled."""
-        from src.server.dto import Config
+        orchestrator.stop()
+
+    def test_batching_disabled(self, minimal_config):
         from src.server.services.orchestrator_service import OrchestratorService
 
-        config = Config()
-        config.batching.enabled = False
+        minimal_config.batching.enabled = False
 
-        orchestrator = OrchestratorService(config)
+        orchestrator = OrchestratorService(minimal_config)
         orchestrator.setup()
         assert not orchestrator._batching_enabled
 
-    def test_batching_stop(self):
-        """Test that batching stops cleanly."""
-        from src.server.dto import Config
+        orchestrator.stop()
+
+    def test_batching_stop(self, minimal_config):
         from src.server.services.orchestrator_service import OrchestratorService
 
-        config = Config()
-        config.batching.enabled = True
+        minimal_config.batching.enabled = True
 
-        orchestrator = OrchestratorService(config)
+        orchestrator = OrchestratorService(minimal_config)
         orchestrator.setup()
         orchestrator.stop()

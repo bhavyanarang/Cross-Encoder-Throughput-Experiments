@@ -4,15 +4,14 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+
 class DatasetLoader:
     def __init__(self, cache_dir: Path = None):
-        # Allow cache_dir to be injected, or default to standard location relative to project root
         if cache_dir is None:
-            # Assuming this file is in src/client/, project root is ../../
             self.cache_dir = Path(__file__).resolve().parent.parent.parent / ".cache"
         else:
             self.cache_dir = cache_dir
-            
+
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def load(self, num_samples: int = 1000) -> list:

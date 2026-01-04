@@ -224,7 +224,6 @@ def generate_static_dashboard(
             else:
                 body_content = ""
 
-        # Build complete static HTML with embedded CSS, JS, and data
         static_html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -339,7 +338,6 @@ def main():
         sys.exit(1)
 
     if not timeseries_path.exists():
-        # This fallback is for when --timeseries was provided but file doesn't exist
         logger.warning(f"Timeseries file not found: {timeseries_path}. Creating dummy file.")
         experiment_name = (
             args.experiment if args.experiment else timeseries_path.stem.replace("_timeseries", "")

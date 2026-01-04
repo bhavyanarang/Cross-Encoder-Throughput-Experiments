@@ -66,13 +66,10 @@ class BaseBackend(ABC):
                 tokenized_batch = tokenizer.tokenize(pairs)
                 features = tokenized_batch.features
             else:
-                # Local tokenizer
                 tokenized_batch = tokenizer.tokenize(pairs, device=self.device)
                 features = tokenized_batch.features
 
             t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
-
-            # Common metadata from tokenized batch
             batch_size = tokenized_batch.batch_size
             max_seq_length = tokenized_batch.max_seq_length
             total_tokens = tokenized_batch.total_tokens
@@ -179,15 +176,12 @@ class BaseBackend(ABC):
         return self._pending
 
     def _acquire(self) -> None:
-        # Optimize: Acquire lock first, then update pending counter
-        # This reduces the critical section and lock acquisitions
         self._lock.acquire()
         self._is_busy = True
         with self._pending_lock:
             self._pending += 1
 
     def _release(self) -> None:
-        # Optimize: Release pending counter first, then release lock
         with self._pending_lock:
             self._pending -= 1
         self._is_busy = False

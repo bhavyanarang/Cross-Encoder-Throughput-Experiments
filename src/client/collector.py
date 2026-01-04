@@ -1,8 +1,11 @@
 import logging
+
 import requests
+
 from src.server.dto import DashboardMetrics
 
 logger = logging.getLogger(__name__)
+
 
 class DashboardCollector:
     def __init__(self, dashboard_url: str = "http://localhost:8080"):

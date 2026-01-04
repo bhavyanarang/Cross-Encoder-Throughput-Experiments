@@ -111,10 +111,8 @@ class CompiledBackend(TorchBackend):
 
     @classmethod
     def from_config(cls, config) -> "CompiledBackend":
-        # Check for compile_mode directly (new Hydra format)
         compile_mode = getattr(config, "compile_mode", None)
 
-        # Fall back to old format: config.compiled.mode
         if compile_mode is None:
             compiled_config = getattr(config, "compiled", {}) or {}
             if isinstance(compiled_config, dict):
@@ -122,7 +120,6 @@ class CompiledBackend(TorchBackend):
             else:
                 compile_mode = getattr(compiled_config, "mode", "reduce-overhead")
 
-        # Default if still None
         if compile_mode is None:
             compile_mode = "reduce-overhead"
 

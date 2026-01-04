@@ -19,14 +19,6 @@ class InferenceClient:
         use_ssl: bool = False,
         ssl_ca_cert_path: Optional[str] = None,
     ):
-        """Create inference client.
-
-        Args:
-            host: Server hostname/IP
-            port: Server port
-            use_ssl: Whether to use SSL/TLS for connection
-            ssl_ca_cert_path: Path to CA certificate for SSL verification (optional)
-        """
         if use_ssl:
             if ssl_ca_cert_path:
                 try:
@@ -78,13 +70,11 @@ class InferenceClient:
             batches.append(batch)
 
         latencies = []
-        # Use thread-safe list operations instead of lock when possible
-        # In CPython, list.append() is atomic due to GIL
         start = time.perf_counter()
 
         def run_batch(batch):
             _, lat = self.infer(batch)
-            latencies.append(lat)  # Atomic operation in CPython
+            latencies.append(lat)
             return lat
 
         if concurrency == 1:

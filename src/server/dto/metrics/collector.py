@@ -36,7 +36,6 @@ class MetricsCollector:
     _stage_tracker_manager: StageTrackerManager = field(default_factory=StageTrackerManager)
     _padding_tracker: PaddingTracker = field(default_factory=PaddingTracker)
 
-    # Pool references for getting worker metrics with throughput calculations
     _model_pool: Optional["ModelPool"] = field(default=None)
     _tokenizer_pool: Optional["TokenizerPool"] = field(default=None)
 
@@ -62,11 +61,9 @@ class MetricsCollector:
             self._stage_tracker_manager.unregister("tokenizer_queue_wait")
 
     def set_pool(self, pool: "ModelPool") -> None:
-        """Set the model pool for getting worker metrics with throughput."""
         self._model_pool = pool
 
     def set_tokenizer_pool(self, pool: "TokenizerPool") -> None:
-        """Set the tokenizer pool for getting worker metrics with throughput."""
         self._tokenizer_pool = pool
 
     def set_experiment_info(
@@ -80,7 +77,6 @@ class MetricsCollector:
 
     @property
     def last_latency_ms(self) -> float:
-        """Get the last recorded latency (data access only, no computation)."""
         if self.recent_latencies:
             _, last_lat = self.recent_latencies[-1]
             return last_lat
@@ -88,11 +84,9 @@ class MetricsCollector:
 
     def record(self, duration_ms: float, num_queries: int = 1):
         now = time.time()
-        # deque.append() is atomic in CPython due to GIL, no lock needed for append operations
         self.latencies.append(duration_ms)
         self.recent_queries.append((now, num_queries))
         self.recent_latencies.append((now, duration_ms))
-        # Use lock only for counters that need synchronization
         with self._lock:
             self.request_count += 1
             self.query_count += num_queries
@@ -113,7 +107,6 @@ class MetricsCollector:
         total_ms: float = 0.0,
     ) -> None:
         now = time.time()
-        # Prepare stage values without lock
         stage_values = {
             "tokenize": t_tokenize,
             "tokenizer_queue_wait": t_tokenizer_queue_wait,
@@ -127,20 +120,17 @@ class MetricsCollector:
             "scheduler": t_scheduler,
         }
 
-        # Calculate pipeline overhead as unmeasured latency
         if total_ms > 0:
             measured_sum = sum(stage_values.values())
             pipeline_overhead = max(0, total_ms - measured_sum)
             stage_values["pipeline_overhead"] = pipeline_overhead
 
-        # Record stage timings (stage tracker manager is thread-safe)
         with self._lock:
             for name, value in stage_values.items():
                 try:
                     tracker = self._stage_tracker_manager.get(name)
                     tracker.record(value, now if tracker.recent_history is not None else None)
                 except KeyError:
-                    # Tracker not registered, skip (e.g., pipeline_overhead might not be registered yet)
                     pass
 
     def record_padding_stats(
@@ -151,7 +141,6 @@ class MetricsCollector:
         max_seq_length: int = 0,
         avg_seq_length: float = 0.0,
     ) -> None:
-        # Padding tracker operations are lightweight, minimize lock time
         with self._lock:
             self._padding_tracker.record(
                 padding_ratio, padded_tokens, total_tokens, max_seq_length, avg_seq_length

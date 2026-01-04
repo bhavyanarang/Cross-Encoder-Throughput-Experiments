@@ -28,16 +28,12 @@ def main(cfg: DictConfig) -> None:
     if cfg.get("http_port"):
         config.server.http_port = cfg.http_port
 
-    # Auto-adjust grpc_workers based on experiment concurrency levels
-    # This ensures the gRPC server can handle all concurrent requests
     experiment_config = cfg.get("experiment", {})
     concurrency_levels = experiment_config.get("concurrency_levels", [])
 
     if concurrency_levels:
         max_concurrency = max(concurrency_levels)
 
-        # Set grpc_workers to max_concurrency * 2 for headroom (minimum 16)
-        # This ensures requests aren't queued at the gRPC level
         recommended_workers = max(max_concurrency * 2, 16, config.server.grpc_workers)
         if config.server.grpc_workers < recommended_workers:
             if config.server.grpc_workers <= max_concurrency:

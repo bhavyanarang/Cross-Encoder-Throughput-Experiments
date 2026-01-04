@@ -6,21 +6,43 @@ import weakref
 from pathlib import Path
 
 import pytest
+from prometheus_client import REGISTRY
 
 root = Path(__file__).parent.parent
 sys.path.insert(0, str(root))
+
+
+def _clear_prometheus_registry():
+    collectors_to_remove = []
+    for collector in REGISTRY._names_to_collectors.values():
+        if (
+            hasattr(collector, "_name")
+            and not collector._name.startswith("python_")
+            and not collector._name.startswith("process_")
+        ):
+            collectors_to_remove.append(collector)
+    for collector in collectors_to_remove:
+        try:
+            REGISTRY.unregister(collector)
+        except Exception:
+            pass
+
+
+@pytest.fixture(autouse=True)
+def cleanup_prometheus_registry():
+    _clear_prometheus_registry()
+    yield
+    _clear_prometheus_registry()
 
 
 _orchestrator_registry = weakref.WeakSet()
 
 
 def register_orchestrator(orchestrator):
-    """Register an orchestrator for automatic cleanup."""
     _orchestrator_registry.add(orchestrator)
 
 
 def create_orchestrator(*args, **kwargs):
-    """Create and register an orchestrator for automatic cleanup."""
     from src.server.services.orchestrator_service import OrchestratorService
 
     orchestrator = OrchestratorService(*args, **kwargs)
@@ -29,7 +51,6 @@ def create_orchestrator(*args, **kwargs):
 
 
 def ensure_orchestrator_cleanup(orchestrator):
-    """Clean up an orchestrator and wait for threads to finish."""
     if orchestrator is None:
         return
 
@@ -98,7 +119,6 @@ def orchestrator_without_batching(minimal_config):
 
 @pytest.fixture(autouse=True)
 def auto_register_orchestrators():
-    """Automatically register orchestrators when setup() is called (like @BeforeEach in Java)."""
     from src.server.services.orchestrator_service import OrchestratorService
 
     original_setup = OrchestratorService.setup
@@ -115,7 +135,6 @@ def auto_register_orchestrators():
 
 @pytest.fixture(autouse=True)
 def ensure_cleanup():
-    """Automatically clean up orchestrators and threads after each test (like @AfterEach in Java)."""
     yield
 
     for orchestrator in list(_orchestrator_registry):

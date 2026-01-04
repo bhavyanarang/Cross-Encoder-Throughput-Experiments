@@ -36,9 +36,9 @@ class OrchestratorService:
         )
 
         self.pool = ModelPool(self.config.model_pool)
-        
+
         self.metrics = MetricsService(prometheus_port=self.config.server.prometheus_port)
-        
+
         self.metrics.set_inference_service(self)
         self.metrics.set_tokenization_service(self)
         self.metrics.set_model_pool(self.pool)
@@ -58,7 +58,6 @@ class OrchestratorService:
             ),
         )
 
-        # Initialize Pipeline
         self.pipeline = QueueBasedPipeline(
             config=self.config,
             tokenizer_pool=self.tokenizer_pool,
@@ -151,7 +150,6 @@ class OrchestratorService:
         return self
 
     def get_batching_info(self) -> dict:
-        """Get batching configuration and status from the pipeline."""
         if self.pipeline:
             return self.pipeline.get_batching_info()
         return {
@@ -162,12 +160,11 @@ class OrchestratorService:
             "pending": 0,
         }
 
-    # Expose batching attributes for backward compatibility with tests
     @property
     def _batching_enabled(self) -> bool:
         if self.pipeline:
             return self.pipeline._batching_enabled
-        return self.config.batching.enabled
+        return False
 
     @property
     def _max_batch_size(self) -> int:
@@ -189,10 +186,8 @@ class OrchestratorService:
 
     @property
     def _batch_queue(self):
-        """Expose batch queue from the pipeline for backward compatibility with tests."""
         if self.pipeline:
             return self.pipeline._batch_queue
-        # Return a dummy queue before setup for test compatibility
         if not hasattr(self, "_dummy_batch_queue"):
             import queue
 
@@ -201,14 +196,12 @@ class OrchestratorService:
 
     @property
     def _inference_queue(self):
-        """Expose inference queue from the pipeline for backward compatibility with tests."""
         if self.pipeline:
             return self.pipeline._inference_queue
         return None
 
     @property
     def _tokenization_started(self) -> bool:
-        """Expose tokenization started flag from the pipeline."""
         if self.pipeline:
             return self.pipeline._tokenization_started
         if not hasattr(self, "_local_tokenization_started"):
@@ -217,7 +210,6 @@ class OrchestratorService:
 
     @_tokenization_started.setter
     def _tokenization_started(self, value: bool) -> None:
-        """Set tokenization started flag."""
         if self.pipeline:
             self.pipeline._tokenization_started = value
         else:
@@ -225,7 +217,6 @@ class OrchestratorService:
 
     @property
     def _inference_started(self) -> bool:
-        """Expose inference started flag from the pipeline."""
         if self.pipeline:
             return self.pipeline._inference_started
         if not hasattr(self, "_local_inference_started"):
@@ -234,7 +225,6 @@ class OrchestratorService:
 
     @_inference_started.setter
     def _inference_started(self, value: bool) -> None:
-        """Set inference started flag."""
         if self.pipeline:
             self.pipeline._inference_started = value
         else:

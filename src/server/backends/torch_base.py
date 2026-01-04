@@ -13,11 +13,6 @@ logger = logging.getLogger(__name__)
 
 
 class TorchBackend(BaseBackend, ABC):
-    """
-    Base backend for PyTorch-based implementations (CPU, MPS, CUDA, etc.).
-    Provides common inference implementations.
-    """
-
     def _get_tokenizer(self):
         if self._tokenizer_pool is not None:
             return self._tokenizer_pool

@@ -1,14 +1,4 @@
 #!/usr/bin/env python3
-"""
-Performance Hammer - High-concurrency stress testing tool
-
-Sends concurrent requests to the inference server to test queue growth
-and system behavior under load.
-
-Usage:
-    python scripts/perf_hammer.py --concurrency 256 --batch-size 64 --duration 60
-    python scripts/perf_hammer.py --concurrency 512 --batch-size 64 --requests 1000
-"""
 
 import argparse
 import logging
@@ -21,10 +11,8 @@ from threading import Lock
 
 import numpy as np
 
-# Add src to path
 sys.path.insert(0, str(__file__).replace("/scripts/perf_hammer.py", ""))
 
-# from src.server.utils.data_loader import DataLoader
 import json
 from pathlib import Path
 
@@ -44,8 +32,6 @@ class DataLoader:
                 pairs = json.load(f)
             return [(p[0], p[1]) for p in pairs]
 
-        # Fallback to synthetic if cache missing (since we can't easily download here without duplicating code)
-        # Or duplicate the logic. Let's duplicate minimal logic.
         return self._create_synthetic(num_samples)
 
     def _create_synthetic(self, num_samples: int) -> list:
@@ -70,16 +56,6 @@ class PerfHammer:
         duration: float | None = None,
         num_requests: int | None = None,
     ):
-        """Initialize performance hammer.
-
-        Args:
-            host: Server hostname
-            port: Server port
-            concurrency: Number of concurrent requests
-            batch_size: Pairs per request
-            duration: Run duration in seconds (if None, use num_requests)
-            num_requests: Total number of requests (if None, use duration)
-        """
         self.client = InferenceClient(host=host, port=port)
         self.concurrency = concurrency
         self.batch_size = batch_size
@@ -88,7 +64,6 @@ class PerfHammer:
         self.running = True
         self.stats_lock = Lock()
 
-        # Statistics
         self.latencies: list[float] = []
         self.throughputs: list[float] = []
         self.errors: list[str] = []
@@ -96,29 +71,24 @@ class PerfHammer:
         self.end_time: float | None = None
         self.request_count = 0
 
-        # Real-time stats (last N requests)
         self.recent_latencies = deque(maxlen=100)
         self.recent_throughputs = deque(maxlen=100)
 
-        # Setup signal handler
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
 
     def _signal_handler(self, signum, frame):
-        """Handle interrupt signals."""
         logger.info("\nInterrupt received, stopping...")
         self.running = False
 
     def _load_test_data(self) -> list[tuple[str, str]]:
-        """Load test data."""
         logger.info("Loading test data...")
         loader = DataLoader()
-        pairs = loader.load(10000)  # Load enough for many requests
+        pairs = loader.load(10000)
         logger.info(f"Loaded {len(pairs)} query-document pairs")
         return pairs
 
     def _create_batch(self, pairs: list[tuple[str, str]], index: int) -> list[tuple[str, str]]:
-        """Create a batch from pairs."""
         start_idx = (index * self.batch_size) % len(pairs)
         batch = pairs[start_idx : start_idx + self.batch_size]
         if len(batch) < self.batch_size:
@@ -126,7 +96,6 @@ class PerfHammer:
         return batch
 
     def _send_request(self, batch: list[tuple[str, str]]) -> tuple[bool, float, float]:
-        """Send a single request and return (success, latency_ms, throughput)."""
         try:
             _, latency_ms = self.client.infer(batch, timeout=120.0)
             throughput = self.batch_size / (latency_ms / 1000.0) if latency_ms > 0 else 0
@@ -135,7 +104,6 @@ class PerfHammer:
             return False, 0.0, 0.0
 
     def _worker(self, pairs: list[tuple[str, str]], request_id: int) -> None:
-        """Worker thread that sends requests continuously."""
         while self.running:
             if self.duration and self.start_time:
                 if time.perf_counter() - self.start_time >= self.duration:
@@ -154,10 +122,9 @@ class PerfHammer:
                 else:
                     self.errors.append(f"Request {request_id} failed")
 
-            request_id += self.concurrency  # Next request for this worker
+            request_id += self.concurrency
 
     def _print_stats(self):
-        """Print current statistics."""
         with self.stats_lock:
             if not self.latencies:
                 return
@@ -188,7 +155,6 @@ class PerfHammer:
             )
 
     def run(self):
-        """Run the performance hammer."""
         pairs = self._load_test_data()
 
         logger.info(
@@ -204,19 +170,16 @@ class PerfHammer:
 
         self.start_time = time.perf_counter()
 
-        # Start worker threads
         with ThreadPoolExecutor(max_workers=self.concurrency) as executor:
             futures = []
             for i in range(self.concurrency):
                 future = executor.submit(self._worker, pairs, i)
                 futures.append(future)
 
-            # Print stats periodically
             last_stats_time = time.perf_counter()
             while self.running:
                 time.sleep(1.0)
 
-                # Check if we should stop
                 if self.duration:
                     if time.perf_counter() - self.start_time >= self.duration:
                         self.running = False
@@ -227,23 +190,19 @@ class PerfHammer:
                             self.running = False
                             break
 
-                # Print stats every second
                 if time.perf_counter() - last_stats_time >= 60.0:
                     self._print_stats()
                     last_stats_time = time.perf_counter()
 
-            # Wait for workers to finish
             logger.info("Waiting for workers to finish...")
             for future in futures:
                 future.cancel()
 
         self.end_time = time.perf_counter()
 
-        # Print final statistics
         self._print_final_stats()
 
     def _print_final_stats(self):
-        """Print final statistics."""
         if not self.latencies:
             logger.warning("No successful requests completed")
             return
@@ -336,7 +295,7 @@ Examples:
     args = parser.parse_args()
 
     if not args.duration and not args.requests:
-        args.duration = 60.0  # Default to 60 seconds
+        args.duration = 60.0
         logger.info("No duration or requests specified, defaulting to 60 seconds")
 
     if args.duration and args.requests:

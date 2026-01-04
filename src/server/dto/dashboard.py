@@ -12,7 +12,7 @@ class DashboardHistory:
     cpu_percent: list = field(default_factory=list)
     gpu_memory_mb: list = field(default_factory=list)
     gpu_utilization_pct: list = field(default_factory=list)
-    queue_wait_ms: list = field(default_factory=list)  # Combined for backward compatibility
+    queue_wait_ms: list = field(default_factory=list)
     tokenizer_queue_wait_ms: list = field(default_factory=list)
     model_queue_wait_ms: list = field(default_factory=list)
     tokenizer_queue_size: list = field(default_factory=list)
@@ -25,10 +25,9 @@ class DashboardHistory:
     tokenizer_worker_latencies: list = field(default_factory=list)
     tokenizer_worker_requests: list = field(default_factory=list)
 
-    # Pipeline mode metrics (three-layer throughput analysis)
-    tokenizer_throughput_qps: list = field(default_factory=list)  # Tokenizer pool throughput (q/s)
-    inference_throughput_qps: list = field(default_factory=list)  # Inference pool throughput (q/s)
-    overall_throughput_qps: list = field(default_factory=list)  # Overall response throughput (q/s)
+    tokenizer_throughput_qps: list = field(default_factory=list)
+    inference_throughput_qps: list = field(default_factory=list)
+    overall_throughput_qps: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -100,9 +99,9 @@ class DashboardMetrics:
     overhead_ms: list = field(default_factory=list)
     worker_stats: list = field(default_factory=list)
     stage_percentages: dict = field(default_factory=dict)
-    tokenizer_throughput_qps: list = field(default_factory=list)  # Layer throughput (q/s)
-    inference_throughput_qps: list = field(default_factory=list)  # Layer throughput (q/s)
-    overall_throughput_qps: list = field(default_factory=list)  # Overall response throughput (q/s)
+    tokenizer_throughput_qps: list = field(default_factory=list)
+    inference_throughput_qps: list = field(default_factory=list)
+    overall_throughput_qps: list = field(default_factory=list)
 
     def get_summary(self) -> dict:
         def stats(arr):

@@ -1,11 +1,11 @@
 import logging
 import os
 from datetime import datetime
-from pathlib import Path
 
 from src.server.dto import DashboardMetrics
 
 logger = logging.getLogger(__name__)
+
 
 class ResultsWriter:
     def save(
@@ -21,17 +21,20 @@ class ResultsWriter:
         if dirname:
             os.makedirs(dirname, exist_ok=True)
         mode = "a" if append else "w"
-        
+
         with open(output_file, mode) as f:
-             if not append:
-                 f.write(f"# Benchmark run at {datetime.now()}\n\n")
-             f.write("Manual statistics computation has been disabled. Please refer to Promethues/Grafana for experimental results.\n\n")
-             
-             for r in results:
-                 if "error" in r:
-                     f.write(f"- Run failed: {r.get('error')}\n")
-                 else:
-                     f.write(f"- Run completed: {r.get('num_requests')} requests in {r.get('total_time_s', 0):.2f}s\n")
+            if not append:
+                f.write(f"# Benchmark run at {datetime.now()}\n\n")
+            f.write(
+                "Manual statistics computation has been disabled. Please refer to Promethues/Grafana for experimental results.\n\n"
+            )
+
+            for r in results:
+                if "error" in r:
+                    f.write(f"- Run failed: {r.get('error')}\n")
+                else:
+                    f.write(
+                        f"- Run completed: {r.get('num_requests')} requests in {r.get('total_time_s', 0):.2f}s\n"
+                    )
 
         logger.info(f"Simple run log saved to {output_file}. Check Grafana for metrics.")
-

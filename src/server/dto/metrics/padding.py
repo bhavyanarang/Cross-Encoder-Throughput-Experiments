@@ -1,6 +1,4 @@
 class PaddingTracker:
-    """DTO for storing padding statistics. No computation logic."""
-
     def __init__(self):
         self.ratios: list = []
         self.padded_tokens_total: int = 0
@@ -19,7 +17,6 @@ class PaddingTracker:
         max_seq_length: int = 0,
         avg_seq_length: float = 0.0,
     ) -> None:
-        # Validate inputs
         if not (0.0 <= padding_ratio <= 1.0):
             import logging
 

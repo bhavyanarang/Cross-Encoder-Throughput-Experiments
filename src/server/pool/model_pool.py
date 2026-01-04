@@ -95,12 +95,10 @@ class ModelPool(BaseWorkerPool):
         self._result_thread: Optional[threading.Thread] = None
 
         self._request_counts: dict[int, int] = {}
-        # _worker_metrics and locks are in BaseWorkerPool
 
-        # self._shutdown_event is in BaseWorkerPool
         self._inference_queue: Optional[queue.Queue] = None
         self._pipeline_consumer_thread: Optional[threading.Thread] = None
-        self._round_robin_counter = count()  # Lock-free atomic counter
+        self._round_robin_counter = count()
         self._total_inference_batches = 0
         self._total_inference_queries = 0
         self._pipeline_start_time: Optional[float] = None
@@ -153,7 +151,6 @@ class ModelPool(BaseWorkerPool):
         if not self._is_started:
             raise RuntimeError("Model pool not started")
 
-        # Lock-free round-robin using atomic counter
         worker_idx = next(self._round_robin_counter) % self.num_workers
 
         try:
@@ -348,7 +345,6 @@ class ModelPool(BaseWorkerPool):
                 request.t_queue_inference_wait_ms = queue_wait_ms
 
                 try:
-                    # Lock-free round-robin using atomic counter
                     worker_idx = next(self._round_robin_counter) % self.num_workers
                     selected_queue = self._input_queues[worker_idx]
                     work_item = _InferenceWorkItem(tokenized_batch, request.request_id)
@@ -423,7 +419,6 @@ class ModelPool(BaseWorkerPool):
                 if self._inference_queue:
                     queue_size = self._inference_queue.qsize()
 
-                # Also count items waiting in worker queues
                 for q in self._input_queues:
                     worker_queue_size += q.qsize()
             except Exception as e:
@@ -450,7 +445,6 @@ class ModelPool(BaseWorkerPool):
 
         time.sleep(0.1)
 
-        # Use base class method to return cached metrics
         return super().get_worker_metrics()
 
     def get_worker_metrics_by_id(self, worker_id: int) -> dict:

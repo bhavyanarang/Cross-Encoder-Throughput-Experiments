@@ -45,32 +45,28 @@ def main():
     config = {}
     if args.config:
         import yaml
+
         with open(args.config) as f:
             config = yaml.safe_load(f)
     if not config and args.experiment:
-        # Try to load base config if no config provided but experiment mode set
         base_config_path = Path(__file__).parent.parent / "experiments" / "base_config.yaml"
         if base_config_path.exists():
             import yaml
+
             with open(base_config_path) as f:
                 config = yaml.safe_load(f)
 
-    # Initialize components
     loader = DatasetLoader()
     collector = DashboardCollector(f"http://{args.host}:8080")
     writer = ResultsWriter()
 
     try:
-        # Load dataset
         pairs = loader.load(args.dataset_size)
 
-        # Connect to server
         client = InferenceClient(host=args.host, port=args.port)
-        
-        # Initialize runner
+
         runner = BenchmarkRunner(client, state)
 
-        # Run benchmark
         result = runner.run(
             pairs=pairs,
             batch_size=args.batch_size,
@@ -78,12 +74,10 @@ def main():
             concurrency=args.concurrency,
         )
 
-        # Collect server metrics
         dashboard_metrics = None
         if args.experiment:
             dashboard_metrics = collector.collect_history()
 
-        # Save results
         if args.output:
             writer.save(
                 results=[result],
@@ -93,19 +87,18 @@ def main():
                 append=args.append,
                 timeseries_file=args.timeseries_file,
             )
-        
-        # Print summary to stdout
+
         if "error" in result:
-             logger.error(f"Benchmark failed: {result['error']}")
+            logger.error(f"Benchmark failed: {result['error']}")
         else:
-             logger.info(
-                 f"Benchmark completed: {result.get('num_requests', 0)} requests processed in {result.get('total_time_s', 0):.2f}s. Check Grafana for metrics."
-             )
+            logger.info(
+                f"Benchmark completed: {result.get('num_requests', 0)} requests processed in {result.get('total_time_s', 0):.2f}s. Check Grafana for metrics."
+            )
 
     except Exception as e:
         logger.error(f"Benchmark failed with exception: {e}", exc_info=True)
-        # Check if we should save partial results or handle clean up here
         pass
+
 
 if __name__ == "__main__":
     main()

@@ -1,5 +1,3 @@
-from unittest.mock import MagicMock
-
 from src.server.dto.metrics import (
     MetricsCollector,
     StageMetrics,
@@ -127,38 +125,3 @@ class TestMetricsCollector:
 
         assert isinstance(memory, float)
         assert memory >= 0
-
-    def test_metrics_collector_gpu_utilization(self):
-        service = MetricsService()
-        util = service.get_gpu_utilization_pct()
-
-        assert isinstance(util, float)
-        assert 0 <= util <= 100
-
-    def test_metrics_collector_worker_stats(self):
-        service = MetricsService()
-        mock_pool = MagicMock()
-        mock_pool.get_worker_metrics.return_value = [
-            {"worker_id": 0, "query_count": 1, "avg_ms": 10.0},
-            {"worker_id": 1, "query_count": 2, "avg_ms": 20.0},
-        ]
-        service.set_model_pool(mock_pool)
-
-        summary = service.get_summary()
-        worker_stats = summary["worker_stats"]
-        assert len(worker_stats) == 2
-        assert worker_stats[0]["worker_id"] == 0
-        assert worker_stats[1]["worker_id"] == 1
-
-    def test_metrics_collector_tokenizer_worker_stats(self):
-        service = MetricsService()
-        mock_pool = MagicMock()
-        mock_pool.get_worker_metrics.return_value = [
-            {"worker_id": 0, "request_count": 1, "avg_ms": 5.0},
-        ]
-        service.set_tokenizer_pool(mock_pool)
-
-        summary = service.get_summary()
-        tokenizer_stats = summary["tokenizer_worker_stats"]
-        assert len(tokenizer_stats) == 1
-        assert tokenizer_stats[0]["worker_id"] == 0

@@ -1,10 +1,8 @@
 import logging
 import threading
 import time
-from collections import deque
 from typing import TYPE_CHECKING, Optional
 
-import numpy as np
 from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 from src.server.dto.metrics import MetricsCollector
@@ -15,9 +13,6 @@ if TYPE_CHECKING:
     from src.server.services.orchestrator_service import OrchestratorService
 
 logger = logging.getLogger(__name__)
-
-
-
 
 
 class MetricsService(BaseService):
@@ -31,50 +26,69 @@ class MetricsService(BaseService):
         self._shutdown_event = threading.Event()
         self._prometheus_port = prometheus_port
 
-        # Prometheus Metrics
         self.prom_request_count = Counter("request_count", "Total number of requests")
         self.prom_request_latency = Histogram(
-            "request_latency_seconds", "Request latency in seconds", buckets=[0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0]
+            "request_latency_seconds",
+            "Request latency in seconds",
+            buckets=[
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.075,
+                0.1,
+                0.25,
+                0.5,
+                0.75,
+                1.0,
+                2.5,
+                5.0,
+                7.5,
+                10.0,
+            ],
         )
         self.prom_inference_latency = Histogram(
-             "inference_latency_seconds", "Model inference latency in seconds"
+            "inference_latency_seconds", "Model inference latency in seconds"
         )
         self.prom_tokenization_latency = Histogram(
-             "tokenization_latency_seconds", "Tokenization latency in seconds"
+            "tokenization_latency_seconds", "Tokenization latency in seconds"
         )
         self.prom_queue_wait_latency = Histogram(
-             "queue_wait_latency_seconds", "Total queue wait latency in seconds"
+            "queue_wait_latency_seconds", "Total queue wait latency in seconds"
         )
-        
+
         self.prom_gpu_memory = Gauge("gpu_memory_mb", "GPU Memory Usage in MB")
         self.prom_cpu_percent = Gauge("cpu_percent", "CPU Usage Percentage")
-        
+
         self.prom_tokenizer_queue_size = Gauge("tokenizer_queue_size", "Tokenizer Queue Size")
         self.prom_model_queue_size = Gauge("model_queue_size", "Model Queue Size")
         self.prom_batch_queue_size = Gauge("batch_queue_size", "Batch Queue Size")
-        
-        # Worker-level metrics
-        self.prom_worker_latency = Gauge("worker_latency_ms", "Worker latency in ms", ["worker_id", "worker_type"])
-        self.prom_worker_requests = Counter("worker_request_count", "Worker request count", ["worker_id", "worker_type"])
-        self.prom_worker_throughput = Gauge("worker_throughput_qps", "Worker throughput QPS", ["worker_id", "worker_type"])
-        
-        # Overhead and padding metrics
-        self.prom_overhead_latency = Histogram("overhead_latency_seconds", "Pipeline overhead latency")
-        self.prom_padding_ratio = Gauge("padding_ratio", "Padding ratio (0-1)")
 
+        self.prom_worker_latency = Gauge(
+            "worker_latency_ms", "Worker latency in ms", ["worker_id", "worker_type"]
+        )
+        self.prom_worker_requests = Counter(
+            "worker_request_count", "Worker request count", ["worker_id", "worker_type"]
+        )
+        self.prom_worker_throughput = Gauge(
+            "worker_throughput_qps", "Worker throughput QPS", ["worker_id", "worker_type"]
+        )
+
+        self.prom_overhead_latency = Histogram(
+            "overhead_latency_seconds", "Pipeline overhead latency"
+        )
+        self.prom_padding_ratio = Gauge("padding_ratio", "Padding ratio (0-1)")
 
     def start(self) -> None:
         self._is_started = True
         self._shutdown_event.clear()
 
-        # Start Prometheus HTTP server
         try:
             start_http_server(self._prometheus_port)
             logger.info(f"Prometheus metrics server started on port {self._prometheus_port}")
         except Exception as e:
             logger.warning(f"Failed to start Prometheus server: {e}")
 
-        # Check pipeline mode and disable unrelated stages in collector
         if self._orchestrator and hasattr(self._orchestrator, "config"):
             mode = self._orchestrator.config.pipeline.mode
             if hasattr(self._collector, "set_pipeline_mode"):
@@ -101,12 +115,10 @@ class MetricsService(BaseService):
         logger.info("MetricsService stopped")
 
     def set_inference_service(self, orchestrator: "OrchestratorService") -> None:
-        """Set the orchestrator (which provides inference service functionality)."""
         self._orchestrator = orchestrator
         self._process_monitor_service.set_inference_service(orchestrator)
 
     def set_tokenization_service(self, orchestrator: "OrchestratorService") -> None:
-        """Set the orchestrator (which provides tokenization service functionality)."""
         self._orchestrator = orchestrator
 
     def set_model_pool(self, pool) -> None:
@@ -123,11 +135,9 @@ class MetricsService(BaseService):
 
     def record(self, duration_ms: float, num_queries: int = 1) -> None:
         self._collector.record(duration_ms, num_queries)
-        
-        # Prometheus updates
-        self.prom_request_count.inc(num_queries)
-        self.prom_request_latency.observe(duration_ms / 1000.0) # Convert to seconds
 
+        self.prom_request_count.inc(num_queries)
+        self.prom_request_latency.observe(duration_ms / 1000.0)
 
     def record_stage_timings(
         self,
@@ -156,17 +166,15 @@ class MetricsService(BaseService):
             t_scheduler=t_scheduler,
             total_ms=total_ms,
         )
-        
-        # Prometheus updates for stages
+
         if t_model_inference > 0:
             self.prom_inference_latency.observe(t_model_inference / 1000.0)
         if t_tokenize > 0:
             self.prom_tokenization_latency.observe(t_tokenize / 1000.0)
-        
+
         total_queue = t_tokenizer_queue_wait + t_model_queue_wait
         if total_queue > 0:
             self.prom_queue_wait_latency.observe(total_queue / 1000.0)
-
 
     def record_padding_stats(
         self,
@@ -185,20 +193,80 @@ class MetricsService(BaseService):
         )
 
     def record_worker_stats(self, worker_id: int, latency_ms: float, num_queries: int = 1) -> None:
-        self.prom_worker_latency.labels(worker_id=str(worker_id), worker_type="model").set(latency_ms)
-        self.prom_worker_requests.labels(worker_id=str(worker_id), worker_type="model").inc(num_queries)
+        self.prom_worker_latency.labels(worker_id=str(worker_id), worker_type="model").set(
+            latency_ms
+        )
+        self.prom_worker_requests.labels(worker_id=str(worker_id), worker_type="model").inc(
+            num_queries
+        )
 
     def record_tokenizer_worker_stats(
         self, worker_id: int, latency_ms: float, total_tokens: int = 0, num_queries: int = 1
     ) -> None:
-        self.prom_worker_latency.labels(worker_id=str(worker_id), worker_type="tokenizer").set(latency_ms)
-        self.prom_worker_requests.labels(worker_id=str(worker_id), worker_type="tokenizer").inc(num_queries)
+        self.prom_worker_latency.labels(worker_id=str(worker_id), worker_type="tokenizer").set(
+            latency_ms
+        )
+        self.prom_worker_requests.labels(worker_id=str(worker_id), worker_type="tokenizer").inc(
+            num_queries
+        )
 
     def get_summary(self) -> dict:
-        return {}
+        collector = self._collector
+        
+        avg_latency = 0.0
+        if collector.latencies:
+            avg_latency = sum(collector.latencies) / len(collector.latencies)
+        
+        stage_percentages = {}
+        stage_averages = {}
+        
+        stage_mapping = {
+            "tokenize": "tokenize_pct",
+            "tokenizer_queue_wait": "tokenizer_queue_wait_pct",
+            "model_queue_wait": "model_queue_wait_pct",
+            "model_inference": "inference_pct",
+            "overhead": "overhead_pct",
+            "mp_queue_send": "mp_queue_send_pct",
+            "mp_queue_receive": "mp_queue_receive_pct",
+            "grpc_serialize": "grpc_serialize_pct",
+            "grpc_deserialize": "grpc_deserialize_pct",
+            "scheduler": "scheduler_pct",
+            "pipeline_overhead": "pipeline_overhead_pct",
+        }
+        
+        total_stage_time = 0.0
+        
+        with collector._lock:
+            for stage_name, pct_key in stage_mapping.items():
+                try:
+                    tracker = collector._stage_tracker_manager.get(stage_name)
+                    if tracker.metrics.latencies:
+                        avg = sum(tracker.metrics.latencies) / len(tracker.metrics.latencies)
+                        stage_averages[stage_name] = avg
+                        total_stage_time += avg
+                except KeyError:
+                    pass
+        
+        if avg_latency > 0:
+            for stage_name, pct_key in stage_mapping.items():
+                if stage_name in stage_averages:
+                    pct = (stage_averages[stage_name] / avg_latency) * 100.0
+                    stage_percentages[pct_key] = round(pct, 1)
+                else:
+                    stage_percentages[pct_key] = 0.0
+        
+        accounted_pct = sum(v for k, v in stage_percentages.items() if k != "other_pct")
+        other_pct = max(0.0, 100.0 - accounted_pct)
+        stage_percentages["other_pct"] = round(other_pct, 1)
+        
+        return {
+            "query_count": collector.query_count,
+            "request_count": collector.request_count,
+            "avg_ms": avg_latency,
+            "stage_percentages": stage_percentages,
+        }
 
     def _is_active(self) -> bool:
-        """Check if metrics collection is active."""
         collector = self._collector
         if collector.request_count == 0:
             return False
@@ -214,10 +282,7 @@ class MetricsService(BaseService):
 
         return False
 
-
-
     def _get_worker_stats(self, collector: MetricsCollector) -> list[dict]:
-        """Get worker stats from model pool (workers track their own metrics)."""
         if collector._model_pool:
             try:
                 return collector._model_pool.get_worker_metrics()
@@ -226,7 +291,6 @@ class MetricsService(BaseService):
         return []
 
     def _get_tokenizer_worker_stats(self, collector: MetricsCollector) -> list[dict]:
-        """Get tokenizer worker stats from tokenizer pool (workers track their own metrics)."""
         if collector._tokenizer_pool:
             try:
                 return collector._tokenizer_pool.get_worker_metrics()
@@ -235,7 +299,6 @@ class MetricsService(BaseService):
         return []
 
     def _get_queue_sizes(self, collector: MetricsCollector) -> dict:
-        """Get current queue sizes from pools."""
         tokenizer_queue_size = 0
         model_queue_size = 0
 
@@ -243,7 +306,6 @@ class MetricsService(BaseService):
             try:
                 info = collector._tokenizer_pool.get_info()
                 tokenizer_queue_size = info.get("total_queue_size", 0)
-                # Also check inference queue size (output of tokenizer, input to model)
                 inference_queue_size = info.get("inference_queue_size", 0)
                 if tokenizer_queue_size > 0 or inference_queue_size > 0:
                     logger.debug(
@@ -261,9 +323,6 @@ class MetricsService(BaseService):
                     logger.debug(f"Model queue size: {model_queue_size}")
             except Exception as e:
                 logger.warning(f"Failed to get model queue size: {e}", exc_info=True)
-
-        # Note: Model queue size should match tokenizer's inference_queue_size
-        # since they both reference the same _inference_queue
 
         batch_queue_size = 0
         if self._orchestrator:
@@ -301,12 +360,8 @@ class MetricsService(BaseService):
     def get_gpu_memory_mb(self) -> float:
         return self._process_monitor_service.get_gpu_memory_mb()
 
-
-
     def is_active(self) -> bool:
         return self._is_active()
-
-
 
     def get_collector(self) -> MetricsCollector:
         return self._collector
@@ -325,15 +380,12 @@ class MetricsService(BaseService):
 
     def _update_system_metrics(self) -> None:
         try:
-            # CPU
             cpu_pct = self._process_monitor_service.get_cpu_percent()
             self.prom_cpu_percent.set(cpu_pct)
-            
-            # GPU
+
             gpu_mem = self.get_gpu_memory_mb()
             self.prom_gpu_memory.set(gpu_mem)
-            
-            # Queue sizes
+
             queue_info = self._get_queue_sizes(self._collector)
             self.prom_tokenizer_queue_size.set(queue_info.get("tokenizer_queue_size", 0))
             self.prom_model_queue_size.set(queue_info.get("model_queue_size", 0))
@@ -359,7 +411,6 @@ class MetricsService(BaseService):
         if self._orchestrator and self._orchestrator.tokenization_is_started:
             try:
                 self._orchestrator.get_tokenizer_worker_metrics()
-                # Workers track their own metrics, no need to record here
                 pass
             except Exception as e:
                 logger.warning(f"Failed to collect tokenizer worker metrics: {e}")

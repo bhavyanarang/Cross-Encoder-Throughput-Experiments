@@ -3,13 +3,13 @@ import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import numpy as np
 from tqdm import tqdm
 
 from src.client.grpc_client import InferenceClient
 from src.server.dto import BenchmarkState
 
 logger = logging.getLogger(__name__)
+
 
 class BenchmarkRunner:
     def __init__(self, client: InferenceClient, state: BenchmarkState):
@@ -116,4 +116,3 @@ class BenchmarkRunner:
             if final > last_completed:
                 pbar.update(final - last_completed)
             pbar.close()
-
