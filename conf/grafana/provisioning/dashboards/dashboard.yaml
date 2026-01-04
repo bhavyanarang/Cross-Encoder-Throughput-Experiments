@@ -8,4 +8,4 @@ providers:
     disableDeletion: false
     updateIntervalSeconds: 10
     options:
-      path: /home/bhavya/Desktop/Cross-Encoder-Throughput-Experiments/conf/grafana/provisioning/dashboards
+      path: /tmp/grafana_dashboards

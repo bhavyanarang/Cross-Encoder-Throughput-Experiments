@@ -129,7 +129,7 @@ def serve(
         logger.info(f"gRPC server listening on {host}:{port} (SSL/TLS enabled)")
     else:
         server.add_insecure_port(f"{host}:{port}")
-        logger.warning(f"gRPC server listening on {host}:{port} (insecure, no SSL/TLS)")
+        logger.info(f"gRPC server listening on {host}:{port} (development mode, no SSL/TLS)")
 
     server.start()
     logger.info("gRPC server started")

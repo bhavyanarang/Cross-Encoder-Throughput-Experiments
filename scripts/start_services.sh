@@ -10,13 +10,34 @@ LOG_DIR="$PROJECT_ROOT/logs"
 
 mkdir -p "$LOG_DIR"
 
+# Detect OS and architecture for finding binaries
+OS=$(uname -s)
+ARCH=$(uname -m)
+
+if [ "$OS" = "Darwin" ]; then
+    PROM_PATTERN="prometheus-*.darwin-*"
+    GRAFANA_PATTERN="grafana-v*"
+else
+    PROM_PATTERN="prometheus-*.linux-amd64"
+    GRAFANA_PATTERN="grafana-v*"
+fi
+
 # Versions (must match setup script)
-PROM_DIR=$(ls -d "$BIN_DIR"/prometheus-*.linux-amd64 2>/dev/null | head -n 1)
-GRAFANA_DIR=$(ls -d "$BIN_DIR"/grafana-* 2>/dev/null | head -n 1)
+PROM_DIR=$(ls -d "$BIN_DIR"/$PROM_PATTERN 2>/dev/null | head -n 1)
+GRAFANA_DIR=$(ls -d "$BIN_DIR"/$GRAFANA_PATTERN 2>/dev/null | head -n 1)
 
 if [ -z "$PROM_DIR" ] || [ -z "$GRAFANA_DIR" ]; then
-    echo "Binaries not found. Please run scripts/setup_observability.sh first."
-    exit 1
+    echo "Binaries not found. Setting up observability..."
+    "$SCRIPT_DIR/setup_observability.sh"
+
+    # Try again after setup
+    PROM_DIR=$(ls -d "$BIN_DIR"/$PROM_PATTERN 2>/dev/null | head -n 1)
+    GRAFANA_DIR=$(ls -d "$BIN_DIR"/$GRAFANA_PATTERN 2>/dev/null | head -n 1)
+
+    if [ -z "$PROM_DIR" ] || [ -z "$GRAFANA_DIR" ]; then
+        echo "Failed to setup observability services."
+        exit 1
+    fi
 fi
 
 # Start Prometheus (always restart to pick up config changes)
@@ -52,6 +73,31 @@ org_role = Admin
 admin_password = admin
 admin_user = admin
 EOF
+
+export GF_PROVISIONING_PATH="$PROJECT_ROOT/conf/grafana/provisioning"
+
+# Ensure dashboard provisioning directory exists in Grafana
+DASH_PROV_DIR="$GRAFANA_DIR/provisioning/dashboards"
+mkdir -p "$DASH_PROV_DIR"
+
+# Create dashboard provisioning config with actual path
+cat > "$DASH_PROV_DIR/dashboard.yaml" <<EOF
+apiVersion: 1
+
+providers:
+  - name: 'Default'
+    orgId: 1
+    folder: ''
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    options:
+      path: $PROJECT_ROOT/conf/grafana/provisioning/dashboards
+EOF
+
+# Copy dashboard JSON to Grafana provisioning directory
+cp "$PROJECT_ROOT/conf/grafana/provisioning/dashboards/default_dashboard.json" \
+   "$DASH_PROV_DIR/default_dashboard.json"
 
 nohup ./bin/grafana-server \
     --config=conf/custom.ini \
