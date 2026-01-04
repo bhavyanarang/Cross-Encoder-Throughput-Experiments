@@ -1,6 +1,7 @@
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
 
 import grpc
 import numpy as np
@@ -16,7 +17,7 @@ class InferenceClient:
         host: str = "localhost",
         port: int = 50051,
         use_ssl: bool = False,
-        ssl_ca_cert_path: str | None = None,
+        ssl_ca_cert_path: Optional[str] = None,
     ):
         """Create inference client.
 
