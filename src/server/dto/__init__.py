@@ -7,21 +7,13 @@ from src.server.dto.config import (
     ServerConfig,
     TokenizerPoolConfig,
 )
-from src.server.dto.dashboard import DashboardMetrics
 from src.server.dto.inference import (
     InferenceResult,
     TokenizedBatch,
     WorkItem,
     WorkResult,
 )
-from src.server.dto.metrics import (
-    LatencyStats,
-    MetricsCollector,
-    PaddingStats,
-    StageMetrics,
-    StageStats,
-    ThroughputStats,
-)
+from src.server.dto.metrics import MetricsCollector
 from src.server.dto.scheduler import PendingRequest
 
 __all__ = [
@@ -35,13 +27,7 @@ __all__ = [
     "BatchConfig",
     "ServerConfig",
     "Config",
-    "LatencyStats",
-    "ThroughputStats",
-    "PaddingStats",
-    "StageStats",
     "MetricsCollector",
-    "StageMetrics",
-    "DashboardMetrics",
     "PendingRequest",
     "BenchmarkState",
 ]

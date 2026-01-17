@@ -10,11 +10,11 @@ class BaseService(ABC):
 
     @abstractmethod
     def start(self) -> None:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def stop(self) -> None:
-        pass
+        raise NotImplementedError
 
     @property
     def is_started(self) -> bool:

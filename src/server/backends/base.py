@@ -40,11 +40,11 @@ class BaseBackend(ABC):
 
     @abstractmethod
     def load_model(self) -> None:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:
-        pass
+        raise NotImplementedError
 
     def _get_tokenizer(self):
         if self._tokenizer_pool is not None:

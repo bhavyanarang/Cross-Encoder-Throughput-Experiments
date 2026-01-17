@@ -1,9 +1,11 @@
+import atexit
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
+from types import TracebackType
 
 import grpc
-import numpy as np
 
 from src.proto import inference_pb2, inference_pb2_grpc
 
@@ -35,6 +37,18 @@ class InferenceClient:
             logger.warning(f"Connected to {host}:{port} (insecure)")
 
         self._stub = inference_pb2_grpc.InferenceServiceStub(self._channel)
+        atexit.register(self.close)
+
+    def __enter__(self) -> "InferenceClient":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self.close()
 
     def infer(
         self, pairs: list[tuple[str, str]], timeout: float = 60.0
@@ -64,13 +78,16 @@ class InferenceClient:
                 batch = batch + pairs[: batch_size - len(batch)]
             batches.append(batch)
 
-        latencies = []
+        completed = 0
+        completed_lock = Lock()
         start = time.perf_counter()
 
         def run_batch(batch):
-            _, lat = self.infer(batch)
-            latencies.append(lat)
-            return lat
+            nonlocal completed
+            self.infer(batch)
+            with completed_lock:
+                completed += 1
+            return 1
 
         if concurrency == 1:
             for batch in batches:
@@ -80,21 +97,28 @@ class InferenceClient:
                 list(ex.map(run_batch, batches))
 
         elapsed = time.perf_counter() - start
-        total_pairs = len(latencies) * batch_size
-        lat = np.array(latencies)
+        total_pairs = completed * batch_size
 
         return {
             "batch_size": batch_size,
             "concurrency": concurrency,
-            "num_requests": len(latencies),
+            "num_requests": completed,
             "total_pairs": total_pairs,
             "elapsed_s": elapsed,
-            "latency_avg_ms": float(np.mean(lat)),
-            "latency_p50_ms": float(np.percentile(lat, 50)),
-            "latency_p95_ms": float(np.percentile(lat, 95)),
-            "latency_p99_ms": float(np.percentile(lat, 99)),
-            "throughput_avg": total_pairs / elapsed if elapsed > 0 else 0,
+            "status": "completed" if completed > 0 else "no_requests",
         }
 
-    def close(self):
-        self._channel.close()
+    def close(self) -> None:
+        channel = getattr(self, "_channel", None)
+        if channel is not None:
+            try:
+                channel.close()
+            except Exception:
+                return
+            self._channel = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            return

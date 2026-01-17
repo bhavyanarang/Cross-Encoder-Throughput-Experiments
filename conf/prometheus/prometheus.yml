@@ -1,8 +1,17 @@
 global:
   scrape_interval: 1s  # High resolution for local experiments
+  evaluation_interval: 1s
 
 scrape_configs:
   - job_name: 'cross_encoder_server'
     static_configs:
-      - targets: ['localhost:8000']
+      - targets: ['host.docker.internal:8000']
+    metrics_path: /metrics
+  - job_name: 'tokenizer_pool'
+    static_configs:
+      - targets: ['tokenizer_pool:8001']
+    metrics_path: /metrics
+  - job_name: 'model_pool'
+    static_configs:
+      - targets: ['model_pool:8002']
     metrics_path: /metrics

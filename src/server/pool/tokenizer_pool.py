@@ -290,7 +290,7 @@ class TokenizerPool(BaseWorkerPool):
 
             for collector in REGISTRY._collector_to_names:
                 for metric_family in collector.collect():
-                    if metric_family.name == "worker_throughput_qps":
+                    if metric_family.name == "worker_request_count_total":
                         for sample in metric_family.samples:
                             if (
                                 sample.labels.get("worker_id") == str(worker_id)
@@ -298,9 +298,8 @@ class TokenizerPool(BaseWorkerPool):
                             ):
                                 return {
                                     "worker_id": worker_id,
-                                    "throughput_qps": sample.value,
+                                    "query_count": int(sample.value),
                                     "avg_ms": 0.0,
-                                    "query_count": 0,
                                 }
         except Exception as e:
             logger.debug(f"Failed to query Prometheus for tokenizer worker {worker_id}: {e}")

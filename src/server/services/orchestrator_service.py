@@ -1,6 +1,4 @@
 import logging
-import signal
-import sys
 import threading
 
 from src.server.dto import Config, InferenceResult
@@ -33,11 +31,8 @@ class OrchestratorService:
             num_workers=self.config.tokenizer_pool.num_workers,
             max_length=512,
         )
-
         self.pool = ModelPool(self.config.model_pool)
-
         self.metrics = MetricsService(prometheus_port=self.config.server.prometheus_port)
-
         self.metrics.set_inference_service(self)
         self.metrics.set_tokenization_service(self)
         self.metrics.set_model_pool(self.pool)
@@ -45,16 +40,12 @@ class OrchestratorService:
         self.metrics.set_experiment_info(
             name=self.experiment_name,
             description=self.config.description,
-            backend=(
-                self.config.model_pool.instances[0].backend
-                if self.config.model_pool.instances
-                else "pytorch"
-            ),
-            device=(
-                self.config.model_pool.instances[0].device
-                if self.config.model_pool.instances
-                else "cpu"
-            ),
+            backend=self.config.model_pool.instances[0].backend
+            if self.config.model_pool.instances
+            else "pytorch",
+            device=self.config.model_pool.instances[0].device
+            if self.config.model_pool.instances
+            else "cpu",
         )
 
         self.pipeline = QueueBasedPipeline(
@@ -65,19 +56,9 @@ class OrchestratorService:
             experiment_name=self.experiment_name,
         )
         self.pipeline.setup()
-
-        logger.info("Orchestrator setup complete - pipeline architecture ready")
+        logger.info("Orchestrator setup complete")
 
     def start(self) -> None:
-        def handle_signal(signum, frame):
-            logger.info("Shutdown signal received")
-            self.shutdown_event.set()
-            self.stop()
-            sys.exit(0)
-
-        signal.signal(signal.SIGINT, handle_signal)
-        signal.signal(signal.SIGTERM, handle_signal)
-
         if self.pipeline:
             self.pipeline.start()
 
@@ -97,56 +78,16 @@ class OrchestratorService:
         return self.metrics
 
     def get_tokenizer_worker_metrics(self) -> list[dict]:
-        if self.pipeline:
-            return self.pipeline.get_tokenizer_worker_metrics()
-        return []
-
-    def reset_tokenizer_worker_metrics(self) -> None:
-        if self.pipeline:
-            self.pipeline.reset_tokenizer_worker_metrics()
-
-    @property
-    def tokenization_is_started(self) -> bool:
-        return self.pipeline.tokenization_is_started if self.pipeline else False
+        return self.pipeline.get_tokenizer_worker_metrics() if self.pipeline else []
 
     def get_gpu_memory_mb(self) -> float:
-        if self.pipeline:
-            return self.pipeline.get_gpu_memory_mb()
-        return 0.0
+        return self.pipeline.get_gpu_memory_mb() if self.pipeline else 0.0
 
     def get_inference_worker_metrics(self) -> list[dict]:
-        if self.pipeline:
-            return self.pipeline.get_inference_worker_metrics()
-        return []
-
-    def reset_inference_worker_metrics(self) -> None:
-        if self.pipeline:
-            self.pipeline.reset_inference_worker_metrics()
-
-    @property
-    def inference_is_started(self) -> bool:
-        return self.pipeline.inference_is_started if self.pipeline else False
-
-    @property
-    def is_started(self) -> bool:
-        return self.pipeline.is_started if self.pipeline else False
+        return self.pipeline.get_inference_worker_metrics() if self.pipeline else []
 
     def get_worker_metrics(self) -> list[dict]:
-        if self.pipeline:
-            return self.pipeline.get_worker_metrics()
-        return []
-
-    def reset_worker_metrics(self) -> None:
-        if self.pipeline:
-            self.pipeline.reset_worker_metrics()
-
-    @property
-    def tokenization_service(self):
-        return self
-
-    @property
-    def inference_service(self):
-        return self
+        return self.pipeline.get_worker_metrics() if self.pipeline else []
 
     def get_batching_info(self) -> dict:
         if self.pipeline:
@@ -160,52 +101,50 @@ class OrchestratorService:
         }
 
     @property
+    def is_started(self) -> bool:
+        return self.pipeline.is_started if self.pipeline else False
+
+    @property
+    def tokenization_is_started(self) -> bool:
+        return self.pipeline.tokenization_is_started if self.pipeline else False
+
+    @property
+    def inference_is_started(self) -> bool:
+        return self.pipeline.inference_is_started if self.pipeline else False
+
+    @property
     def _batching_enabled(self) -> bool:
-        if self.pipeline:
-            return self.pipeline._batching_enabled
-        return False
+        return self.pipeline._batching_enabled if self.pipeline else False
 
     @property
     def _max_batch_size(self) -> int:
-        if self.pipeline:
-            return self.pipeline._max_batch_size
-        return self.config.batching.max_batch_size
+        return (
+            self.pipeline._max_batch_size if self.pipeline else self.config.batching.max_batch_size
+        )
 
     @property
     def _timeout_ms(self) -> float:
-        if self.pipeline:
-            return self.pipeline._timeout_ms
-        return self.config.batching.timeout_ms
+        return self.pipeline._timeout_ms if self.pipeline else self.config.batching.timeout_ms
 
     @property
-    def _batch_thread(self) -> threading.Thread | None:
-        if self.pipeline:
-            return self.pipeline._batch_thread
-        return None
+    def _batch_thread(self):
+        return self.pipeline._batch_thread if self.pipeline else None
 
     @property
     def _batch_queue(self):
-        if self.pipeline:
-            return self.pipeline._batch_queue
-        if not hasattr(self, "_dummy_batch_queue"):
-            import queue
-
-            self._dummy_batch_queue = queue.Queue()
-        return self._dummy_batch_queue
+        return self.pipeline._batch_queue if self.pipeline else None
 
     @property
     def _inference_queue(self):
-        if self.pipeline:
-            return self.pipeline._inference_queue
-        return None
+        return self.pipeline._inference_queue if self.pipeline else None
 
     @property
     def _tokenization_started(self) -> bool:
-        if self.pipeline:
-            return self.pipeline._tokenization_started
-        if not hasattr(self, "_local_tokenization_started"):
-            self._local_tokenization_started = False
-        return self._local_tokenization_started
+        return (
+            self.pipeline._tokenization_started
+            if self.pipeline
+            else getattr(self, "_local_tokenization_started", False)
+        )
 
     @_tokenization_started.setter
     def _tokenization_started(self, value: bool) -> None:
@@ -216,11 +155,11 @@ class OrchestratorService:
 
     @property
     def _inference_started(self) -> bool:
-        if self.pipeline:
-            return self.pipeline._inference_started
-        if not hasattr(self, "_local_inference_started"):
-            self._local_inference_started = False
-        return self._local_inference_started
+        return (
+            self.pipeline._inference_started
+            if self.pipeline
+            else getattr(self, "_local_inference_started", False)
+        )
 
     @_inference_started.setter
     def _inference_started(self, value: bool) -> None:
@@ -229,7 +168,13 @@ class OrchestratorService:
         else:
             self._local_inference_started = value
 
+    @property
+    def tokenization_service(self):
+        return self
 
-__all__ = [
-    "OrchestratorService",
-]
+    @property
+    def inference_service(self):
+        return self
+
+
+__all__ = ["OrchestratorService"]

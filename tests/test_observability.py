@@ -34,7 +34,7 @@ class TestPrometheusConfig:
             c for c in config["scrape_configs"] if c["job_name"] == "cross_encoder_server"
         )
         targets = server_config["static_configs"][0]["targets"]
-        assert "localhost:8000" in targets
+        assert "host.docker.internal:8000" in targets
 
 
 class TestGrafanaConfig:
@@ -50,7 +50,7 @@ class TestGrafanaConfig:
         ds = config["datasources"][0]
         assert ds["type"] == "prometheus"
         assert ds["name"] == "Prometheus"
-        assert "localhost:9091" in ds["url"]
+        assert "prometheus:9090" in ds["url"]
 
     def test_dashboard_provisioning_config(self):
         config_path = "conf/grafana/provisioning/dashboards/dashboard.yaml"

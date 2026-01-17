@@ -107,6 +107,7 @@ def _parse_server_config(data: dict) -> ServerConfig:
         host=s.get("host", "0.0.0.0"),
         grpc_port=s.get("grpc_port", s.get("port", 50051)),
         http_port=s.get("http_port", 8080),
+        prometheus_port=s.get("prometheus_port", 8000),
         grpc_workers=s.get("grpc_workers", 10),
     )
 
@@ -180,6 +181,7 @@ def hydra_config_to_config(cfg: DictConfig) -> Config:
         host=cfg_dict.get("server", {}).get("host", "0.0.0.0"),
         grpc_port=cfg_dict.get("server", {}).get("grpc_port", 50051),
         http_port=cfg_dict.get("server", {}).get("http_port", 8080),
+        prometheus_port=cfg_dict.get("server", {}).get("prometheus_port", 8000),
         grpc_workers=cfg_dict.get("server", {}).get("grpc_workers", 10),
     )
 

@@ -1,4 +1,5 @@
 import logging
+import os
 import signal
 import sys
 import threading
@@ -62,9 +63,12 @@ class BasePipeline(ABC):
 
     @abstractmethod
     def setup(self) -> None:
-        pass
+        raise NotImplementedError
 
     def _setup_signal_handlers(self) -> None:
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return
+
         def handle_signal(signum, frame):
             logger.info("Shutdown signal received")
             self.shutdown_event.set()
@@ -76,15 +80,15 @@ class BasePipeline(ABC):
 
     @abstractmethod
     def start(self) -> None:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def stop(self) -> None:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def schedule(self, pairs: list[tuple[str, str]]) -> "InferenceResult":
-        pass
+        raise NotImplementedError
 
     @property
     def tokenization_is_started(self) -> bool:
@@ -111,24 +115,13 @@ class BasePipeline(ABC):
             return []
         return self.tokenizer_pool.get_worker_metrics()
 
-    def reset_tokenizer_worker_metrics(self) -> None:
-        if self._tokenization_started:
-            self.tokenizer_pool.reset_worker_metrics()
-
     def get_inference_worker_metrics(self) -> list[dict]:
         if not self._inference_started:
             return []
         return self.model_pool.get_worker_metrics()
 
-    def reset_inference_worker_metrics(self) -> None:
-        if self._inference_started:
-            self.model_pool.reset_worker_metrics()
-
     def get_worker_metrics(self) -> list[dict]:
         return self.get_tokenizer_worker_metrics()
-
-    def reset_worker_metrics(self) -> None:
-        self.reset_tokenizer_worker_metrics()
 
     def get_gpu_memory_mb(self) -> float:
         if not self._inference_started:

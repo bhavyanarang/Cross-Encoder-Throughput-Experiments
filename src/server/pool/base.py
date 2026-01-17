@@ -20,11 +20,11 @@ class BaseWorkerPool(ABC, Generic[T, R]):
 
     @abstractmethod
     def start(self, timeout_s: float = 120.0) -> None:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def stop(self, timeout_s: float = 30.0) -> None:
-        pass
+        raise NotImplementedError
 
     def submit(self, work_item: T) -> R:
         if not self._is_started:
@@ -55,13 +55,9 @@ class BaseWorkerPool(ABC, Generic[T, R]):
                 metrics_list.append({})
         return metrics_list
 
+    @abstractmethod
     def get_worker_metrics_by_id(self, worker_id: int) -> dict:
-        if not self._is_started or worker_id >= self.num_workers:
-            return {}
-        return {}
-
-    def reset_worker_metrics(self) -> None:
-        pass
+        raise NotImplementedError
 
     def get_aggregate_throughput_qps(self) -> float:
         worker_metrics = self.get_worker_metrics()

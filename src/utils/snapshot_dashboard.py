@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import sys
 import time
 
@@ -8,7 +9,7 @@ import requests
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-GRAFANA_URL = "http://localhost:3000"
+GRAFANA_URL = os.environ.get("GRAFANA_URL", "http://localhost:3001")
 API_KEY = ("admin", "admin")
 
 
@@ -52,7 +53,8 @@ def create_snapshot(start_ts, end_ts, name="Experiment Snapshot"):
 
         result = resp.json()
         url = result.get("url")
-        result.get("key")
+        if url:
+            url = url.replace("http://localhost:3000", GRAFANA_URL)
         logger.info(f"Snapshot created: {url}")
         return url
 
@@ -76,7 +78,7 @@ def main():
 
     url = create_snapshot(args.start, args.end, args.name)
     if url:
-        print(f"Grafana Snapshot: {url}")
+        logger.info(f"Grafana Snapshot: {url}")
     else:
         sys.exit(1)
 

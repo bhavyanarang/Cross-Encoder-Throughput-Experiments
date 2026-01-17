@@ -56,11 +56,11 @@
       },
       "targets": [
         {
-          "expr": "increase(request_count_total[5m])",
+          "expr": "sum(increase(request_count_total[$__rate_interval]))",
           "refId": "A"
         }
       ],
-      "title": "Requests (5m)",
+      "title": "Requests",
       "type": "stat"
     },
     {
@@ -114,7 +114,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(request_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, sum(rate(request_latency_seconds_bucket[$__rate_interval])) by (le))",
           "refId": "A"
         }
       ],
@@ -172,7 +172,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(request_latency_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, sum(rate(request_latency_seconds_bucket[$__rate_interval])) by (le))",
           "refId": "A"
         }
       ],
@@ -189,7 +189,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "unit": "rps",
+          "unit": "reqps",
           "thresholds": {
             "steps": [
               {
@@ -222,7 +222,7 @@
       },
       "targets": [
         {
-          "expr": "rate(request_count_total[1m])",
+          "expr": "sum(irate(request_count_total[$__rate_interval]))",
           "refId": "A"
         }
       ],
@@ -267,11 +267,11 @@
           ],
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       },
       "targets": [
         {
-          "expr": "request_count_total",
+          "expr": "sum(request_count_total)",
           "refId": "A"
         }
       ],
@@ -325,11 +325,11 @@
           ],
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       },
       "targets": [
         {
-          "expr": "request_latency_seconds_sum / request_latency_seconds_count * 1000",
+          "expr": "sum(rate(request_latency_seconds_sum[$__rate_interval])) / sum(rate(request_latency_seconds_count[$__rate_interval])) * 1000",
           "refId": "A"
         }
       ],
@@ -346,7 +346,7 @@
           "color": {
             "mode": "thresholds"
           },
-          "unit": "short",
+          "unit": "reqps",
           "thresholds": {
             "steps": [
               {
@@ -375,11 +375,11 @@
           ],
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       },
       "targets": [
         {
-          "expr": "rate(request_count_total[30s])",
+          "expr": "sum(irate(request_count_total[$__rate_interval]))",
           "refId": "A"
         }
       ],
@@ -425,11 +425,11 @@
           ],
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       },
       "targets": [
         {
-          "expr": "tokenization_latency_seconds_sum / tokenization_latency_seconds_count * 1000",
+          "expr": "sum(rate(tokenization_latency_seconds_sum[$__rate_interval])) / sum(rate(tokenization_latency_seconds_count[$__rate_interval])) * 1000",
           "refId": "A"
         }
       ],
@@ -475,11 +475,11 @@
           ],
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       },
       "targets": [
         {
-          "expr": "inference_latency_seconds_sum / inference_latency_seconds_count * 1000",
+          "expr": "sum(rate(inference_latency_seconds_sum[$__rate_interval])) / sum(rate(inference_latency_seconds_count[$__rate_interval])) * 1000",
           "refId": "A"
         }
       ],
@@ -525,11 +525,11 @@
           ],
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       },
       "targets": [
         {
-          "expr": "queue_wait_latency_seconds_sum / queue_wait_latency_seconds_count * 1000",
+          "expr": "sum(rate(queue_wait_latency_seconds_sum[$__rate_interval])) / sum(rate(queue_wait_latency_seconds_count[$__rate_interval])) * 1000",
           "refId": "A"
         }
       ],
@@ -583,11 +583,11 @@
           ],
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       },
       "targets": [
         {
-          "expr": "cpu_percent",
+          "expr": "sum(cpu_percent)",
           "refId": "A"
         }
       ],
@@ -633,11 +633,11 @@
           ],
           "values": false
         },
-        "textMode": "value_and_name"
+        "textMode": "value"
       },
       "targets": [
         {
-          "expr": "gpu_memory_mb",
+          "expr": "sum(gpu_memory_mb)",
           "refId": "A"
         }
       ],
@@ -700,17 +700,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, rate(request_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.50, sum(rate(request_latency_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "p50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(request_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.95, sum(rate(request_latency_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, rate(request_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.99, sum(rate(request_latency_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "p99",
           "refId": "C"
         }
@@ -729,9 +729,9 @@
             "mode": "palette-classic"
           },
           "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 30,
-            "lineWidth": 2
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "lineWidth": 1
           },
           "unit": "short"
         },
@@ -742,6 +742,55 @@
         "w": 12,
         "x": 12,
         "y": 8
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum",
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(request_count_total[$__rate_interval]))",
+          "legendFormat": "Requests",
+          "refId": "A"
+        }
+      ],
+      "title": "Requests Per Interval",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "lineWidth": 2
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 0,
+        "y": 14
       },
       "id": 11,
       "options": {
@@ -758,7 +807,7 @@
       },
       "targets": [
         {
-          "expr": "rate(request_count_total[30s])",
+          "expr": "sum(irate(request_count_total[$__rate_interval]))",
           "legendFormat": "Requests/sec",
           "refId": "A"
         }
@@ -767,12 +816,65 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 30,
+            "lineWidth": 2
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean"
+          ],
+          "displayMode": "table",
+          "placement": "right"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(irate(worker_request_count_total{worker_type=\"model\"}[$__rate_interval]))",
+          "legendFormat": "Model Pool RPS",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(irate(worker_request_count_total{worker_type=\"tokenizer\"}[$__rate_interval]))",
+          "legendFormat": "Tokenizer Pool RPS",
+          "refId": "B"
+        }
+      ],
+      "title": "Pool Throughput Over Time",
+      "type": "timeseries"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 14
+        "y": 20
       },
       "id": 102,
       "title": "Pipeline Stage Breakdown",
@@ -801,7 +903,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 15
+        "y": 21
       },
       "id": 20,
       "options": {
@@ -815,17 +917,17 @@
       },
       "targets": [
         {
-          "expr": "tokenization_latency_seconds_sum / tokenization_latency_seconds_count * 1000",
+          "expr": "sum(rate(tokenization_latency_seconds_sum[$__rate_interval])) / sum(rate(tokenization_latency_seconds_count[$__rate_interval])) * 1000",
           "legendFormat": "Tokenize (ms)",
           "refId": "A"
         },
         {
-          "expr": "inference_latency_seconds_sum / inference_latency_seconds_count * 1000",
+          "expr": "sum(rate(inference_latency_seconds_sum[$__rate_interval])) / sum(rate(inference_latency_seconds_count[$__rate_interval])) * 1000",
           "legendFormat": "Inference (ms)",
           "refId": "B"
         },
         {
-          "expr": "queue_wait_latency_seconds_sum / queue_wait_latency_seconds_count * 1000",
+          "expr": "sum(rate(queue_wait_latency_seconds_sum[$__rate_interval])) / sum(rate(queue_wait_latency_seconds_count[$__rate_interval])) * 1000",
           "legendFormat": "Queue Wait (ms)",
           "refId": "C"
         }
@@ -856,7 +958,7 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 15
+        "y": 21
       },
       "id": 21,
       "options": {
@@ -870,17 +972,17 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, rate(tokenization_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.95, sum(rate(tokenization_latency_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "Tokenize p95",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(inference_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.95, sum(rate(inference_latency_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "Inference p95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, rate(queue_wait_latency_seconds_bucket[1m]))",
+          "expr": "histogram_quantile(0.95, sum(rate(queue_wait_latency_seconds_bucket[$__rate_interval])) by (le))",
           "legendFormat": "Queue Wait p95",
           "refId": "C"
         }
@@ -910,7 +1012,7 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 15
+        "y": 21
       },
       "id": 22,
       "options": {
@@ -924,17 +1026,17 @@
       },
       "targets": [
         {
-          "expr": "tokenizer_queue_size",
+          "expr": "sum(tokenizer_queue_size)",
           "legendFormat": "Tokenizer Queue",
           "refId": "A"
         },
         {
-          "expr": "model_queue_size",
+          "expr": "sum(model_queue_size)",
           "legendFormat": "Model Queue",
           "refId": "B"
         },
         {
-          "expr": "batch_queue_size",
+          "expr": "sum(batch_queue_size)",
           "legendFormat": "Batch Queue",
           "refId": "C"
         }
@@ -948,7 +1050,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 27
       },
       "id": 103,
       "title": "Worker Statistics",
@@ -977,7 +1079,7 @@
         "h": 5,
         "w": 6,
         "x": 0,
-        "y": 22
+        "y": 28
       },
       "id": 30,
       "options": {
@@ -991,7 +1093,7 @@
       },
       "targets": [
         {
-          "expr": "worker_latency_ms{worker_type=\"model\"}",
+          "expr": "sum by (worker_id) (worker_latency_ms{worker_type=\"model\"})",
           "legendFormat": "Worker {{worker_id}}",
           "refId": "A"
         }
@@ -1022,7 +1124,7 @@
         "h": 5,
         "w": 6,
         "x": 6,
-        "y": 22
+        "y": 28
       },
       "id": 31,
       "options": {
@@ -1036,7 +1138,7 @@
       },
       "targets": [
         {
-          "expr": "worker_latency_ms{worker_type=\"tokenizer\"}",
+          "expr": "sum by (worker_id) (worker_latency_ms{worker_type=\"tokenizer\"})",
           "legendFormat": "Worker {{worker_id}}",
           "refId": "A"
         }
@@ -1058,7 +1160,8 @@
             "drawStyle": "line",
             "fillOpacity": 30,
             "lineWidth": 2
-          }
+          },
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -1066,7 +1169,7 @@
         "h": 5,
         "w": 6,
         "x": 12,
-        "y": 22
+        "y": 28
       },
       "id": 32,
       "options": {
@@ -1080,7 +1183,7 @@
       },
       "targets": [
         {
-          "expr": "rate(worker_request_count_total{worker_type=\"model\"}[30s])",
+          "expr": "sum by (worker_id) (irate(worker_request_count_total{worker_type=\"model\"}[$__rate_interval]))",
           "legendFormat": "Worker {{worker_id}}",
           "refId": "A"
         }
@@ -1102,7 +1205,8 @@
             "drawStyle": "line",
             "fillOpacity": 30,
             "lineWidth": 2
-          }
+          },
+          "unit": "reqps"
         },
         "overrides": []
       },
@@ -1110,7 +1214,7 @@
         "h": 5,
         "w": 6,
         "x": 18,
-        "y": 22
+        "y": 28
       },
       "id": 33,
       "options": {
@@ -1124,7 +1228,7 @@
       },
       "targets": [
         {
-          "expr": "rate(worker_request_count_total{worker_type=\"tokenizer\"}[30s])",
+          "expr": "sum by (worker_id) (irate(worker_request_count_total{worker_type=\"tokenizer\"}[$__rate_interval]))",
           "legendFormat": "Worker {{worker_id}}",
           "refId": "A"
         }
@@ -1138,7 +1242,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 33
       },
       "id": 104,
       "title": "System Resources",
@@ -1167,7 +1271,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 28
+        "y": 34
       },
       "id": 40,
       "options": {
@@ -1181,7 +1285,7 @@
       },
       "targets": [
         {
-          "expr": "cpu_percent",
+          "expr": "sum(cpu_percent)",
           "legendFormat": "CPU %",
           "refId": "A"
         }
@@ -1212,7 +1316,7 @@
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 28
+        "y": 34
       },
       "id": 41,
       "options": {
@@ -1226,7 +1330,7 @@
       },
       "targets": [
         {
-          "expr": "gpu_memory_mb",
+          "expr": "sum(gpu_memory_mb)",
           "legendFormat": "GPU Memory",
           "refId": "A"
         }
@@ -1257,7 +1361,7 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 28
+        "y": 34
       },
       "id": 42,
       "options": {
@@ -1271,7 +1375,7 @@
       },
       "targets": [
         {
-          "expr": "padding_ratio",
+          "expr": "sum(padding_ratio)",
           "legendFormat": "Padding Ratio",
           "refId": "A"
         }
@@ -1280,7 +1384,7 @@
       "type": "timeseries"
     }
   ],
-  "refresh": "5s",
+  "refresh": "1s",
   "schemaVersion": 38,
   "style": "dark",
   "tags": [
@@ -1299,5 +1403,5 @@
   "timezone": "",
   "title": "Cross Encoder Throughput",
   "uid": "cross_encoder",
-  "version": 4
+  "version": 6
 }

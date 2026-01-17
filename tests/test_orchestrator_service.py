@@ -22,7 +22,6 @@ class TestOrchestratorServiceInit:
         orchestrator = OrchestratorService(config)
         assert orchestrator._batching_enabled is False
         assert orchestrator._max_batch_size == 8
-        assert orchestrator._batch_queue is not None
         assert orchestrator._batch_thread is None
 
 
@@ -150,22 +149,6 @@ class TestOrchestratorServiceSchedule:
         orchestrator.pipeline.get_gpu_memory_mb.return_value = 512.0
 
         assert orchestrator.get_gpu_memory_mb() == 512.0
-
-        orchestrator.stop()
-
-    def test_reset_worker_metrics(self, minimal_config):
-        orchestrator = OrchestratorService(minimal_config, "test")
-        orchestrator.setup()
-
-        orchestrator.pipeline = MagicMock()
-        orchestrator.pipeline.reset_tokenizer_worker_metrics = MagicMock()
-        orchestrator.pipeline.reset_inference_worker_metrics = MagicMock()
-
-        orchestrator.reset_tokenizer_worker_metrics()
-        orchestrator.pipeline.reset_tokenizer_worker_metrics.assert_called_once()
-
-        orchestrator.reset_inference_worker_metrics()
-        orchestrator.pipeline.reset_inference_worker_metrics.assert_called_once()
 
         orchestrator.stop()
 

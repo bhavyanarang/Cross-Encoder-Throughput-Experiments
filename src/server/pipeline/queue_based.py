@@ -59,7 +59,7 @@ class QueueBasedPipeline(BasePipeline):
 
             self._batching_running = True
             self._batch_shutdown_event.clear()
-            self._batch_thread = threading.Thread(target=self._batch_loop, daemon=False)
+            self._batch_thread = threading.Thread(target=self._batch_loop, daemon=True)
             self._batch_thread.start()
             logger.info(
                 f"Batching enabled: max_batch_size={self._max_batch_size}, "

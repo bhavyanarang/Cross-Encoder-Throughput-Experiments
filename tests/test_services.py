@@ -31,7 +31,6 @@ class TestOrchestratorTokenizationMethods:
         orchestrator.tokenizer_pool = MagicMock()
         orchestrator.tokenizer_pool.is_loaded = False
         orchestrator.tokenizer_pool.get_worker_metrics.return_value = []
-        orchestrator.tokenizer_pool.reset_worker_metrics.return_value = None
         orchestrator.tokenizer_pool.set_inference_queue.return_value = None
 
         orchestrator._tokenization_started = True
