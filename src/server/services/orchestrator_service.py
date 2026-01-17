@@ -37,6 +37,8 @@ class OrchestratorService:
         self.metrics.set_tokenization_service(self)
         self.metrics.set_model_pool(self.pool)
         self.metrics.set_tokenizer_pool(self.tokenizer_pool)
+        self.tokenizer_pool.set_metrics(self.metrics)
+        self.pool.set_metrics(self.metrics)
         self.metrics.set_experiment_info(
             name=self.experiment_name,
             description=self.config.description,

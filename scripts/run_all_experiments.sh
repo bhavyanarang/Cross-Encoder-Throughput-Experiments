@@ -175,7 +175,7 @@ for config in "$EXPERIMENTS_DIR"/*.yaml; do
         echo "Generating static dashboard from timeseries data..."
         SNAPSHOT_DIR="$PROJECT_ROOT/images"
         mkdir -p "$SNAPSHOT_DIR"
-        SNAPSHOT_FILE="$SNAPSHOT_DIR/${EXPERIMENT_NAME}.html"
+        SNAPSHOT_FILE="$SNAPSHOT_DIR/${EXPERIMENT_NAME}.png"
 
         # Generate static dashboard from timeseries markdown
         if python -m src.screenshot --experiment "$EXPERIMENT_NAME" --output "$SNAPSHOT_FILE" 2>&1 | grep -v "Warning\|Error" || true; then

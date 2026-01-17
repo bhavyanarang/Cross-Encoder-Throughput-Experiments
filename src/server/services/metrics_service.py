@@ -1,8 +1,15 @@
 import logging
 import threading
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+from wsgiref.simple_server import WSGIRequestHandler, make_server
 
-from prometheus_client import Counter, Gauge, Histogram, start_http_server
+from prometheus_client import Counter, Gauge, Histogram, make_wsgi_app
+
+
+class QuietWSGIRequestHandler(WSGIRequestHandler):
+    def log_message(self, format, *args):
+        pass
+
 
 from src.server.dto.metrics import MetricsCollector
 from src.server.services.process_monitor_service import ProcessMonitorService
@@ -26,6 +33,8 @@ class MetricsService(BaseService):
         self._collection_thread: threading.Thread | None = None
         self._shutdown_event = threading.Event()
         self._prometheus_port = prometheus_port
+        self._httpd = None
+        self._http_thread: threading.Thread | None = None
 
         self.prom_request_count = Counter("request_count", "Total requests")
         self.prom_request_latency = Histogram(
@@ -68,11 +77,22 @@ class MetricsService(BaseService):
         self.prom_padded_tokens = Counter("padded_tokens_total", "Padded tokens")
         self.prom_total_tokens = Counter("total_tokens_total", "Total tokens")
 
+        self.prom_tokenizer_queue_in = Counter(
+            "tokenizer_queue_items_in_total", "Items enqueued to tokenizer"
+        )
+        self.prom_tokenizer_queue_out = Counter(
+            "tokenizer_queue_items_out_total", "Items dequeued from tokenizer"
+        )
+        self.prom_model_queue_in = Counter("model_queue_items_in_total", "Items enqueued to model")
+        self.prom_model_queue_out = Counter(
+            "model_queue_items_out_total", "Items dequeued from model"
+        )
+
     def start(self) -> None:
         self._is_started = True
         self._shutdown_event.clear()
         try:
-            start_http_server(self._prometheus_port)
+            self._start_http_server()
             logger.info(f"Prometheus metrics server started on port {self._prometheus_port}")
         except Exception as e:
             logger.warning(f"Failed to start Prometheus server: {e}")
@@ -90,6 +110,13 @@ class MetricsService(BaseService):
         if self._collection_thread:
             self._collection_thread.join(timeout=2.0)
             self._collection_thread = None
+        if self._httpd:
+            self._httpd.shutdown()
+            self._httpd.server_close()
+            self._httpd = None
+        if self._http_thread:
+            self._http_thread.join(timeout=2.0)
+            self._http_thread = None
         logger.info("MetricsService stopped")
 
     def set_inference_service(self, orchestrator: "OrchestratorService") -> None:
@@ -179,6 +206,18 @@ class MetricsService(BaseService):
                 total_tokens
             )
 
+    def record_tokenizer_queue_in(self, count: int = 1) -> None:
+        self.prom_tokenizer_queue_in.inc(count)
+
+    def record_tokenizer_queue_out(self, count: int = 1) -> None:
+        self.prom_tokenizer_queue_out.inc(count)
+
+    def record_model_queue_in(self, count: int = 1) -> None:
+        self.prom_model_queue_in.inc(count)
+
+    def record_model_queue_out(self, count: int = 1) -> None:
+        self.prom_model_queue_out.inc(count)
+
     def _get_queue_sizes(self) -> dict:
         tokenizer_queue_size = model_queue_size = batch_queue_size = 0
         if self._collector._tokenizer_pool:
@@ -207,6 +246,61 @@ class MetricsService(BaseService):
         self.prom_tokenizer_queue_size.set(0)
         self.prom_model_queue_size.set(0)
         self.prom_batch_queue_size.set(0)
+        self.prom_padding_ratio.set(0)
+        self.prom_max_seq_length.set(0)
+        self.prom_avg_seq_length.set(0)
+        self._reset_counter(self.prom_request_count)
+        self._reset_counter(self.prom_padded_tokens)
+        self._reset_counter(self.prom_total_tokens)
+        self._reset_counter(self.prom_tokenizer_queue_in)
+        self._reset_counter(self.prom_tokenizer_queue_out)
+        self._reset_counter(self.prom_model_queue_in)
+        self._reset_counter(self.prom_model_queue_out)
+        self._reset_histogram(self.prom_request_latency)
+        self._reset_histogram(self.prom_inference_latency)
+        self._reset_histogram(self.prom_tokenization_latency)
+        self._reset_histogram(self.prom_queue_wait_latency)
+        self._reset_histogram(self.prom_tokenizer_queue_wait_latency)
+        self._reset_histogram(self.prom_model_queue_wait_latency)
+        self._reset_histogram(self.prom_pipeline_overhead_latency)
+        self.prom_worker_latency.clear()
+        self.prom_worker_requests.clear()
+        self.prom_worker_tokens.clear()
+
+    def _reset_counter(self, counter: Counter) -> None:
+        counter._value.set(0)
+
+    def _reset_histogram(self, histogram: Histogram) -> None:
+        histogram._sum.set(0)
+        buckets = histogram._buckets
+        if isinstance(buckets, dict):
+            values = buckets.values()
+        else:
+            values = buckets
+        for bucket in values:
+            bucket.set(0)
+
+    def _start_http_server(self) -> None:
+        if self._httpd:
+            return
+        app = make_wsgi_app()
+
+        def handler(environ: dict, start_response: Any):
+            path = environ.get("PATH_INFO", "")
+            if path in ["", "/", "/metrics"]:
+                return app(environ, start_response)
+            if path == "/reset":
+                self.reset()
+                start_response("200 OK", [("Content-Type", "text/plain")])
+                return [b"ok"]
+            start_response("404 Not Found", [("Content-Type", "text/plain")])
+            return [b"not found"]
+
+        self._httpd = make_server(
+            "", self._prometheus_port, handler, handler_class=QuietWSGIRequestHandler
+        )
+        self._http_thread = threading.Thread(target=self._httpd.serve_forever, daemon=True)
+        self._http_thread.start()
 
     def get_gpu_memory_mb(self) -> float:
         return self._process_monitor.get_gpu_memory_mb()

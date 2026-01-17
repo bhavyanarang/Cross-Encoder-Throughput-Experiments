@@ -5,9 +5,13 @@ import logging
 import signal
 from pathlib import Path
 
+from src.client.experiment_config import ExperimentConfig
+from src.client.experiment_runner import ExperimentRunner
 from src.client.grpc_client import InferenceClient
 from src.client.loader import DatasetLoader
+from src.client.prometheus_timeseries import PrometheusTimeseriesCollector
 from src.client.runner import BenchmarkRunner
+from src.client.timeseries_writer import TimeseriesWriter
 from src.client.writer import ResultsWriter
 from src.server.dto import BenchmarkState
 
@@ -59,33 +63,46 @@ def main():
     writer = ResultsWriter()
 
     try:
-        pairs = loader.load(args.dataset_size)
-
+        experiment_config = ExperimentConfig.from_sources(config, args)
         client = InferenceClient(host=args.host, port=args.port)
-
-        runner = BenchmarkRunner(client, state)
-
-        result = runner.run(
-            pairs=pairs,
-            batch_size=args.batch_size,
-            num_requests=args.num_requests,
-            concurrency=args.concurrency,
+        benchmark_runner = BenchmarkRunner(client, state)
+        timeseries_writer = None
+        timeseries_collector = None
+        if args.timeseries_file:
+            prometheus_url = config.get("prometheus_url") if config else None
+            if not prometheus_url:
+                prometheus_url = "http://localhost:9091"
+            timeseries_writer = TimeseriesWriter(args.timeseries_file)
+            timeseries_collector = PrometheusTimeseriesCollector(prometheus_url)
+        experiment_runner = ExperimentRunner(
+            benchmark_runner=benchmark_runner,
+            dataset_loader=loader,
+            state=state,
+            timeseries_collector=timeseries_collector,
+            timeseries_writer=timeseries_writer,
+        )
+        results = experiment_runner.run(
+            config=experiment_config,
+            timeseries_file=args.timeseries_file,
+            append=args.append,
         )
 
         if args.output:
             writer.save(
-                results=[result],
+                results=results,
                 config=config,
                 output_file=args.output,
                 append=args.append,
                 timeseries_file=args.timeseries_file,
             )
 
-        if "error" in result:
-            logger.error(f"Benchmark failed: {result['error']}")
-        else:
+        failed = [r for r in results if "error" in r]
+        if failed:
+            logger.error(f"Benchmark failed: {failed[0]['error']}")
+        elif results:
+            latest = results[-1]
             logger.info(
-                f"Benchmark completed: {result.get('num_requests', 0)} requests processed in {result.get('total_time_s', 0):.2f}s. Check Grafana for metrics."
+                f"Benchmark completed: {latest.get('num_requests', 0)} requests processed in {latest.get('total_time_s', 0):.2f}s. Check Grafana for metrics."
             )
 
     except Exception as e:

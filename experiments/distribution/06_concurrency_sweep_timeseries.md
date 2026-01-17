@@ -2,30 +2,7 @@
 
 **Experiment:** 06_concurrency_sweep
 
-**Generated:** 2026-01-01 21:07:15
+**Generated:** 2026-01-18 02:39:20
 
-| Index | GPU Mem (MB) | GPU Util (%) | CPU (%) | Latency (ms) | Throughput | Tokenize (ms) | Inference (ms) | Queue (ms) | Tokenizer Queue | Model Queue | Batch Queue | Padding (%) |
-|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
-| 0 | 1058.4 | 0 | 0.3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - | 0 |
-| 1 | 1150.6 | 8.0 | 4.2 | 526.2 | 64 | 13.2 | 44.1 | 13.3 | 0 | 0 | - | 45.2 |
-| 2 | 1182.6 | 14.8 | 6.8 | 536.7 | 128 | 13.3 | 32.5 | 13.4 | 0 | 0 | - | 45.1 |
-| 3 | 1176.8 | 15.3 | 7.3 | 550.0 | 128 | 15.6 | 37.6 | 15.7 | 0 | 0 | - | 43.9 |
-| 4 | 1154.8 | 20.7 | 8.3 | 547.1 | 192 | 11.1 | 28.0 | 11.2 | 0 | 0 | - | 31.6 |
-| 5 | 1154.8 | 3.3 | 9.3 | 1031.2 | 32 | 15.9 | 33.1 | 16.0 | 0 | 0 | - | 43.5 |
-
----
-
-### Configuration
-
-**Parameters:** batch_size: 32 | concurrency: 3 | backend: mlx | device: mps | model: cross-encoder/ms-marco-MiniLM-L-6-v2
-
-**Data rows:**
-
-| Index | GPU Mem (MB) | GPU Util (%) | CPU (%) | Latency (ms) | Throughput | Tokenize (ms) | Inference (ms) | Queue (ms) | Tokenizer Queue | Model Queue | Batch Queue | Padding (%) |
-|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
-| 6 | 1154.6 | 10.4 | 3.8 | 523.5 | 64 | 13.2 | 42.9 | 13.3 | 0 | 0 | - | 46.7 |
-| 7 | 1154.6 | 14.1 | 5.8 | 537.7 | 128 | 10.3 | 27.8 | 10.6 | 0 | 0 | - | 35.7 |
-| 8 | 1158.6 | 15.8 | 7.2 | 546.7 | 128 | 13.5 | 36.4 | 13.6 | 0 | 0 | - | 46.3 |
-| 9 | 1154.8 | 23.5 | 7.5 | 558.2 | 192 | 11.4 | 41.4 | 11.5 | 0 | 0 | - | 37.6 |
-| 10 | 1154.8 | 22.4 | 9.4 | 564.2 | 192 | 12.2 | 32.1 | 12.3 | 0 | 0 | - | 43.8 |
-| 11 | 1154.8 | 3.3 | 8.4 | 1038.2 | 32 | 16.0 | 33.0 | 16.1 | 0 | 0 | - | 43.5 |
+| Index | GPU Mem (MB) | GPU Util (%) | CPU (%) | Latency (ms) | Throughput | Tokenize (ms) | Inference (ms) | Queue Wait (ms) | Tokenizer Queue Wait (ms) | Model Queue Wait (ms) | Tokenizer Queue Size | Model Queue Size | Batch Queue Size | Padding (%) |
+|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|

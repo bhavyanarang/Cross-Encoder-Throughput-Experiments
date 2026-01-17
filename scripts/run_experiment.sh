@@ -252,7 +252,9 @@ START_TIME=$(date +%s.%N)
 echo "Starting server..."
 if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
     # For sweep temp configs, copy to conf/experiment with proper Hydra defaults
-    TEMP_HYDRA_CONFIG="$PROJECT_ROOT/conf/experiment/${EXPERIMENT_NAME}.yaml"
+    # Use a unique temp name to avoid overwriting the original config
+    SWEEP_TEMP_NAME="_sweep_temp_${EXPERIMENT_NAME}_$$"
+    TEMP_HYDRA_CONFIG="$PROJECT_ROOT/conf/experiment/${SWEEP_TEMP_NAME}.yaml"
 
     # Add Hydra defaults if not present
     python3 << PYTHON_FIX_HYDRA
@@ -274,11 +276,6 @@ if 'defaults' not in config or not config['defaults']:
         {'override /server': 'default'},
     ]
 
-# Ensure @package directive
-if not str(config).startswith('# @package'):
-    # Re-add the package directive as a comment
-    pass
-
 with open(final_config_path, 'w') as f:
     # Write package directive first
     f.write('# @package _global_\n\n')
@@ -286,7 +283,7 @@ with open(final_config_path, 'w') as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 PYTHON_FIX_HYDRA
 
-    python -m src.main experiment=$EXPERIMENT_NAME &
+    python -m src.main experiment=$SWEEP_TEMP_NAME &
 else
     python -m src.main $HYDRA_CONFIG &
 fi
@@ -340,10 +337,9 @@ else
     # Fallback to original config
     CLIENT_CONFIG="$EXPERIMENT_CONFIG"
 fi
-CLIENT_ARGS=(--experiment --config "$CLIENT_CONFIG" --output "$OUTPUT_FILE")
+CLIENT_ARGS=(--experiment --config "$CLIENT_CONFIG" --output "$OUTPUT_FILE" --timeseries-file "$TIMESERIES_FILE")
 
 if [ "$IS_SWEEP" = "true" ]; then
-    CLIENT_ARGS+=(--timeseries-file "$TIMESERIES_FILE")
     if [ "$APPEND_MODE" = "true" ]; then
         CLIENT_ARGS+=(--append)
     fi
@@ -395,8 +391,8 @@ fi
 SERVER_PID=""
 
 # Clean up temp sweep config if it was created
-if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
-    TEMP_HYDRA_CONFIG="$PROJECT_ROOT/conf/experiment/${EXPERIMENT_NAME}.yaml"
+if [ -n "$SWEEP_TEMP_CONFIG_PATH" ] && [ -n "$SWEEP_TEMP_NAME" ]; then
+    TEMP_HYDRA_CONFIG="$PROJECT_ROOT/conf/experiment/${SWEEP_TEMP_NAME}.yaml"
     if [ -f "$TEMP_HYDRA_CONFIG" ]; then
         rm -f "$TEMP_HYDRA_CONFIG"
     fi

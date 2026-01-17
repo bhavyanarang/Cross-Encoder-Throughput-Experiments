@@ -6,7 +6,6 @@ defaults:
   - override /tokenizer_pool: default
   - override /server: default
 
-# Experiment 13b: Multi-Model Pool - 3 Instances
 name: "13b_multi_model_3x"
 description: "Three model instances in pool for parallel processing"
 

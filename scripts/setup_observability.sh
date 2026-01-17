@@ -10,4 +10,4 @@ mkdir -p "$PROJECT_ROOT/data/prometheus"
 mkdir -p "$PROJECT_ROOT/data/grafana"
 
 echo "Pulling observability images..."
-docker compose pull
+docker compose pull prometheus grafana

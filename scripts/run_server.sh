@@ -1,6 +1,4 @@
 #!/bin/bash
-# Run the inference server
-
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -24,20 +22,20 @@ trap cleanup SIGINT SIGTERM EXIT
 
 cd "$PROJECT_ROOT"
 
-# Activate virtual environment if it exists
 if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
+elif [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
 fi
 
 echo -e "${GREEN}Starting Inference Server...${NC}"
 echo "Press Ctrl+C to stop"
 echo ""
 
-# Use experiment config if provided, otherwise use default
-CONFIG="${1:-experiments/02_backend_mps.yaml}"
+EXPERIMENT="${1:-10_multi_model_pool}"
 
 export PYTHONPATH="$PROJECT_ROOT:$PYTHONPATH"
-python -m src.main experiment_path="$CONFIG" &
+python -m src.main experiment="$EXPERIMENT" &
 SERVER_PID=$!
 
 wait $SERVER_PID

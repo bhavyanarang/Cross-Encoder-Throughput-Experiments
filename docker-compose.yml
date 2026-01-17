@@ -13,28 +13,7 @@ services:
       - "9091:9090"
     extra_hosts:
       - "host.docker.internal:host-gateway"
-  tokenizer_pool:
-    build: .
-    container_name: cross_encoder_tokenizer_pool
-    command:
-      - experiment=tokenization_only
-      - server.grpc_port=50052
-      - server.http_port=8081
-      - server.prometheus_port=8001
-    ports:
-      - "50052:50052"
-      - "8001:8001"
-  model_pool:
-    build: .
-    container_name: cross_encoder_model_pool
-    command:
-      - experiment=inference_only
-      - server.grpc_port=50053
-      - server.http_port=8082
-      - server.prometheus_port=8002
-    ports:
-      - "50053:50053"
-      - "8002:8002"
+
   grafana:
     image: grafana/grafana-oss:11.0.0
     container_name: cross_encoder_grafana

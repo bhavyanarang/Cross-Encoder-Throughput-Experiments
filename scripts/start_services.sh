@@ -9,8 +9,8 @@ cd "$PROJECT_ROOT"
 mkdir -p "$PROJECT_ROOT/data/prometheus"
 mkdir -p "$PROJECT_ROOT/data/grafana"
 
-echo "Starting observability services with Docker..."
-docker compose up -d --remove-orphans
+echo "Starting observability services (prometheus + grafana)..."
+docker compose up -d prometheus grafana --remove-orphans
 
 echo "Services are running."
 echo "Prometheus: http://localhost:9091"

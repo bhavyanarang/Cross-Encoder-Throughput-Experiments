@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+- override /model_pool: default
+- override /batching: default
+- override /tokenizer_pool: default
+- override /server: default
+description: Sweep batch sizes on MPS and MLX backends
+experiment:
+  batch_sizes:
+  - 8
+  - 16
+  - 32
+  - 48
+  concurrency_levels:
+  - 1
+model_pool:
+  instances:
+  - backend: mlx
+    compile_model: false
+    device: mps
+    max_length: 512
+    name: cross-encoder/ms-marco-MiniLM-L-6-v2
+    quantization: fp16
+name: 02_batch_size_sweep

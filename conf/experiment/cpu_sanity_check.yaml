@@ -20,7 +20,7 @@ model:
   device: "cpu"
   backend: "pytorch"
   quantized: false
-  
+
 batching:
   enabled: false
 

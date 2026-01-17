@@ -3,10 +3,14 @@ import multiprocessing as mp
 import queue
 import threading
 import time
+from typing import TYPE_CHECKING
 
 from src.server.dto.pipeline import InferenceQueueItem, TokenizationQueueItem
 from src.server.pool.base import BaseWorkerPool
 from src.server.worker.tokenizer_worker import TokenizerWorker
+
+if TYPE_CHECKING:
+    from src.server.services.metrics_service import MetricsService
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +74,7 @@ class TokenizerPool(BaseWorkerPool):
         self._result_thread: threading.Thread | None = None
 
         self._inference_queue: queue.Queue | None = None
+        self._metrics: MetricsService | None = None
 
         self._pending_items: dict[int, TokenizationQueueItem] = {}
         self._pending_lock = threading.Lock()
@@ -78,6 +83,9 @@ class TokenizerPool(BaseWorkerPool):
         self._total_queries = 0
         self._start_time: float | None = None
         self._stats_lock = threading.Lock()
+
+    def set_metrics(self, metrics: "MetricsService") -> None:
+        self._metrics = metrics
 
     def start(self, timeout_s: float = 120.0) -> None:
         if self._is_started:
@@ -184,6 +192,8 @@ class TokenizerPool(BaseWorkerPool):
             self._input_queue.put_nowait(
                 (req_id, tokenization_item.pairs, tokenization_item.enqueue_time)
             )
+            if self._metrics:
+                self._metrics.record_tokenizer_queue_in(1)
         except queue.Full:
             with self._pending_lock:
                 self._pending_items.pop(req_id, None)
@@ -232,6 +242,9 @@ class TokenizerPool(BaseWorkerPool):
                             tokenized_batch=tokenized_batch,
                         )
                         self._inference_queue.put(inference_item, block=False)
+                        if self._metrics:
+                            self._metrics.record_tokenizer_queue_out(1)
+                            self._metrics.record_model_queue_in(1)
                     except queue.Full:
                         logger.warning("Inference queue full, dropping tokenized result")
                         request.error = RuntimeError("Inference queue full")

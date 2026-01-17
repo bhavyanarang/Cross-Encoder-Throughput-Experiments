@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse
-import json
 import logging
 import re
 import sys
@@ -11,10 +10,6 @@ from pathlib import Path
 import numpy as np
 
 logger = logging.getLogger(__name__)
-
-FRONTEND_DIR = Path(__file__).parent / "frontend"
-TEMPLATES_DIR = FRONTEND_DIR / "templates"
-STATIC_DIR = FRONTEND_DIR / "static"
 
 
 def parse_timeseries_markdown(markdown_path: Path) -> dict:
@@ -32,7 +27,6 @@ def parse_timeseries_markdown(markdown_path: Path) -> dict:
         if line.startswith("| Index |"):
             headers = [h.strip() for h in line.split("|")[1:-1]]
             table_start = i + 2
-            break
 
     if not headers or table_start is None:
         raise ValueError("Could not find timeseries table in markdown file")
@@ -53,21 +47,32 @@ def parse_timeseries_markdown(markdown_path: Path) -> dict:
                 except ValueError:
                     data[header].append(value)
 
-    max_len = max(len(v) for v in data.values() if v)
+    max_len = max((len(v) for v in data.values()), default=0)
     timestamps = [float(i) for i in range(max_len)]
+
+    def pick(*names: str) -> list:
+        for name in names:
+            if name in data:
+                return data[name]
+        return []
 
     return {
         "experiment_name": experiment_name,
         "timestamps": timestamps,
-        "gpu_memory_mb": [v for v in data.get("GPU Mem (MB)", []) if v is not None],
-        "gpu_utilization_pct": [v for v in data.get("GPU Util (%)", []) if v is not None],
-        "cpu_percent": [v for v in data.get("CPU (%)", []) if v is not None],
-        "latencies": [v for v in data.get("Latency (ms)", []) if v is not None],
-        "throughput": [v for v in data.get("Throughput", []) if v is not None],
-        "tokenize_ms": [v for v in data.get("Tokenize (ms)", []) if v is not None],
-        "inference_ms": [v for v in data.get("Inference (ms)", []) if v is not None],
-        "queue_wait_ms": [v for v in data.get("Queue (ms)", []) if v is not None],
-        "padding_pct": [v for v in data.get("Padding (%)", []) if v is not None],
+        "gpu_memory_mb": pick("GPU Mem (MB)"),
+        "gpu_utilization_pct": pick("GPU Util (%)"),
+        "cpu_percent": pick("CPU (%)"),
+        "latencies": pick("Latency (ms)"),
+        "throughput": pick("Throughput"),
+        "tokenize_ms": pick("Tokenize (ms)"),
+        "inference_ms": pick("Inference (ms)"),
+        "queue_wait_ms": pick("Queue Wait (ms)", "Queue (ms)"),
+        "tokenizer_queue_wait_ms": pick("Tokenizer Queue Wait (ms)"),
+        "model_queue_wait_ms": pick("Model Queue Wait (ms)"),
+        "tokenizer_queue_size": pick("Tokenizer Queue Size", "Tokenizer Queue"),
+        "model_queue_size": pick("Model Queue Size", "Model Queue"),
+        "batch_queue_size": pick("Batch Queue Size"),
+        "padding_pct": pick("Padding (%)"),
     }
 
 
@@ -85,13 +90,19 @@ def compute_summary_stats(timeseries_data: dict) -> dict:
             "count": len(a),
         }
 
-    latencies = timeseries_data.get("latencies", [])
+    latencies = [v for v in timeseries_data.get("latencies", []) if isinstance(v, (int, float))]
     if not latencies:
         return {}
 
-    tokenize_total = sum(timeseries_data.get("tokenize_ms", []))
-    queue_total = sum(timeseries_data.get("queue_wait_ms", []))
-    inference_total = sum(timeseries_data.get("inference_ms", []))
+    tokenize_total = sum(
+        v for v in timeseries_data.get("tokenize_ms", []) if isinstance(v, (int, float))
+    )
+    queue_total = sum(
+        v for v in timeseries_data.get("queue_wait_ms", []) if isinstance(v, (int, float))
+    )
+    inference_total = sum(
+        v for v in timeseries_data.get("inference_ms", []) if isinstance(v, (int, float))
+    )
     total_latency = sum(latencies)
 
     if total_latency > 0:
@@ -110,26 +121,36 @@ def compute_summary_stats(timeseries_data: dict) -> dict:
         "p50_ms": stats(latencies)["p50"],
         "p95_ms": stats(latencies)["p95"],
         "p99_ms": float(np.percentile(np.array(latencies), 99)) if latencies else 0,
-        "throughput_qps": timeseries_data.get("throughput", [0])[-1]
-        if timeseries_data.get("throughput")
-        else 0,
-        "avg_throughput_qps": stats(timeseries_data.get("throughput", []))["avg"],
-        "cpu_percent": stats(timeseries_data.get("cpu_percent", []))["avg"],
-        "gpu_memory_mb": stats(timeseries_data.get("gpu_memory_mb", []))["avg"],
-        "gpu_utilization_pct": stats(timeseries_data.get("gpu_utilization_pct", []))["avg"],
-        "last_tokenize_ms": timeseries_data.get("tokenize_ms", [0])[-1]
-        if timeseries_data.get("tokenize_ms")
-        else 0,
-        "last_inference_ms": timeseries_data.get("inference_ms", [0])[-1]
-        if timeseries_data.get("inference_ms")
-        else 0,
-        "last_queue_wait_ms": timeseries_data.get("queue_wait_ms", [0])[-1]
-        if timeseries_data.get("queue_wait_ms")
-        else 0,
+        "throughput_qps": (timeseries_data.get("throughput", []) or [0])[-1],
+        "avg_throughput_qps": stats(
+            [v for v in timeseries_data.get("throughput", []) if isinstance(v, (int, float))]
+        )["avg"],
+        "cpu_percent": stats(
+            [v for v in timeseries_data.get("cpu_percent", []) if isinstance(v, (int, float))]
+        )["avg"],
+        "gpu_memory_mb": stats(
+            [v for v in timeseries_data.get("gpu_memory_mb", []) if isinstance(v, (int, float))]
+        )["avg"],
+        "gpu_utilization_pct": stats(
+            [
+                v
+                for v in timeseries_data.get("gpu_utilization_pct", [])
+                if isinstance(v, (int, float))
+            ]
+        )["avg"],
+        "last_tokenize_ms": (timeseries_data.get("tokenize_ms", []) or [0])[-1],
+        "last_inference_ms": (timeseries_data.get("inference_ms", []) or [0])[-1],
+        "last_queue_wait_ms": (timeseries_data.get("queue_wait_ms", []) or [0])[-1],
         "stage_breakdown": {
-            "tokenize": stats(timeseries_data.get("tokenize_ms", [])),
-            "queue_wait": stats(timeseries_data.get("queue_wait_ms", [])),
-            "model_inference": stats(timeseries_data.get("inference_ms", [])),
+            "tokenize": stats(
+                [v for v in timeseries_data.get("tokenize_ms", []) if isinstance(v, (int, float))]
+            ),
+            "queue_wait": stats(
+                [v for v in timeseries_data.get("queue_wait_ms", []) if isinstance(v, (int, float))]
+            ),
+            "model_inference": stats(
+                [v for v in timeseries_data.get("inference_ms", []) if isinstance(v, (int, float))]
+            ),
         },
         "stage_percentages": {
             "tokenize_pct": round(tokenize_pct, 1),
@@ -138,14 +159,18 @@ def compute_summary_stats(timeseries_data: dict) -> dict:
             "other_pct": round(other_pct, 1),
         },
         "queue_wait_analysis": {
-            "avg_ms": stats(timeseries_data.get("queue_wait_ms", []))["avg"],
-            "p95_ms": stats(timeseries_data.get("queue_wait_ms", []))["p95"],
+            "avg_ms": stats(
+                [v for v in timeseries_data.get("queue_wait_ms", []) if isinstance(v, (int, float))]
+            )["avg"],
+            "p95_ms": stats(
+                [v for v in timeseries_data.get("queue_wait_ms", []) if isinstance(v, (int, float))]
+            )["p95"],
         },
         "padding_analysis": {
-            "last_padding_pct": timeseries_data.get("padding_pct", [0])[-1]
-            if timeseries_data.get("padding_pct")
-            else 0,
-            "avg_padding_pct": stats(timeseries_data.get("padding_pct", []))["avg"],
+            "last_padding_pct": (timeseries_data.get("padding_pct", []) or [0])[-1],
+            "avg_padding_pct": stats(
+                [v for v in timeseries_data.get("padding_pct", []) if isinstance(v, (int, float))]
+            )["avg"],
         },
     }
 
@@ -160,102 +185,182 @@ def generate_static_dashboard(
 
         summary = compute_summary_stats(timeseries_data)
 
-        metrics_data = {
-            "experiment_name": timeseries_data["experiment_name"],
-            "experiment_description": experiment_config.get("description", "")
+        experiment_name = timeseries_data.get("experiment_name", "experiment")
+        description = experiment_config.get("description", "") if experiment_config else ""
+        backend = (
+            experiment_config.get("model", {}).get("backend", "pytorch")
             if experiment_config
-            else "",
-            "backend_type": experiment_config.get("model", {}).get("backend", "pytorch")
-            if experiment_config
-            else "pytorch",
-            "device": experiment_config.get("model", {}).get("device", "cpu")
-            if experiment_config
-            else "cpu",
-            "is_running": False,
-            **summary,
-            "history": {
-                "timestamps": timeseries_data["timestamps"],
-                "latencies": timeseries_data["latencies"],
-                "throughput": timeseries_data["throughput"],
-                "queries": list(range(len(timeseries_data["latencies"]))),
-                "cpu_percent": timeseries_data["cpu_percent"],
-                "gpu_memory_mb": timeseries_data["gpu_memory_mb"],
-                "gpu_utilization_pct": timeseries_data["gpu_utilization_pct"],
-                "queue_wait_ms": timeseries_data["queue_wait_ms"],
-                "tokenize_ms": timeseries_data["tokenize_ms"],
-                "inference_ms": timeseries_data["inference_ms"],
-                "padding_pct": timeseries_data["padding_pct"],
-            },
-            "worker_stats": [],
-        }
-
-        html_template = (TEMPLATES_DIR / "index.html").read_text()
-
-        styles_css = (STATIC_DIR / "css" / "styles.css").read_text()
-
-        charts_js = (STATIC_DIR / "js" / "charts.js").read_text()
-        main_js = (STATIC_DIR / "js" / "main.js").read_text()
-
-        modified_main_js = main_js.replace(
-            "// Fetch metrics and update dashboard\nasync function fetchAndUpdate() {",
-            "// Fetch metrics from embedded data\nasync function fetchAndUpdate() {",
+            else "pytorch"
         )
-        modified_main_js = modified_main_js.replace(
-            "        const response = await fetch('/metrics');\n        const data = await response.json();",
-            "        // Use embedded data instead of fetching\n        const data = window.embeddedMetricsData;",
+        device = (
+            experiment_config.get("model", {}).get("device", "cpu") if experiment_config else "cpu"
         )
-        modified_main_js = modified_main_js.replace(
-            "// Initialize dashboard\nfunction init() {\n    window.DashboardCharts.init();\n    fetchAndUpdate();\n    setInterval(fetchAndUpdate, 500);\n}",
-            "// Initialize dashboard\nfunction init() {\n    window.DashboardCharts.init();\n    fetchAndUpdate();\n    // No polling for static dashboard\n}",
+        static_html = _build_html(
+            experiment_name=experiment_name,
+            description=description,
+            backend=backend,
+            device=device,
+            summary=summary,
+            timeseries=timeseries_data,
         )
-
-        body_match = re.search(r"<body>(.*?)<!-- Scripts -->", html_template, re.DOTALL)
-        if body_match:
-            body_content = body_match.group(1)
-        else:
-            body_match = re.search(r"<body>(.*?)</body>", html_template, re.DOTALL)
-            if body_match:
-                body_content = body_match.group(1)
-
-                body_content = re.sub(
-                    r"<script[^>]*>.*?</script>", "", body_content, flags=re.DOTALL
-                )
-            else:
-                body_content = ""
-
-        static_html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{metrics_data["experiment_name"]} - ML Inference Dashboard</title>
-    <style>
-{styles_css}
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-</head>
-<body>
-{body_content}
-    <script>
-{charts_js}
-    </script>
-    <script>
-        window.embeddedMetricsData = {json.dumps(metrics_data)};
-{modified_main_js}
-    </script>
-</body>
-</html>"""
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(static_html)
-
+        if output_path.suffix.lower() == ".png":
+            _render_png(static_html, output_path)
+        else:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(static_html)
         logger.info(f"Generated static dashboard: {output_path}")
         return True
 
     except Exception as e:
         logger.error(f"Failed to generate static dashboard: {e}", exc_info=True)
         return False
+
+
+def _build_html(
+    experiment_name: str,
+    description: str,
+    backend: str,
+    device: str,
+    summary: dict,
+    timeseries: dict,
+) -> str:
+    rows = []
+    timestamps = timeseries.get("timestamps", [])
+    max_rows = 120
+    start_idx = max(0, len(timestamps) - max_rows)
+    for idx in range(start_idx, len(timestamps)):
+        rows.append(
+            "<tr>"
+            f"<td>{idx}</td>"
+            f"<td>{_fmt(timeseries.get('gpu_memory_mb', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('gpu_utilization_pct', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('cpu_percent', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('latencies', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('throughput', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('tokenize_ms', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('inference_ms', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('queue_wait_ms', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('tokenizer_queue_wait_ms', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('model_queue_wait_ms', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('tokenizer_queue_size', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('model_queue_size', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('batch_queue_size', []), idx)}</td>"
+            f"<td>{_fmt(timeseries.get('padding_pct', []), idx)}</td>"
+            "</tr>"
+        )
+    summary_rows = [
+        ("Requests", summary.get("query_count", 0)),
+        ("Latency P50 (ms)", round(summary.get("p50_ms", 0), 2)),
+        ("Latency P95 (ms)", round(summary.get("p95_ms", 0), 2)),
+        ("Throughput (qps)", round(summary.get("throughput_qps", 0), 2)),
+        ("Avg Throughput (qps)", round(summary.get("avg_throughput_qps", 0), 2)),
+        ("CPU (%)", round(summary.get("cpu_percent", 0), 2)),
+        ("GPU Mem (MB)", round(summary.get("gpu_memory_mb", 0), 2)),
+        ("GPU Util (%)", round(summary.get("gpu_utilization_pct", 0), 2)),
+        ("Padding (%)", round(summary.get("padding_analysis", {}).get("avg_padding_pct", 0), 2)),
+    ]
+    summary_html = "".join(
+        f"<tr><td>{label}</td><td>{value}</td></tr>" for label, value in summary_rows
+    )
+    description_html = f"<p>{description}</p>" if description else ""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{experiment_name} Snapshot</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; padding: 24px; color: #111; }}
+    h1 {{ margin-bottom: 4px; }}
+    .meta {{ color: #444; margin-bottom: 16px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
+    th, td {{ border: 1px solid #ddd; padding: 6px 8px; text-align: right; }}
+    th {{ background: #f3f4f6; text-align: center; }}
+    td:first-child, th:first-child {{ text-align: left; }}
+    .section {{ margin-top: 24px; }}
+  </style>
+</head>
+<body>
+  <h1>{experiment_name}</h1>
+  <div class="meta">Backend: {backend} | Device: {device}</div>
+  {description_html}
+  <div class="section">
+    <h2>Summary</h2>
+    <table>
+      <thead>
+        <tr><th>Metric</th><th>Value</th></tr>
+      </thead>
+      <tbody>
+        {summary_html}
+      </tbody>
+    </table>
+  </div>
+  <div class="section">
+    <h2>Timeseries (last {min(len(timestamps), max_rows)} samples)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Index</th>
+          <th>GPU Mem (MB)</th>
+          <th>GPU Util (%)</th>
+          <th>CPU (%)</th>
+          <th>Latency (ms)</th>
+          <th>Throughput</th>
+          <th>Tokenize (ms)</th>
+          <th>Inference (ms)</th>
+          <th>Queue Wait (ms)</th>
+          <th>Tokenizer Queue Wait (ms)</th>
+          <th>Model Queue Wait (ms)</th>
+          <th>Tokenizer Queue Size</th>
+          <th>Model Queue Size</th>
+          <th>Batch Queue Size</th>
+          <th>Padding (%)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {"".join(rows)}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>"""
+
+
+def _fmt(series: list, idx: int) -> str:
+    if idx >= len(series):
+        return "-"
+    value = series[idx]
+    if value is None:
+        return "-"
+    if isinstance(value, str):
+        return value
+    try:
+        numeric = float(value)
+    except Exception:
+        return "-"
+    if abs(numeric) >= 100 or numeric.is_integer():
+        return f"{numeric:.0f}"
+    if abs(numeric) >= 10:
+        return f"{numeric:.1f}"
+    return f"{numeric:.2f}"
+
+
+def _render_png(html: str, output_path: Path) -> None:
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        executable_path = p.chromium.executable_path
+        if executable_path and not Path(executable_path).exists():
+            fallback = executable_path.replace("mac-x64", "mac-arm64")
+            if Path(fallback).exists():
+                executable_path = fallback
+        browser = p.chromium.launch(executable_path=executable_path)
+        page = browser.new_page(viewport={"width": 1600, "height": 900})
+        page.set_content(html, wait_until="networkidle")
+        page.screenshot(path=str(output_path), full_page=True)
+        browser.close()
 
 
 def find_timeseries_file(experiment_name: str, distribution_dir: Path) -> Path | None:

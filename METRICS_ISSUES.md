@@ -30,4 +30,3 @@
 8. **inference_service.py:57** - Dead code: unused `time.perf_counter()` call
 
 9. **collector.py:242-248** - Stage sum validation compares against `total_avg` which excludes gRPC overhead
-

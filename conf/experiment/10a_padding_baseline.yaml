@@ -6,7 +6,6 @@ defaults:
   - override /tokenizer_pool: default
   - override /server: default
 
-# Experiment 10a: Padding Baseline (Random Ordering)
 name: "10a_padding_baseline"
 description: "Baseline with random ordering (length-aware batching disabled)"
 

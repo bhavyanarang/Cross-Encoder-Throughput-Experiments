@@ -4,10 +4,14 @@ import queue
 import threading
 import time
 from itertools import count
+from typing import TYPE_CHECKING
 
 from src.server.dto import ModelConfig, PoolConfig
 from src.server.pool.base import BaseWorkerPool
 from src.server.worker.model_worker import ModelWorker
+
+if TYPE_CHECKING:
+    from src.server.services.metrics_service import MetricsService
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +91,10 @@ class ModelPool(BaseWorkerPool):
         self._total_inference_queries = 0
         self._pipeline_start_time: float | None = None
         self._stats_lock = threading.Lock()
+        self._metrics: MetricsService | None = None
+
+    def set_metrics(self, metrics: "MetricsService") -> None:
+        self._metrics = metrics
 
     def start(self, timeout_s: float = 120.0) -> None:
         if self._is_started:
@@ -255,6 +263,8 @@ class ModelPool(BaseWorkerPool):
                         request_id, result, error = worker_result
                         if request_id in pending_results:
                             request, enqueue_time = pending_results.pop(request_id)
+                            if self._metrics:
+                                self._metrics.record_model_queue_out(1)
                             if error:
                                 request.error = error
                             else:

@@ -30,8 +30,11 @@ class ResultsWriter:
                 if "error" in r:
                     f.write(f"- Run failed: {r.get('error')}\n")
                 else:
+                    batch_size = r.get("batch_size", "n/a")
+                    concurrency = r.get("concurrency", "n/a")
                     f.write(
-                        f"- Run completed: {r.get('num_requests')} requests in {r.get('total_time_s', 0):.2f}s\n"
+                        f"- Run completed: batch_size={batch_size}, concurrency={concurrency}, "
+                        f"{r.get('num_requests')} requests in {r.get('total_time_s', 0):.2f}s\n"
                     )
 
         logger.info(f"Simple run log saved to {output_file}. Check Grafana for metrics.")

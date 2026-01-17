@@ -1,0 +1,39 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+name: "23_optimized_production"
+description: "Production-optimized config: MLX + Length-Aware Batching"
+
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: "mps"
+      device: "mps"
+      quantization: fp16
+      compile_model: false
+      max_length: 175
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: "mps"
+      device: "mps"
+      quantization: fp16
+      compile_model: false
+      max_length: 175
+
+batching:
+  enabled: true
+  max_batch_size: 256
+  timeout_ms: 200.0
+  length_aware: true
+
+scheduler:
+  enable_length_aware_batching: true
+  enable_stage_timing: true
+
+experiment:
+  batch_sizes: [32, 48, 64, 96]
+  concurrency_levels: [1]
