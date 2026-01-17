@@ -103,17 +103,28 @@ else
     HYDRA_CONFIG="experiment=${EXPERIMENT_NAME}"
 fi
 
-# Validate Hydra config exists
-HYDRA_CONFIG_PATH="$PROJECT_ROOT/conf/experiment/${EXPERIMENT_NAME}.yaml"
-if [ ! -f "$HYDRA_CONFIG_PATH" ]; then
-    echo -e "${RED}Error: Hydra config not found: $HYDRA_CONFIG_PATH${NC}"
-    echo "Available experiments:"
-    ls -1 "$PROJECT_ROOT/conf/experiment/"*.yaml 2>/dev/null | xargs -n1 basename | sed 's/.yaml$//' | sed 's/^/  - /' || echo "  (none found)"
-    exit 1
+# Check if this is a sweep temp config
+if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
+    HYDRA_CONFIG_PATH="$SWEEP_TEMP_CONFIG_PATH"
+    if [ ! -f "$HYDRA_CONFIG_PATH" ]; then
+        echo -e "${RED}Error: Sweep temp config not found: $HYDRA_CONFIG_PATH${NC}"
+        exit 1
+    fi
+else
+    # Validate Hydra config exists in conf/experiment/
+    HYDRA_CONFIG_PATH="$PROJECT_ROOT/conf/experiment/${EXPERIMENT_NAME}.yaml"
+    if [ ! -f "$HYDRA_CONFIG_PATH" ]; then
+        echo -e "${RED}Error: Hydra config not found: $HYDRA_CONFIG_PATH${NC}"
+        echo "Available experiments:"
+        ls -1 "$PROJECT_ROOT/conf/experiment/"*.yaml 2>/dev/null | xargs -n1 basename | sed 's/.yaml$//' | sed 's/^/  - /' || echo "  (none found)"
+        exit 1
+    fi
 fi
 
 # Check if config has sweep parameters (arrays in Hydra config)
-HAS_SWEEPS=$(python3 << PYTHON
+# BUT: Don't check if we're already running from sweep script (SWEEP_TEMP_CONFIG_PATH is set)
+if [ -z "$SWEEP_TEMP_CONFIG_PATH" ]; then
+    HAS_SWEEPS=$(python3 << PYTHON
 import sys
 import yaml
 from pathlib import Path
@@ -148,21 +159,33 @@ try:
 except Exception:
     print("false")
 PYTHON
-)
+    )
 
-# If sweeps detected, use sweep script
-if [ "$HAS_SWEEPS" = "true" ]; then
-    echo -e "${BLUE}Detected sweep parameters, using sweep handler...${NC}"
-    "$SCRIPT_DIR/run_sweep_experiment.sh" "$HYDRA_CONFIG_PATH"
-    exit $?
+    # If sweeps detected, use sweep script
+    if [ "$HAS_SWEEPS" = "true" ]; then
+        echo -e "${BLUE}Detected sweep parameters, using sweep handler...${NC}"
+        "$SCRIPT_DIR/run_sweep_experiment.sh" "$HYDRA_CONFIG_PATH"
+        exit $?
+    fi
+else
+    # Already part of a sweep, don't check again
+    HAS_SWEEPS="false"
 fi
 
 # Generate client config from Hydra config
+# If in a sweep, pass the temp config path so it uses the right config
 TEMP_CLIENT_CONFIG=$(mktemp)
-python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" || {
-    echo -e "${RED}Error: Failed to convert Hydra config to client format${NC}"
-    exit 1
-}
+if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
+    python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" --config-path "$SWEEP_TEMP_CONFIG_PATH" || {
+        echo -e "${RED}Error: Failed to convert Hydra config to client format${NC}"
+        exit 1
+    }
+else
+    python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" || {
+        echo -e "${RED}Error: Failed to convert Hydra config to client format${NC}"
+        exit 1
+    }
+fi
 CLIENT_CONFIG_PATH="$TEMP_CLIENT_CONFIG"
 
 # Check if we're part of a sweep (consolidated output)
@@ -217,9 +240,53 @@ if lsof -ti:50051 > /dev/null 2>&1; then
     sleep 1
 fi
 
+
+# Start observability stack
+echo "Starting observability services..."
+"$SCRIPT_DIR/start_services.sh"
+
+# Capture start time (seconds)
+START_TIME=$(date +%s.%N)
+
 # Start server in background
 echo "Starting server..."
-python -m src.main $HYDRA_CONFIG &
+if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
+    # For sweep temp configs, copy to conf/experiment with proper Hydra defaults
+    # Use a unique temp name to avoid overwriting the original config
+    SWEEP_TEMP_NAME="_sweep_temp_${EXPERIMENT_NAME}_$$"
+    TEMP_HYDRA_CONFIG="$PROJECT_ROOT/conf/experiment/${SWEEP_TEMP_NAME}.yaml"
+
+    # Add Hydra defaults if not present
+    python3 << PYTHON_FIX_HYDRA
+import yaml
+from pathlib import Path
+
+temp_config_path = "$HYDRA_CONFIG_PATH"
+final_config_path = "$TEMP_HYDRA_CONFIG"
+
+with open(temp_config_path) as f:
+    config = yaml.safe_load(f)
+
+# Ensure defaults are present for Hydra composition
+if 'defaults' not in config or not config['defaults']:
+    config['defaults'] = [
+        {'override /model_pool': 'default'},
+        {'override /batching': 'default'},
+        {'override /tokenizer_pool': 'default'},
+        {'override /server': 'default'},
+    ]
+
+with open(final_config_path, 'w') as f:
+    # Write package directive first
+    f.write('# @package _global_\n\n')
+    # Write rest of config
+    yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+PYTHON_FIX_HYDRA
+
+    python -m src.main experiment=$SWEEP_TEMP_NAME &
+else
+    python -m src.main $HYDRA_CONFIG &
+fi
 SERVER_PID=$!
 echo "Server PID: $SERVER_PID"
 
@@ -237,7 +304,7 @@ while [ $WAIT_TIME -lt $MAX_WAIT ]; do
     fi
 
     # Try to connect to the server
-    if curl -s http://localhost:8080/metrics > /dev/null 2>&1; then
+    if curl -s http://localhost:8000/metrics > /dev/null 2>&1; then
         SERVER_READY=true
         break
     fi
@@ -256,7 +323,7 @@ echo -e "${GREEN}Server is ready!${NC}"
 
 # Reset metrics before running the benchmark
 echo "Resetting metrics..."
-curl -s http://localhost:8080/reset > /dev/null 2>&1 || true
+curl -s http://localhost:8000/reset > /dev/null 2>&1 || true
 
 # Run client
 echo ""
@@ -270,10 +337,9 @@ else
     # Fallback to original config
     CLIENT_CONFIG="$EXPERIMENT_CONFIG"
 fi
-CLIENT_ARGS=(--experiment --config "$CLIENT_CONFIG" --output "$OUTPUT_FILE")
+CLIENT_ARGS=(--experiment --config "$CLIENT_CONFIG" --output "$OUTPUT_FILE" --timeseries-file "$TIMESERIES_FILE")
 
 if [ "$IS_SWEEP" = "true" ]; then
-    CLIENT_ARGS+=(--timeseries-file "$TIMESERIES_FILE")
     if [ "$APPEND_MODE" = "true" ]; then
         CLIENT_ARGS+=(--append)
     fi
@@ -294,22 +360,16 @@ if [ $CLIENT_EXIT -eq 0 ]; then
     echo "Latency vs Throughput data included in results"
     echo -e "==========================================${NC}"
 
-    # Generate static dashboard from timeseries data
-    echo ""
-    echo "Generating static dashboard from timeseries data..."
-    SNAPSHOT_DIR="$PROJECT_ROOT/images"
-    mkdir -p "$SNAPSHOT_DIR"
-    SNAPSHOT_FILE="$SNAPSHOT_DIR/${EXPERIMENT_NAME}.html"
+    # Capture end time
+    END_TIME=$(date +%s.%N)
 
-    # Generate static dashboard from timeseries markdown
-    if python -m src.screenshot --experiment "$EXPERIMENT_NAME" --output "$SNAPSHOT_FILE" 2>&1 | grep -v "Warning\|Error" || true; then
-        if [ -f "$SNAPSHOT_FILE" ]; then
-            echo -e "${GREEN}Static dashboard saved: $SNAPSHOT_FILE${NC}"
-        else
-            echo -e "${YELLOW}Warning: Dashboard file not created${NC}"
-        fi
+    # Snapshot Grafana Dashboard
+    echo ""
+    echo "Snapshotting Grafana dashboard..."
+    if python3 "$PROJECT_ROOT/src/utils/snapshot_dashboard.py" --start "$START_TIME" --end "$END_TIME" --name "Run: $EXPERIMENT_NAME"; then
+        echo -e "${GREEN}Dashboard snapshot saved.${NC}"
     else
-        echo -e "${YELLOW}Warning: Dashboard generation had issues${NC}"
+        echo -e "${YELLOW}Warning: Dashboard snapshot failed.${NC}"
     fi
 else
     echo -e "\n${RED}=========================================="
@@ -329,6 +389,14 @@ if [ -n "$SERVER_PID" ] && kill -0 "$SERVER_PID" 2>/dev/null; then
     wait "$SERVER_PID" 2>/dev/null || true
 fi
 SERVER_PID=""
+
+# Clean up temp sweep config if it was created
+if [ -n "$SWEEP_TEMP_CONFIG_PATH" ] && [ -n "$SWEEP_TEMP_NAME" ]; then
+    TEMP_HYDRA_CONFIG="$PROJECT_ROOT/conf/experiment/${SWEEP_TEMP_NAME}.yaml"
+    if [ -f "$TEMP_HYDRA_CONFIG" ]; then
+        rm -f "$TEMP_HYDRA_CONFIG"
+    fi
+fi
 
 # Ensure ports are actually free
 if lsof -ti:8080 > /dev/null 2>&1; then

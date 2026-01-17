@@ -1,6 +1,4 @@
 #!/bin/bash
-# Run the benchmark client
-
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -24,9 +22,10 @@ trap cleanup SIGINT SIGTERM EXIT
 
 cd "$PROJECT_ROOT"
 
-# Activate virtual environment if it exists
 if [ -f "venv/bin/activate" ]; then
     source venv/bin/activate
+elif [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
 fi
 
 echo -e "${GREEN}Starting Benchmark Client...${NC}"

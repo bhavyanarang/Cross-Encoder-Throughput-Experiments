@@ -1,0 +1,14 @@
+# @package _global_
+pipeline:
+  enabled: true
+  mode: "inference_only"
+
+experiment:
+  name: "inference_only"
+  description: "Inference throughput and latency test (pre-tokenized simulation)"
+  benchmark_requests: 5000
+  batch_sizes: [32, 64, 128]
+  concurrency_levels: [4, 8, 16]
+
+batching:
+  enabled: false

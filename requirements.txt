@@ -23,3 +23,4 @@ omegaconf>=2.3.0
 # Only works on Apple Silicon Macs
 # mlx>=0.0.10
 # mlx-lm>=0.0.10
+prometheus-client>=0.17.0

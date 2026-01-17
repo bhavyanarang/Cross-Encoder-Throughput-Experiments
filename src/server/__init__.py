@@ -1,4 +1,3 @@
-from src.server.services.inference_service import ModelPool
-from src.server.services.scheduler_service import SchedulerService
+from src.server.pool.model_pool import ModelPool
 
-__all__ = ["ModelPool", "SchedulerService"]
+__all__ = ["ModelPool"]

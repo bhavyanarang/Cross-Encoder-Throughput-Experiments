@@ -1,10 +1,11 @@
+import atexit
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Lock
+from types import TracebackType
 
 import grpc
-import numpy as np
 
 from src.proto import inference_pb2, inference_pb2_grpc
 
@@ -12,9 +13,42 @@ logger = logging.getLogger(__name__)
 
 
 class InferenceClient:
-    def __init__(self, host: str = "localhost", port: int = 50051):
-        self._channel = grpc.insecure_channel(f"{host}:{port}")
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 50051,
+        use_ssl: bool = False,
+        ssl_ca_cert_path: str | None = None,
+    ):
+        if use_ssl:
+            if ssl_ca_cert_path:
+                try:
+                    with open(ssl_ca_cert_path, "rb") as f:
+                        ca_cert = f.read()
+                except FileNotFoundError as e:
+                    raise ValueError(f"CA certificate file not found: {e}") from e
+                credentials = grpc.ssl_channel_credentials(root_certificates=ca_cert)
+            else:
+                credentials = grpc.ssl_channel_credentials()
+            self._channel = grpc.secure_channel(f"{host}:{port}", credentials)
+            logger.info(f"Connected to {host}:{port} (SSL/TLS)")
+        else:
+            self._channel = grpc.insecure_channel(f"{host}:{port}")
+            logger.warning(f"Connected to {host}:{port} (insecure)")
+
         self._stub = inference_pb2_grpc.InferenceServiceStub(self._channel)
+        atexit.register(self.close)
+
+    def __enter__(self) -> "InferenceClient":
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self.close()
 
     def infer(
         self, pairs: list[tuple[str, str]], timeout: float = 60.0
@@ -24,11 +58,10 @@ class InferenceClient:
         request = inference_pb2.InferRequest(pairs=proto_pairs)
         response = self._stub.Infer(request, timeout=timeout)
         latency = (time.perf_counter() - start) * 1000
+        status_code = getattr(response, "status_code", 200)
+        if status_code == 204:
+            return [], latency
         return list(response.scores), latency
-
-    def get_metrics(self, timeout: float = 10.0) -> dict:
-        response = self._stub.GetMetrics(inference_pb2.Empty(), timeout=timeout)
-        return {"qps": response.qps, "latency_avg_ms": response.latency_avg_ms}
 
     def benchmark(
         self,
@@ -45,15 +78,16 @@ class InferenceClient:
                 batch = batch + pairs[: batch_size - len(batch)]
             batches.append(batch)
 
-        latencies = []
-        lock = Lock()
+        completed = 0
+        completed_lock = Lock()
         start = time.perf_counter()
 
         def run_batch(batch):
-            _, lat = self.infer(batch)
-            with lock:
-                latencies.append(lat)
-            return lat
+            nonlocal completed
+            self.infer(batch)
+            with completed_lock:
+                completed += 1
+            return 1
 
         if concurrency == 1:
             for batch in batches:
@@ -63,21 +97,28 @@ class InferenceClient:
                 list(ex.map(run_batch, batches))
 
         elapsed = time.perf_counter() - start
-        total_pairs = len(latencies) * batch_size
-        lat = np.array(latencies)
+        total_pairs = completed * batch_size
 
         return {
             "batch_size": batch_size,
             "concurrency": concurrency,
-            "num_requests": len(latencies),
+            "num_requests": completed,
             "total_pairs": total_pairs,
             "elapsed_s": elapsed,
-            "latency_avg_ms": float(np.mean(lat)),
-            "latency_p50_ms": float(np.percentile(lat, 50)),
-            "latency_p95_ms": float(np.percentile(lat, 95)),
-            "latency_p99_ms": float(np.percentile(lat, 99)),
-            "throughput_avg": total_pairs / elapsed if elapsed > 0 else 0,
+            "status": "completed" if completed > 0 else "no_requests",
         }
 
-    def close(self):
-        self._channel.close()
+    def close(self) -> None:
+        channel = getattr(self, "_channel", None)
+        if channel is not None:
+            try:
+                channel.close()
+            except Exception:
+                return
+            self._channel = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            return

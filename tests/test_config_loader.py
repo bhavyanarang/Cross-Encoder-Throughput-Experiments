@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from src.server.models.config_loader import (
+from src.server.utils.config_loader import (
     get_experiment_name,
     load_config,
 )
@@ -136,14 +136,14 @@ class TestConfigLoader:
             load_config("nonexistent.yaml")
 
     def test_get_experiment_name_from_config(self):
-        from src.server.models import Config
+        from src.server.dto.config import Config
 
         config = Config(name="my-experiment")
         name = get_experiment_name(config, "path/to/config.yaml")
         assert name == "my-experiment"
 
     def test_get_experiment_name_from_filename(self):
-        from src.server.models import Config
+        from src.server.dto.config import Config
 
         config = Config()
         name = get_experiment_name(config, "experiments/07a_test.yaml")

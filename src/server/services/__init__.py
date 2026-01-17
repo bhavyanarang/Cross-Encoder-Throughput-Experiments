@@ -1,24 +1,33 @@
-from src.server.services.base import (
-    BaseWorker,
-    BaseWorkerPool,
-    get_worker_gpu_memory,
-    setup_worker_environment,
-)
-from src.server.services.inference_service import InferenceService, ModelPool, ModelWorker
+from src.server.pool import BaseWorkerPool
 from src.server.services.metrics_service import MetricsService
-from src.server.services.orchestrator_service import (
-    InferenceInterface,
-    OrchestratorService,
-    OrchestratorWrapper,
-)
-from src.server.services.scheduler_service import SchedulerService
+from src.server.services.orchestrator_service import OrchestratorService
 from src.server.services.service_base import BaseService, PoolBasedService
-from src.server.services.tokenization_service import (
-    TokenizationService,
-    TokenizerPool,
-    TokenizerService,
-    TokenizerWorker,
-)
+from src.server.worker import BaseWorker, get_worker_gpu_memory, setup_worker_environment
+
+
+def __getattr__(name):
+    if name == "ModelPool":
+        from src.server.pool.model_pool import ModelPool
+
+        return ModelPool
+    elif name == "TokenizerPool":
+        from src.server.pool.tokenizer_pool import TokenizerPool
+
+        return TokenizerPool
+    elif name == "ModelWorker":
+        from src.server.worker.model_worker import ModelWorker
+
+        return ModelWorker
+    elif name == "TokenizerService":
+        from src.server.utils.tokenizer import TokenizerService
+
+        return TokenizerService
+    elif name == "TokenizerWorker":
+        from src.server.worker.tokenizer_worker import TokenizerWorker
+
+        return TokenizerWorker
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "BaseWorker",
@@ -27,16 +36,11 @@ __all__ = [
     "PoolBasedService",
     "setup_worker_environment",
     "get_worker_gpu_memory",
-    "InferenceService",
     "ModelPool",
     "ModelWorker",
-    "TokenizationService",
     "TokenizerService",
     "TokenizerPool",
     "TokenizerWorker",
     "OrchestratorService",
-    "OrchestratorWrapper",
-    "InferenceInterface",
-    "SchedulerService",
     "MetricsService",
 ]

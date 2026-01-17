@@ -22,6 +22,7 @@ message InferResponse {
     repeated float scores = 1;      // Relevance scores for each pair
     int32 num_pairs = 2;            // Number of pairs processed
     float latency_ms = 3;
+    int32 status_code = 4;          // HTTP-like status code (200 or 204)
 }
 
 message MetricsResponse {

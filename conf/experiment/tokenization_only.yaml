@@ -1,0 +1,17 @@
+# @package _global_
+defaults:
+  - override /pipeline: default
+
+pipeline:
+  enabled: true
+  mode: "tokenization_only"
+
+experiment:
+  name: "tokenization_only"
+  description: "Tokenization throughput and latency test (inference disabled)"
+  benchmark_requests: 5000
+  batch_sizes: [32, 64, 128]
+  concurrency_levels: [4, 8, 16]
+
+batching:
+  enabled: false

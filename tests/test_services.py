@@ -2,60 +2,64 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src.server.services.inference_service import InferenceService, ModelPool
-from src.server.services.tokenization_service import TokenizationService, TokenizerPool
+from src.server.services.orchestrator_service import OrchestratorService
 
 
-class TestTokenizationService:
-    def test_tokenization_service_init(self):
-        mock_pool = MagicMock(spec=TokenizerPool)
-        service = TokenizationService(mock_pool)
-        assert service._tokenizer_pool == mock_pool
-        assert service.is_started is False
+class TestOrchestratorTokenizationMethods:
+    def test_tokenization_methods_not_started(self, minimal_config):
+        orchestrator = OrchestratorService(minimal_config)
+        orchestrator.setup()
 
-    def test_tokenization_service_start_stop(self):
-        mock_pool = MagicMock(spec=TokenizerPool)
-        mock_pool.is_loaded = False
-        service = TokenizationService(mock_pool)
-        service.start()
-        assert service.is_started is True
-        mock_pool.start.assert_called_once()
+        assert orchestrator.tokenization_is_started is False
+        assert orchestrator.get_tokenizer_worker_metrics() == []
 
-        service.stop()
-        assert service.is_started is False
+        from src.server.dto.pipeline import PipelineRequest, TokenizationQueueItem
 
-    def test_tokenization_service_tokenize_sync_not_started(self):
-        mock_pool = MagicMock(spec=TokenizerPool)
-        service = TokenizationService(mock_pool)
+        item = TokenizationQueueItem(
+            request=PipelineRequest(request_id=1, pairs=[], submit_time=0.0),
+            pairs=[],
+        )
         with pytest.raises(RuntimeError, match="not started"):
-            service.tokenize_sync([("query", "document")])
+            orchestrator.tokenizer_pool.submit_pipeline(item)
+
+        orchestrator.stop()
+
+    def test_tokenization_methods_started(self, minimal_config):
+        orchestrator = OrchestratorService(minimal_config)
+        orchestrator.setup()
+
+        orchestrator.tokenizer_pool = MagicMock()
+        orchestrator.tokenizer_pool.is_loaded = False
+        orchestrator.tokenizer_pool.get_worker_metrics.return_value = []
+        orchestrator.tokenizer_pool.set_inference_queue.return_value = None
+
+        orchestrator._tokenization_started = True
+        assert orchestrator.tokenization_is_started is True
+        assert orchestrator.get_tokenizer_worker_metrics() == []
+
+        orchestrator.stop()
 
 
-class TestInferenceService:
-    def test_inference_service_init(self):
-        mock_pool = MagicMock(spec=ModelPool)
-        service = InferenceService(mock_pool)
-        assert service._model_pool == mock_pool
-        assert service.is_started is False
+class TestOrchestratorInferenceMethods:
+    def test_inference_methods_not_started(self, minimal_config):
+        orchestrator = OrchestratorService(minimal_config)
+        orchestrator.setup()
 
-    def test_inference_service_start_stop(self):
-        mock_pool = MagicMock(spec=ModelPool)
-        mock_pool.is_loaded = False
-        service = InferenceService(mock_pool)
-        service.start()
-        assert service.is_started is True
-        mock_pool.start.assert_called_once()
+        assert orchestrator.inference_is_started is False
+        assert orchestrator.get_gpu_memory_mb() == 0.0
+        assert orchestrator.get_inference_worker_metrics() == []
 
-        service.stop()
-        assert service.is_started is False
+        orchestrator.stop()
 
-    def test_inference_service_infer_sync_not_started(self):
-        mock_pool = MagicMock(spec=ModelPool)
-        service = InferenceService(mock_pool)
+    def test_inference_methods_started(self, minimal_config):
+        orchestrator = OrchestratorService(minimal_config)
+        orchestrator.setup()
 
-        class MockTokenizedBatch:
-            pass
+        orchestrator.pool.get_gpu_memory_mb = MagicMock(return_value=100.0)
 
-        tokenized_batch = MockTokenizedBatch()
-        with pytest.raises(RuntimeError, match="not started"):
-            service.infer_sync(tokenized_batch)
+        orchestrator.pipeline._inference_started = True
+        assert orchestrator.inference_is_started is True
+        assert orchestrator.get_gpu_memory_mb() == 100.0
+        assert orchestrator.get_inference_worker_metrics() == []
+
+        orchestrator.stop()

@@ -6,5 +6,5 @@ instances:
     backend: "mps"
     quantization: "fp16"
     compile_model: false
-    max_length: 512
+    max_length: 200
     onnx_optimize: true

@@ -1,4 +1,4 @@
-from src.server.models.sweep import expand_sweep_config, get_sweep_name
+from src.server.utils.sweep import expand_sweep_config, get_sweep_name
 
 
 class TestExpandSweepConfig:

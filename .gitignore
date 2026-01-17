@@ -9,6 +9,7 @@ __pycache__/
 .ruff_cache/
 
 # Virtual environments
+.venv/
 venv/
 env/
 ENV/
@@ -25,6 +26,10 @@ ENV/
 Thumbs.db
 
 .cache/
+outputs/*
 .gitignore
 images/*
 !images/*screenshot*.png
+bin/*
+data/*
+logs/*

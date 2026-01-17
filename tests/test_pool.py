@@ -1,7 +1,7 @@
 import pytest
 
-from src.server.models import ModelConfig, PoolConfig
-from src.server.services.inference_service import ModelPool
+from src.server.dto import ModelConfig, PoolConfig
+from src.server.pool.model_pool import ModelPool
 
 
 class TestModelPool:
@@ -48,7 +48,7 @@ class TestModelPool:
         memory = pool.get_gpu_memory_mb()
         assert memory == 0.0
 
-    def test_model_pool_infer_with_tokenized_not_started(self):
+    def test_model_pool_submit_not_started(self):
         config = PoolConfig(
             instances=[
                 ModelConfig(name="cross-encoder/ms-marco-MiniLM-L-6-v2", device="cpu"),
@@ -56,12 +56,12 @@ class TestModelPool:
         )
         pool = ModelPool(config)
 
-        class MockTokenizedBatch:
+        class MockWorkItem:
             pass
 
-        tokenized_batch = MockTokenizedBatch()
+        work_item = MockWorkItem()
         with pytest.raises(RuntimeError, match="not started"):
-            pool.infer_with_tokenized(tokenized_batch)
+            pool.submit(work_item)
 
     def test_model_pool_stop_not_started(self):
         config = PoolConfig(

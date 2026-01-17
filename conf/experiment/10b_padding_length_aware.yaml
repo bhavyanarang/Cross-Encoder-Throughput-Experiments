@@ -6,7 +6,6 @@ defaults:
   - override /tokenizer_pool: default
   - override /server: default
 
-# Experiment 10b: Length-Aware Batching
 name: "10b_padding_length_aware"
 description: "Length-aware batching enabled (sorted by length)"
 

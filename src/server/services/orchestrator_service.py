@@ -1,163 +1,182 @@
 import logging
-import signal
-import sys
 import threading
-from typing import Protocol
 
-from src.frontend.server import start_dashboard
-from src.server.models import Config, InferenceResult
-from src.server.services.inference_service import InferenceService, ModelPool
+from src.server.dto import Config, InferenceResult
+from src.server.pipeline.queue_based import QueueBasedPipeline
+from src.server.pool import ModelPool, TokenizerPool
 from src.server.services.metrics_service import MetricsService
-from src.server.services.scheduler_service import SchedulerService
-from src.server.services.tokenization_service import TokenizationService, TokenizerPool
 
 logger = logging.getLogger(__name__)
 
 
-class InferenceInterface(Protocol):
-    def schedule(self, pairs: list[tuple[str, str]]) -> InferenceResult: ...
-
-
-class OrchestratorWrapper:
-    def __init__(
-        self,
-        tokenization_service: TokenizationService,
-        inference_service: InferenceService,
-    ):
-        self._tokenization_service = tokenization_service
-        self._inference_service = inference_service
-
-    def schedule(self, pairs: list[tuple[str, str]]) -> InferenceResult:
-        tokenized_batch = self._tokenization_service.tokenize_sync(pairs)
-
-        result = self._inference_service.infer_sync(tokenized_batch)
-
-        return result
-
-
 class OrchestratorService:
-    def __init__(self, config: Config, experiment_name: str):
+    def __init__(self, config: Config, experiment_name: str = "default"):
         self.config = config
         self.experiment_name = experiment_name
-        self.tokenizer_pool: TokenizerPool | None = None
-        self.tokenization_service: TokenizationService | None = None
-        self.pool: ModelPool | None = None
-        self.inference_service: InferenceService | None = None
-        self.scheduler: SchedulerService | None = None
-        self.metrics: MetricsService | None = None
-        self.inference_handler: InferenceInterface | None = None
         self.shutdown_event = threading.Event()
+        self.tokenizer_pool = None
+        self.pool = None
+        self.metrics = None
+        self.pipeline = None
 
     def setup(self) -> None:
+        logger.info(f"Setting up orchestrator for experiment: {self.experiment_name}")
+
         tokenizer_model = self.config.tokenizer_pool.model_name
-        if not tokenizer_model:
-            tokenizer_model = (
-                self.config.model_pool.instances[0].name
-                if self.config.model_pool.instances
-                else "cross-encoder/ms-marco-MiniLM-L-6-v2"
-            )
+        if not tokenizer_model and self.config.model_pool.instances:
+            tokenizer_model = self.config.model_pool.instances[0].name
+
         self.tokenizer_pool = TokenizerPool(
             model_name=tokenizer_model,
             num_workers=self.config.tokenizer_pool.num_workers,
-            max_length=(
-                self.config.model_pool.instances[0].max_length
-                if self.config.model_pool.instances
-                else 512
-            ),
+            max_length=512,
         )
-
-        self.tokenization_service = TokenizationService(self.tokenizer_pool)
-        logger.info(
-            f"Tokenizer pool created: {self.config.tokenizer_pool.num_workers} workers, "
-            f"model: {tokenizer_model}"
-        )
-
         self.pool = ModelPool(self.config.model_pool)
-
-        self.inference_service = InferenceService(self.pool)
-
-        self.metrics = MetricsService()
-        self.metrics.set_inference_service(self.inference_service)
-        self.metrics.set_tokenization_service(self.tokenization_service)
+        self.metrics = MetricsService(prometheus_port=self.config.server.prometheus_port)
+        self.metrics.set_inference_service(self)
+        self.metrics.set_tokenization_service(self)
+        self.metrics.set_model_pool(self.pool)
+        self.metrics.set_tokenizer_pool(self.tokenizer_pool)
+        self.tokenizer_pool.set_metrics(self.metrics)
+        self.pool.set_metrics(self.metrics)
         self.metrics.set_experiment_info(
             name=self.experiment_name,
             description=self.config.description,
-            backend=(
-                self.config.model_pool.instances[0].backend
-                if self.config.model_pool.instances
-                else "pytorch"
-            ),
-            device=(
-                self.config.model_pool.instances[0].device
-                if self.config.model_pool.instances
-                else "cpu"
-            ),
+            backend=self.config.model_pool.instances[0].backend
+            if self.config.model_pool.instances
+            else "pytorch",
+            device=self.config.model_pool.instances[0].device
+            if self.config.model_pool.instances
+            else "cpu",
         )
 
-        if self.config.batching.enabled:
-            self.scheduler = SchedulerService(
-                self.tokenization_service,
-                self.inference_service,
-                batching_enabled=self.config.batching.enabled,
-                max_batch_size=self.config.batching.max_batch_size,
-                timeout_ms=self.config.batching.timeout_ms,
-                length_aware=self.config.batching.length_aware,
-            )
-            self.inference_handler = self.scheduler
-            logger.info("Scheduler service created with dynamic batching enabled")
-        else:
-            self.inference_handler = OrchestratorWrapper(
-                self.tokenization_service, self.inference_service
-            )
-            logger.info("Using orchestrator wrapper for async tokenization -> inference flow")
+        self.pipeline = QueueBasedPipeline(
+            config=self.config,
+            tokenizer_pool=self.tokenizer_pool,
+            model_pool=self.pool,
+            metrics_service=self.metrics,
+            experiment_name=self.experiment_name,
+        )
+        self.pipeline.setup()
+        logger.info("Orchestrator setup complete")
 
     def start(self) -> None:
-        def handle_signal(signum, frame):
-            logger.info("Shutdown signal received")
-            self.shutdown_event.set()
-            self.stop()
-            sys.exit(0)
-
-        signal.signal(signal.SIGINT, handle_signal)
-        signal.signal(signal.SIGTERM, handle_signal)
-
-        logger.info("Starting tokenization service...")
-        self.tokenization_service.start()
-
-        logger.info(
-            f"Starting inference service with {len(self.config.model_pool.instances)} instances..."
-        )
-        self.inference_service.start()
-
-        self.metrics.start()
-
-        start_dashboard(self.config.server.http_port, self.metrics.get_collector())
+        if self.pipeline:
+            self.pipeline.start()
 
     def stop(self) -> None:
         self.shutdown_event.set()
+        if self.pipeline:
+            self.pipeline.stop()
 
-        if self.metrics:
-            self.metrics.stop()
-        if self.inference_service:
-            self.inference_service.stop()
-        if self.pool:
-            self.pool.stop()
-        if self.tokenization_service:
-            self.tokenization_service.stop()
-        if self.tokenizer_pool:
-            self.tokenizer_pool.stop()
-        if self.scheduler:
-            self.scheduler.stop()
-
-    def get_inference_handler(self) -> InferenceInterface:
-        if self.inference_handler is None:
-            raise RuntimeError("Orchestrator not set up. Call setup() first.")
-        return self.inference_handler
+    def schedule(self, pairs: list[tuple[str, str]]) -> InferenceResult:
+        if not self.pipeline:
+            raise RuntimeError("Pipeline not initialized")
+        return self.pipeline.schedule(pairs)
 
     def get_metrics(self) -> MetricsService:
         if self.metrics is None:
             raise RuntimeError("Orchestrator not set up. Call setup() first.")
         return self.metrics
 
+    def get_tokenizer_worker_metrics(self) -> list[dict]:
+        return self.pipeline.get_tokenizer_worker_metrics() if self.pipeline else []
 
-__all__ = ["OrchestratorService", "InferenceInterface", "OrchestratorWrapper"]
+    def get_gpu_memory_mb(self) -> float:
+        return self.pipeline.get_gpu_memory_mb() if self.pipeline else 0.0
+
+    def get_inference_worker_metrics(self) -> list[dict]:
+        return self.pipeline.get_inference_worker_metrics() if self.pipeline else []
+
+    def get_worker_metrics(self) -> list[dict]:
+        return self.pipeline.get_worker_metrics() if self.pipeline else []
+
+    def get_batching_info(self) -> dict:
+        if self.pipeline:
+            return self.pipeline.get_batching_info()
+        return {
+            "batching_enabled": False,
+            "max_batch_size": 0,
+            "timeout_ms": 0,
+            "length_aware": False,
+            "pending": 0,
+        }
+
+    @property
+    def is_started(self) -> bool:
+        return self.pipeline.is_started if self.pipeline else False
+
+    @property
+    def tokenization_is_started(self) -> bool:
+        return self.pipeline.tokenization_is_started if self.pipeline else False
+
+    @property
+    def inference_is_started(self) -> bool:
+        return self.pipeline.inference_is_started if self.pipeline else False
+
+    @property
+    def _batching_enabled(self) -> bool:
+        return self.pipeline._batching_enabled if self.pipeline else False
+
+    @property
+    def _max_batch_size(self) -> int:
+        return (
+            self.pipeline._max_batch_size if self.pipeline else self.config.batching.max_batch_size
+        )
+
+    @property
+    def _timeout_ms(self) -> float:
+        return self.pipeline._timeout_ms if self.pipeline else self.config.batching.timeout_ms
+
+    @property
+    def _batch_thread(self):
+        return self.pipeline._batch_thread if self.pipeline else None
+
+    @property
+    def _batch_queue(self):
+        return self.pipeline._batch_queue if self.pipeline else None
+
+    @property
+    def _inference_queue(self):
+        return self.pipeline._inference_queue if self.pipeline else None
+
+    @property
+    def _tokenization_started(self) -> bool:
+        return (
+            self.pipeline._tokenization_started
+            if self.pipeline
+            else getattr(self, "_local_tokenization_started", False)
+        )
+
+    @_tokenization_started.setter
+    def _tokenization_started(self, value: bool) -> None:
+        if self.pipeline:
+            self.pipeline._tokenization_started = value
+        else:
+            self._local_tokenization_started = value
+
+    @property
+    def _inference_started(self) -> bool:
+        return (
+            self.pipeline._inference_started
+            if self.pipeline
+            else getattr(self, "_local_inference_started", False)
+        )
+
+    @_inference_started.setter
+    def _inference_started(self, value: bool) -> None:
+        if self.pipeline:
+            self.pipeline._inference_started = value
+        else:
+            self._local_inference_started = value
+
+    @property
+    def tokenization_service(self):
+        return self
+
+    @property
+    def inference_service(self):
+        return self
+
+
+__all__ = ["OrchestratorService"]

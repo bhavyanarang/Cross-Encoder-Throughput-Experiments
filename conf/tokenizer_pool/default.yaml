@@ -1,5 +1,5 @@
 # @package tokenizer_pool
 
 enabled: true
-num_workers: 3
+num_workers: 1
 model_name: ""  # If empty, uses same model as inference

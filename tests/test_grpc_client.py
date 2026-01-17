@@ -34,10 +34,6 @@ class TestInferenceClient:
             assert "num_requests" in result
             assert "total_pairs" in result
             assert "elapsed_s" in result
-            assert "latency_avg_ms" in result
-            assert "latency_p50_ms" in result
-            assert "latency_p95_ms" in result
-            assert "latency_p99_ms" in result
-            assert "throughput_avg" in result
+            assert "status" in result
         except Exception:
             pass

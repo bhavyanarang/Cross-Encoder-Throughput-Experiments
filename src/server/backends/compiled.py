@@ -1,19 +1,17 @@
 import logging
 import time
 
-import numpy as np
 import torch
 from sentence_transformers import CrossEncoder
 
-from src.server.backends.base import BaseBackend
-from src.server.backends.device import sync_device
-from src.server.models import InferenceResult
-from src.server.services.tokenization_service import TokenizerService
+from src.server.backends.device import apply_fp16, sync_device
+from src.server.backends.torch_base import TorchBackend
+from src.server.dto import InferenceResult
 
 logger = logging.getLogger(__name__)
 
 
-class CompiledBackend(BaseBackend):
+class CompiledBackend(TorchBackend):
     def __init__(
         self,
         model_name: str,
@@ -23,7 +21,6 @@ class CompiledBackend(BaseBackend):
         compile_mode: str = "reduce-overhead",
     ):
         super().__init__(model_name, device, quantization, max_length)
-        self._tokenizer: TokenizerService | None = None
         self._compile_mode = compile_mode
         self._compiled_model = None
 
@@ -35,9 +32,9 @@ class CompiledBackend(BaseBackend):
         self.model = CrossEncoder(self.model_name, device=self.device)
 
         if self.quantization == "fp16":
-            if self.device in ("mps", "cuda"):
-                self.model.model.half()
-                logger.info("Applied FP16")
+            applied, msg = apply_fp16(self.model.model, self.device)
+            if applied:
+                logger.info(f"Applied {msg}")
         elif self.quantization == "int8" and self.device == "cpu":
             self.model.model = torch.quantization.quantize_dynamic(
                 self.model.model, {torch.nn.Linear}, dtype=torch.qint8
@@ -55,27 +52,26 @@ class CompiledBackend(BaseBackend):
             logger.warning(f"torch.compile failed: {e}. Using uncompiled model.")
             self._compiled_model = self.model.model
 
-        self._tokenizer = TokenizerService(self.model_name, self.max_length)
         self._is_loaded = True
-
-    def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:
-        self._acquire()
-        try:
-            return self.model.predict(pairs, convert_to_numpy=True, show_progress_bar=False)
-        finally:
-            self._release()
 
     def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
         self._acquire()
         try:
             total_start = time.perf_counter()
-            batch = self._tokenizer.tokenize(pairs, self.device)
+
+            tokenizer = self._get_tokenizer()
+            if self._tokenizer_pool:
+                tokenized_batch = tokenizer.tokenize(pairs)
+                features = {k: v.to(self.device) for k, v in tokenized_batch.features.items()}
+            else:
+                tokenized_batch = tokenizer.tokenize(pairs, device=self.device)
+                features = tokenized_batch.features
 
             inf_start = time.perf_counter()
             sync_device(self.device)
 
             with torch.inference_mode():
-                out = self._compiled_model(**batch.features, return_dict=True)
+                out = self._compiled_model(**features, return_dict=True)
                 logits = out.logits
                 if self.model.config.num_labels == 1:
                     scores = torch.sigmoid(logits).squeeze(-1)
@@ -88,16 +84,16 @@ class CompiledBackend(BaseBackend):
 
             return InferenceResult(
                 scores=scores_np,
-                t_tokenize_ms=batch.tokenize_time_ms,
+                t_tokenize_ms=tokenized_batch.tokenize_time_ms,
                 t_model_inference_ms=t_inf,
                 total_ms=(time.perf_counter() - total_start) * 1000,
-                total_tokens=batch.total_tokens,
-                real_tokens=batch.real_tokens,
-                padded_tokens=batch.padded_tokens,
-                padding_ratio=batch.padding_ratio,
-                max_seq_length=batch.max_seq_length,
-                avg_seq_length=batch.avg_seq_length,
-                batch_size=batch.batch_size,
+                total_tokens=tokenized_batch.total_tokens,
+                real_tokens=tokenized_batch.real_tokens,
+                padded_tokens=tokenized_batch.padded_tokens,
+                padding_ratio=tokenized_batch.padding_ratio,
+                max_seq_length=tokenized_batch.max_seq_length,
+                avg_seq_length=tokenized_batch.avg_seq_length,
+                batch_size=tokenized_batch.batch_size,
             )
         finally:
             self._release()
@@ -115,10 +111,8 @@ class CompiledBackend(BaseBackend):
 
     @classmethod
     def from_config(cls, config) -> "CompiledBackend":
-        # Check for compile_mode directly (new Hydra format)
         compile_mode = getattr(config, "compile_mode", None)
 
-        # Fall back to old format: config.compiled.mode
         if compile_mode is None:
             compiled_config = getattr(config, "compiled", {}) or {}
             if isinstance(compiled_config, dict):
@@ -126,7 +120,6 @@ class CompiledBackend(BaseBackend):
             else:
                 compile_mode = getattr(compiled_config, "mode", "reduce-overhead")
 
-        # Default if still None
         if compile_mode is None:
             compile_mode = "reduce-overhead"
 

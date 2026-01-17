@@ -10,6 +10,7 @@ A high-performance ML inference server for cross-encoder models with support for
 
 - Python 3.11+
 - macOS with Apple Silicon (for MPS backend) or Linux with CUDA (for GPU backend)
+- Docker and Docker Compose (for observability stack)
 
 ### Installation
 
@@ -29,6 +30,28 @@ pip install -r requirements.txt
 pip install mlx mlx-lm
 ```
 
+### Docker Setup (Observability Stack)
+
+The project uses Docker for running Prometheus and Grafana (observability only). The inference server runs locally to leverage Apple Silicon hardware (MPS, MLX).
+
+```bash
+# Pull observability images
+./scripts/setup_observability.sh
+
+# Start observability services (Prometheus + Grafana)
+./scripts/start_services.sh
+
+# Stop all services and servers
+./scripts/stop_all_servers.sh
+```
+
+**Services:**
+| Service | URL | Description |
+|---------|-----|-------------|
+| Prometheus | http://localhost:9091 | Metrics collection |
+| Grafana | http://localhost:3001 | Dashboard visualization |
+| Server Metrics | http://localhost:8000/metrics | Local server metrics endpoint |
+
 ### Verify Installation
 
 ```bash
@@ -44,193 +67,165 @@ pytest tests/ -v
 ```
 .
 ├── src/                          # Source code
-│   ├── main.py                   # Server entry point
+│   ├── main.py                   # Server entry point (Hydra config)
 │   ├── run_client.py             # Benchmark client entry point
 │   ├── screenshot.py             # Screenshot utilities
-│   ├── test_timing.py            # Timing test utilities
 │   ├── client/                   # gRPC client implementation
-│   │   └── grpc_client.py
-│   ├── frontend/                 # Web dashboard
-│   │   ├── server.py             # HTTP server for metrics
-│   │   ├── static/               # Static assets
-│   │   │   ├── css/
-│   │   │   │   └── styles.css    # Dashboard styles
-│   │   │   └── js/
-│   │   │       ├── charts.js     # Chart rendering
-│   │   │       └── main.js       # Dashboard JavaScript
-│   │   └── templates/
-│   │       └── index.html        # Dashboard HTML template
-│   ├── models/                   # Data models and configurations
-│   │   ├── benchmark.py          # Benchmark data models
-│   │   ├── config.py             # Configuration data models
-│   │   ├── config_loader.py      # Configuration loader
-│   │   ├── dashboard.py          # Dashboard metrics models
-│   │   ├── inference.py          # Inference request/response models
-│   │   ├── metrics.py            # Metrics data models
-│   │   ├── scheduler.py          # Scheduler models
-│   │   ├── server_metrics.py     # Server metrics models
-│   │   └── sweep.py              # Sweep experiment models
-│   ├── proto/                    # gRPC protocol definitions
-│   │   ├── inference.proto       # Protocol buffer definition
-│   │   ├── inference_pb2.py      # Generated Python code
-│   │   └── inference_pb2_grpc.py  # Generated gRPC code
 │   ├── server/                   # Server implementation
 │   │   ├── grpc.py               # gRPC server
-│   │   ├── metrics.py            # Metrics collection
-│   │   ├── orchestrator.py       # Server orchestrator (coordinates components)
-│   │   ├── pool.py               # Model pool management
-│   │   ├── scheduler.py          # Request scheduler with batching
-│   │   ├── tokenizer_pool.py     # Tokenizer pool for parallel tokenization
-│   │   ├── backends/             # Model backends
-│   │   │   ├── base.py           # Base backend interface
-│   │   │   ├── pytorch.py        # PyTorch backend
-│   │   │   ├── mps.py            # MPS (Apple Silicon) backend
-│   │   │   ├── mlx_backend.py    # MLX backend
-│   │   │   ├── compiled.py       # torch.compile backend
-│   │   │   ├── cuda.py           # CUDA backend
-│   │   │   ├── tensorrt.py       # TensorRT backend
-│   │   │   └── device.py         # Device utilities
+│   │   ├── pool/                 # Model and tokenizer pools
+│   │   ├── pipeline/             # Queue-based pipeline
+│   │   ├── backends/             # Model backends (pytorch, mps, mlx, compiled)
+│   │   ├── dto/                  # Data transfer objects
 │   │   └── services/             # Server services
-│   │       ├── inference_service.py    # Inference orchestration service
-│   │       ├── tokenization_service.py # Tokenization service wrapper
-│   │       └── tokenizer.py      # Core tokenization service
-├── experiments/                  # Experiment configurations
-│   ├── base_config.yaml          # Base configuration (inherited)
-│   ├── *.yaml                    # Individual experiment configs
-│   ├── distribution/             # Time-series distribution data
-│   │   ├── *_timeseries.md       # Time-series data files
-│   │   └── *_timeseries.idx      # Time-series index files
-│   ├── results/                  # Experiment results (Markdown)
-│   ├── EXPERIMENT_PLAN.md        # Experiment planning document
-│   └── README.md                 # Experiments documentation
+│   └── proto/                    # gRPC protocol definitions
+├── conf/                         # Hydra configuration
+│   ├── config.yaml               # Main config
+│   ├── experiment/               # Experiment configs
+│   ├── model_pool/               # Model pool configs
+│   ├── batching/                 # Batching configs
+│   ├── tokenizer_pool/           # Tokenizer pool configs
+│   ├── prometheus/               # Prometheus config
+│   └── grafana/                  # Grafana provisioning
 ├── scripts/                      # Shell scripts
-│   ├── run_server.sh             # Start server
-│   ├── run_client.sh             # Run client
+│   ├── start_services.sh         # Start Docker observability stack
+│   ├── stop_all_servers.sh       # Stop all servers and Docker containers
+│   ├── setup_observability.sh    # Pull Docker images
+│   ├── run_server.sh             # Start inference server
+│   ├── run_client.sh             # Run benchmark client
 │   ├── run_experiment.sh         # Run single experiment
+│   ├── run_sweep_experiment.sh   # Run sweep experiments (parameter sweeps)
 │   ├── run_all_experiments.sh    # Run all experiments
-│   ├── run_experiments_from_06.sh # Run experiments from 06 onwards
-│   ├── run_sweep_experiment.sh   # Run sweep experiment
-│   ├── stop_all_servers.sh       # Stop all running servers
-│   ├── check_and_fix_experiment_duration.sh  # Fix experiment duration issues
 │   └── lint.sh                   # Run linter
+├── experiments/                  # Experiment outputs
+│   ├── results/                  # Experiment results (Markdown)
+│   └── distribution/             # Time-series distribution data
 ├── tests/                        # Test suite
-│   ├── conftest.py               # Pytest fixtures
-│   ├── test_backends.py          # Backend tests
-│   ├── test_models.py            # Model tests
-│   ├── test_scheduler.py         # Scheduler tests
-│   └── README.md                 # Test documentation
-├── images/                       # Experiment visualization outputs
-│   └── *.html                    # HTML dashboard screenshots
+├── docker-compose.yml            # Docker Compose for observability
 ├── requirements.txt              # Python dependencies
 └── pyproject.toml                # Project configuration
 ```
 
+## Scripts Reference
+
+| Script | Description |
+|--------|-------------|
+| `start_services.sh` | Start Prometheus + Grafana via Docker Compose |
+| `stop_all_servers.sh` | Stop Python servers and Docker containers, cleanup ports |
+| `setup_observability.sh` | Pull required Docker images |
+| `run_server.sh <experiment>` | Start server with specified experiment config |
+| `run_client.sh [args]` | Run benchmark client with optional arguments |
+| `run_experiment.sh <name>` | Run a complete experiment (server + client + metrics) |
+| `run_sweep_experiment.sh <config>` | Run parameter sweep experiments |
+| `run_all_experiments.sh` | Run all experiments in `conf/experiment/` |
+| `lint.sh` | Run code linting |
+
 ## Configuration System
 
-### Base Configuration
+The project uses [Hydra](https://hydra.cc/) for configuration management. Configs are in `conf/`.
 
-All experiments inherit from `experiments/base_config.yaml`:
+### Experiment Configuration
+
+Experiments are defined in `conf/experiment/`:
 
 ```yaml
-# Model configuration
-model:
-  name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
-  device: "mps"
-  backend: "pytorch"
-  quantized: false
-  mps:
-    fp16: true
-  mlx:
-    bits: 16
+# @package _global_
 
-# Server settings
-server:
-  host: "0.0.0.0"
-  port: 50051
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
 
-# Experiment parameters
+name: "My Experiment"
+description: "Description of experiment"
+
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: mps          # pytorch, mps, mlx, compiled
+      device: mps
+      quantization: fp16    # fp32, fp16, int8, int4
+      max_length: 512
+
+batching:
+  enabled: true
+  max_batch_size: 32
+  timeout_ms: 50.0
+
 experiment:
   batch_sizes: [32, 64, 128]
-  concurrency_levels: [4, 8]
-  warmup_iterations: 10
-  benchmark_requests: 500
+  concurrency_levels: [1, 2, 4]
 ```
 
-### Creating Custom Experiments
+### Sweep Experiments
 
-Create a new YAML file in `experiments/` to override base settings:
+Run parameter sweeps by using arrays in config:
 
 ```yaml
-name: "my_experiment"
-description: "Description of the experiment"
-
-model:
-  backend: "mps"
-  mps:
-    fp16: true
-
-# Optional: Enable tokenizer pool for parallel tokenization
-tokenizer_pool:
-  enabled: true
-  num_workers: 4
-
-experiment:
-  batch_sizes: [32, 64, 96]
-  concurrency_levels: [1, 2, 4]
-  benchmark_requests: 100
+# Backend comparison sweep
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: ["pytorch", "mps", "mlx", "compiled"]  # Sweeps all backends
+      device: mps
+      quantization: fp16
 ```
+
+The sweep system automatically generates and runs all combinations.
 
 ### Available Backends
 
-| Backend | Device | Description | Quantization |
-|---------|--------|-------------|--------------|
-| `pytorch` | mps/cpu | Standard PyTorch inference | FP32, FP16 |
-| `mps` | mps | Optimized MPS backend | FP16 |
-| `mlx` | mps | Apple MLX framework | FP16, INT8, INT4 |
-| `compiled` | mps | torch.compile optimized | FP16 |
+| Backend | Device | Description | Best For |
+|---------|--------|-------------|----------|
+| `pytorch` | mps/cpu | Standard PyTorch inference | Baseline, debugging |
+| `mps` | mps | Optimized Apple Metal Performance Shaders | Apple Silicon production |
+| `mlx` | mps | Apple MLX framework | Native Apple Silicon, quantization |
+| `compiled` | mps | torch.compile with inductor | Optimized inference |
 
-### Tokenizer Pool
+### Quantization Options
 
-The tokenizer pool enables parallel CPU-based tokenization using dedicated worker threads, reducing bottlenecks when multiple inference requests arrive concurrently.
+| Quantization | Description | Backends |
+|--------------|-------------|----------|
+| `fp32` | Full precision | All |
+| `fp16` | Half precision | All (recommended for MPS) |
+| `int8` | 8-bit quantization | mlx, cpu |
+| `int4` | 4-bit quantization | mlx |
 
-**Configuration:**
-```yaml
-tokenizer_pool:
-  enabled: true          # Enable/disable tokenizer pool
-  num_workers: 4         # Number of parallel tokenizer workers (recommended: 2-4)
-```
+## Running Experiments
 
-**Benefits:**
-- **Parallel Tokenization**: Multiple requests can be tokenized simultaneously
-- **Reduced Blocking**: Model inference workers don't wait for tokenization
-- **Better Concurrency**: Improves throughput at higher concurrency levels (typically +1-3%)
-- **CPU Offloading**: Tokenization runs on CPU, freeing GPU/MPS for inference
-
-**When to Use:**
-- High concurrency scenarios (4+ concurrent requests)
-- Multi-model pools where tokenization could become a bottleneck
-- Production deployments requiring maximum throughput
-
-**Performance Impact:**
-- Small overhead at low concurrency (< 2 workers)
-- Best improvements at higher concurrency (4+ workers): +1-3% throughput, -1-3% latency
-- Recommended: 2-4 workers for most use cases
-
-## Benchmarking
-
-### Running a Single Experiment
+### Quick Start
 
 ```bash
-# Run a specific experiment
-./scripts/run_experiment.sh experiments/02_backend_mps.yaml
+# 1. Start observability stack
+./scripts/start_services.sh
 
-# Results are saved to experiments/results/<experiment_name>_results.md
+# 2. Run a single experiment
+./scripts/run_experiment.sh 10_multi_model_pool
+
+# 3. View results
+cat experiments/results/10_multi_model_pool_results.md
+
+# 4. View dashboard
+open http://localhost:3001
+```
+
+### Running All Backends (Apple Silicon)
+
+```bash
+# Run backend comparison sweep (pytorch, mps, mlx, compiled)
+./scripts/run_experiment.sh 01_backend_comparison
+
+# This will automatically:
+# 1. Generate configs for each backend
+# 2. Run experiments sequentially
+# 3. Collect metrics from Prometheus
+# 4. Save results to experiments/results/
 ```
 
 ### Running All Experiments
 
 ```bash
-# Run all experiments sequentially
 ./scripts/run_all_experiments.sh
 ```
 
@@ -239,20 +234,34 @@ tokenizer_pool:
 ```bash
 # Terminal 1: Start server
 source venv/bin/activate
-python -m src.main --experiment experiments/02_backend_mps.yaml
+python -m src.main experiment=10_multi_model_pool
 
 # Terminal 2: Run benchmark
 source venv/bin/activate
-python -m src.run_client --experiment --config experiments/02_backend_mps.yaml
+python -m src.run_client --experiment --config <config.yaml>
 ```
 
-### Metrics Dashboard
+## Metrics and Observability
 
-Real-time metrics are available during experiments:
+### Prometheus Metrics
 
-- **Dashboard**: http://localhost:8080
-- **JSON API**: http://localhost:8080/metrics
-- **Reset Metrics**: http://localhost:8080/reset
+The server exposes metrics at `http://localhost:8000/metrics`:
+
+- **Request metrics**: `inference_requests_total`, `inference_request_duration_seconds`
+- **Throughput**: `inference_throughput_samples_per_second`
+- **Latency**: `inference_latency_seconds` (histogram with percentiles)
+- **Queue**: `inference_queue_size`, `inference_queue_wait_time_seconds`
+- **Pool**: `model_pool_active_workers`, `tokenizer_pool_queue_size`
+- **System**: `process_cpu_percent`, `gpu_memory_bytes`
+
+### Grafana Dashboard
+
+Pre-configured dashboard available at `http://localhost:3001`:
+
+- Real-time throughput and latency graphs
+- Queue sizes and wait times
+- Worker utilization
+- System resource usage
 
 ## Results and Analysis
 
@@ -266,11 +275,6 @@ Real-time metrics are available during experiments:
 | 4 | 14: Production | 679.6 | 141.1 | Best stability |
 | 5 | 07b: Dynamic Batch | 686.0 | 186.4 | Best single |
 | 6 | 10a: Padding Base | 687.4 | 93.0 | Best latency |
-| 7 | 12: Max Length 512 | 576.5 | 110.9 | Longer sequences |
-| 8 | 11_Quant: INT8 | 572.3 | 167.5 | Quantization |
-| 9 | 09: Max Batch 256 | 671.6 | 190.0 | Batch sweep |
-| 10 | 08: Timeout 200ms | 670.6 | 190.4 | Timeout sweep |
-| 11 | 07a: Static Batch | 647.2 | 197.1 | Baseline |
 
 ## Development
 
@@ -290,9 +294,35 @@ pytest tests/ -v --cov=src --cov-report=html
 ### Adding New Backends
 
 1. Create a new backend class in `src/server/backends/`
-2. Implement the required interface: `load_model()`, `infer()`, `warmup()`
-3. Update `src/server/pool.py` to support the new backend type
+2. Implement: `load_model()`, `infer()`, `warmup()`
+3. Register in `src/server/backends/__init__.py`
 4. Create experiment configs for the new backend
+
+## Troubleshooting
+
+### Common Issues
+
+**Port already in use:**
+```bash
+./scripts/stop_all_servers.sh
+```
+
+**Docker containers not starting:**
+```bash
+docker compose down --remove-orphans
+./scripts/start_services.sh
+```
+
+**MPS not available:**
+```python
+import torch
+print(torch.backends.mps.is_available())  # Should be True on Apple Silicon
+```
+
+**MLX not working:**
+```bash
+pip install mlx mlx-lm
+```
 
 ## License
 

@@ -1,0 +1,37 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+name: "19_tuning_process_pool"
+description: "4 model replicas with torch.compile and process isolation"
+
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      quantization: fp16
+      compile_model: true
+      max_length: 256
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      quantization: fp16
+      compile_model: true
+      max_length: 256
+  routing_strategy: "smart_idle"
+
+batching:
+  enabled: true
+  max_batch_size: 256
+  timeout_ms: 200.0
+  length_aware: false
+
+experiment:
+  batch_sizes: [32]
+  concurrency_levels: [8]
+  warmup_iterations: 20

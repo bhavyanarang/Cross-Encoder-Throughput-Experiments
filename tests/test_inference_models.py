@@ -1,6 +1,6 @@
 import numpy as np
 
-from src.server.models.inference import InferenceResult, WorkItem, WorkResult
+from src.server.dto.inference import InferenceResult, WorkItem, WorkResult
 
 
 class TestInferenceResult:

@@ -2,15 +2,15 @@ import logging
 import threading
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Optional
 
 import numpy as np
 
 from src.server.backends.device import clear_memory, resolve_device, sync_device
-from src.server.models import InferenceResult
+from src.server.dto import InferenceResult
 
 if TYPE_CHECKING:
-    from src.server.services.tokenization_service import TokenizerPool
+    from src.server.pool.tokenizer_pool import TokenizerPool
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ class BaseBackend(ABC):
         device: str = "mps",
         quantization: QuantizationType = "fp16",
         max_length: int = 512,
-        tokenizer_pool: "TokenizerPool | None" = None,
+        tokenizer_pool: Optional["TokenizerPool"] = None,
     ):
         self.model_name = model_name
         self.device = resolve_device(device)
@@ -40,44 +40,43 @@ class BaseBackend(ABC):
 
     @abstractmethod
     def load_model(self) -> None:
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def infer(self, pairs: list[tuple[str, str]]) -> np.ndarray:
-        pass
+        raise NotImplementedError
+
+    def _get_tokenizer(self):
+        if self._tokenizer_pool is not None:
+            return self._tokenizer_pool
+
+        if not hasattr(self, "_tokenizer"):
+            from src.server.utils.tokenizer import TokenizerService
+
+            self._tokenizer = TokenizerService(self.model_name, self.max_length)
+        return self._tokenizer
 
     def infer_with_timing(self, pairs: list[tuple[str, str]]) -> InferenceResult:
         self._acquire()
         try:
+            tokenizer = self._get_tokenizer()
+            tokenize_start = time.perf_counter()
+
             if self._tokenizer_pool is not None:
-                tokenize_start = time.perf_counter()
-                tokenized_batch = self._tokenizer_pool.tokenize(pairs)
-                t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+                tokenized_batch = tokenizer.tokenize(pairs)
                 features = tokenized_batch.features
-                batch_size = tokenized_batch.batch_size
-                max_seq_length = tokenized_batch.max_seq_length
-                total_tokens = tokenized_batch.total_tokens
-                real_tokens = tokenized_batch.real_tokens
-                padded_tokens = tokenized_batch.padded_tokens
-                padding_ratio = tokenized_batch.padding_ratio
-                avg_seq_length = tokenized_batch.avg_seq_length
             else:
-                from src.server.services.tokenization_service import TokenizerService
-
-                if not hasattr(self, "_tokenizer"):
-                    self._tokenizer = TokenizerService(self.model_name, self.max_length)
-
-                tokenize_start = time.perf_counter()
-                tokenized_batch = self._tokenizer.tokenize(pairs, device=self.device)
-                t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+                tokenized_batch = tokenizer.tokenize(pairs, device=self.device)
                 features = tokenized_batch.features
-                batch_size = tokenized_batch.batch_size
-                max_seq_length = tokenized_batch.max_seq_length
-                total_tokens = tokenized_batch.total_tokens
-                real_tokens = tokenized_batch.real_tokens
-                padded_tokens = tokenized_batch.padded_tokens
-                padding_ratio = tokenized_batch.padding_ratio
-                avg_seq_length = tokenized_batch.avg_seq_length
+
+            t_tokenize_ms = (time.perf_counter() - tokenize_start) * 1000
+            batch_size = tokenized_batch.batch_size
+            max_seq_length = tokenized_batch.max_seq_length
+            total_tokens = tokenized_batch.total_tokens
+            real_tokens = tokenized_batch.real_tokens
+            padded_tokens = tokenized_batch.padded_tokens
+            padding_ratio = tokenized_batch.padding_ratio
+            avg_seq_length = tokenized_batch.avg_seq_length
 
             if self._tokenizer_pool is not None:
                 features = {k: v.to(self.device) for k, v in features.items()}
@@ -177,16 +176,16 @@ class BaseBackend(ABC):
         return self._pending
 
     def _acquire(self) -> None:
-        with self._pending_lock:
-            self._pending += 1
         self._lock.acquire()
         self._is_busy = True
+        with self._pending_lock:
+            self._pending += 1
 
     def _release(self) -> None:
-        self._is_busy = False
-        self._lock.release()
         with self._pending_lock:
             self._pending -= 1
+        self._is_busy = False
+        self._lock.release()
 
     def sync(self) -> None:
         sync_device(self.device)
