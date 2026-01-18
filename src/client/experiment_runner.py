@@ -20,7 +20,7 @@ class ExperimentRunner:
         self._timeseries_collector = timeseries_collector
         self._timeseries_writer = timeseries_writer
 
-    def run(
+    async def run(
         self,
         config: ExperimentConfig,
         timeseries_file: str | None = None,
@@ -34,7 +34,8 @@ class ExperimentRunner:
                 if self._state.interrupted:
                     return results
                 start_time = time.time()
-                result = self._benchmark_runner.run(
+                # Await the async benchmark runner
+                result = await self._benchmark_runner.run(
                     pairs=pairs,
                     batch_size=batch_size,
                     num_requests=config.benchmark_requests,

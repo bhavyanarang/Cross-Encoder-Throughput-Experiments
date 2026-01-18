@@ -1,22 +1,22 @@
+import asyncio
 import logging
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from tqdm import tqdm
 
-from src.client.grpc_client import InferenceClient
+from src.client.grpc_client import AsyncInferenceClient
 from src.server.dto import BenchmarkState
 
 logger = logging.getLogger(__name__)
 
 
 class BenchmarkRunner:
-    def __init__(self, client: InferenceClient, state: BenchmarkState):
+    def __init__(self, client: AsyncInferenceClient, state: BenchmarkState):
         self.client = client
         self.state = state
 
-    def run(
+    async def run(
         self,
         pairs: list,
         batch_size: int,
@@ -33,15 +33,23 @@ class BenchmarkRunner:
         start = time.perf_counter()
         completed = [0]
 
-        def run_batch(batch):
+        # Async semaphore to limit concurrency
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def run_batch(batch):
             if self.state.interrupted:
                 return None
 
-            _, _ = self.client.infer(batch)
-            completed[0] += 1
+            async with semaphore:
+                # Double check interruption
+                if self.state.interrupted:
+                    return None
+
+                await self.client.infer(batch)
+                completed[0] += 1
             return 1
 
-        self._execute_batches(batches, run_batch, concurrency, completed, num_requests, start)
+        await self._execute_batches(batches, run_batch, num_requests, start, completed)
 
         elapsed = time.perf_counter() - start
 
@@ -68,50 +76,48 @@ class BenchmarkRunner:
             batches.append(batch)
         return batches
 
-    def _execute_batches(
+    async def _execute_batches(
         self,
         batches: list,
         run_batch: Callable,
-        concurrency: int,
-        completed: list,
         num_requests: int,
-        start_time: float = None,
+        start_time: float,
+        completed: list,
     ):
-        if start_time is None:
-            start_time = time.perf_counter()
-
         pbar = tqdm(total=num_requests, desc="Benchmarking", unit="req", ncols=80, leave=False)
         last_completed = 0
 
+        # Create tasks
+        tasks = [asyncio.create_task(run_batch(batch)) for batch in batches]
+
         try:
-            if concurrency == 1:
-                for batch in batches:
-                    if self.state.interrupted:
-                        break
+            # We want to update progress bar as tasks complete
+            # asyncio.as_completed is good, but we also want to support interruption and timeouts
 
-                    if time.perf_counter() - start_time > 60.0:
-                        break
-                    run_batch(batch)
+            for f in asyncio.as_completed(tasks):
+                await f
 
-                    current = completed[0]
-                    if current > last_completed:
-                        pbar.update(current - last_completed)
-                        last_completed = current
-            else:
-                with ThreadPoolExecutor(max_workers=concurrency) as executor:
-                    futures = [executor.submit(run_batch, batch) for batch in batches]
-                    for _f in as_completed(futures):
-                        if self.state.interrupted:
-                            break
+                if self.state.interrupted:
+                    break
 
-                        if time.perf_counter() - start_time > 60.0:
-                            break
+                if time.perf_counter() - start_time > 60.0:
+                    # Soft timeout to prevent hangs
+                    break
 
-                        current = completed[0]
-                        if current > last_completed:
-                            pbar.update(current - last_completed)
-                            last_completed = current
+                current = completed[0]
+                if current > last_completed:
+                    pbar.update(current - last_completed)
+                    last_completed = current
+
         finally:
+            # Cancel any pending tasks if we exited early
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+
+            # Wait for cancellations to propagate
+            await asyncio.gather(*tasks, return_exceptions=True)
+
             final = completed[0]
             if final > last_completed:
                 pbar.update(final - last_completed)

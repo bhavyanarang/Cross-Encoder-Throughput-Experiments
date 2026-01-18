@@ -18,6 +18,15 @@ model_pool:
       compile_model: false
       max_length: 256
 
+tokenizer_pool:
+  enabled: true
+  num_workers: 2
+
+batching:
+  enabled: false
+  max_batch_size: 32
+  timeout_ms: 50.0
+
 experiment:
   batch_sizes: [96]
-  concurrency_levels: [8, 16, 24, 48]
+  concurrency_levels: [4, 8, 16, 24]

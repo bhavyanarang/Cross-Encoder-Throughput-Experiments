@@ -122,3 +122,56 @@ class InferenceClient:
             self.close()
         except Exception:
             return
+
+
+class AsyncInferenceClient:
+    def __init__(
+        self,
+        host: str = "localhost",
+        port: int = 50051,
+        use_ssl: bool = False,
+        ssl_ca_cert_path: str | None = None,
+    ):
+        if use_ssl:
+            if ssl_ca_cert_path:
+                try:
+                    with open(ssl_ca_cert_path, "rb") as f:
+                        ca_cert = f.read()
+                except FileNotFoundError as e:
+                    raise ValueError(f"CA certificate file not found: {e}") from e
+                credentials = grpc.ssl_channel_credentials(root_certificates=ca_cert)
+            else:
+                credentials = grpc.ssl_channel_credentials()
+            self._channel = grpc.aio.secure_channel(f"{host}:{port}", credentials)
+            logger.info(f"Connected to {host}:{port} (SSL/TLS - Async)")
+        else:
+            self._channel = grpc.aio.insecure_channel(f"{host}:{port}")
+            logger.warning(f"Connected to {host}:{port} (insecure - Async)")
+
+        self._stub = inference_pb2_grpc.InferenceServiceStub(self._channel)
+
+    async def infer(
+        self, pairs: list[tuple[str, str]], timeout: float = 60.0
+    ) -> tuple[list[float], float]:
+        start = time.perf_counter()
+        proto_pairs = [inference_pb2.QueryDocPair(query=p[0], document=p[1]) for p in pairs]
+        request = inference_pb2.InferRequest(pairs=proto_pairs)
+        response = await self._stub.Infer(request, timeout=timeout)
+        latency = (time.perf_counter() - start) * 1000
+        return list(response.scores), latency
+
+    async def close(self) -> None:
+        if self._channel:
+            await self._channel.close()
+            self._channel = None
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        await self.close()

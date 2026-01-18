@@ -176,12 +176,12 @@ fi
 # If in a sweep, pass the temp config path so it uses the right config
 TEMP_CLIENT_CONFIG=$(mktemp)
 if [ -n "$SWEEP_TEMP_CONFIG_PATH" ]; then
-    python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" --config-path "$SWEEP_TEMP_CONFIG_PATH" || {
+    python3 "$PROJECT_ROOT/src/tools/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" --config-path "$SWEEP_TEMP_CONFIG_PATH" || {
         echo -e "${RED}Error: Failed to convert Hydra config to client format${NC}"
         exit 1
     }
 else
-    python3 "$SCRIPT_DIR/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" || {
+    python3 "$PROJECT_ROOT/src/tools/hydra_to_client_config.py" "$EXPERIMENT_NAME" "$TEMP_CLIENT_CONFIG" || {
         echo -e "${RED}Error: Failed to convert Hydra config to client format${NC}"
         exit 1
     }

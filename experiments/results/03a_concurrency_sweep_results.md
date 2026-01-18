@@ -1,7 +1,8 @@
-# Benchmark run at 2026-01-18 04:43:06.901395
+# Benchmark run at 2026-01-18 20:23:16.867119
 
 Manual statistics computation has been disabled. Please refer to Promethues/Grafana for experimental results.
 
-- Run completed: batch_size=96, concurrency=1, 100 requests in 53.89s
-- Run completed: batch_size=96, concurrency=2, 100 requests in 28.40s
-- Run completed: batch_size=96, concurrency=4, 100 requests in 17.48s
+- Run completed: batch_size=96, concurrency=8, 100 requests in 26.66s
+- Run completed: batch_size=96, concurrency=16, 100 requests in 23.40s
+- Run completed: batch_size=96, concurrency=24, 100 requests in 22.66s
+- Run completed: batch_size=96, concurrency=48, 100 requests in 31.84s

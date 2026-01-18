@@ -68,7 +68,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     experiment_name = sys.argv[1]
-    project_root = Path(__file__).parent.parent
+    project_root = Path(__file__).resolve().parents[2]
     config_path = None
 
     if "--config-path" in sys.argv:
