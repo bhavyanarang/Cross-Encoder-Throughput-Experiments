@@ -22,18 +22,53 @@ class BenchmarkRunner:
         batch_size: int,
         num_requests: int,
         concurrency: int = 1,
+        duration_s: float | None = None,
+        prefill_requests: int = 0,
     ) -> dict:
-        logger.info(
-            f"Starting benchmark: {num_requests} requests, "
-            f"concurrency={concurrency}, batch_size={batch_size}"
+        if prefill_requests > 0:
+            await self._run_fixed_requests(
+                pairs=pairs,
+                batch_size=batch_size,
+                num_requests=prefill_requests,
+                concurrency=concurrency,
+                log_label="Warmup",
+            )
+
+        if duration_s is not None and duration_s > 0:
+            return await self._run_duration(
+                pairs=pairs,
+                batch_size=batch_size,
+                duration_s=duration_s,
+                concurrency=concurrency,
+            )
+
+        return await self._run_fixed_requests(
+            pairs=pairs,
+            batch_size=batch_size,
+            num_requests=num_requests,
+            concurrency=concurrency,
+            log_label="Benchmark",
         )
+
+    async def _run_fixed_requests(
+        self,
+        pairs: list,
+        batch_size: int,
+        num_requests: int,
+        concurrency: int,
+        log_label: str | None = None,
+    ) -> dict:
+        if log_label:
+            logger.info(
+                f"Starting {log_label.lower()}: {num_requests} requests, "
+                f"concurrency={concurrency}, batch_size={batch_size}"
+            )
 
         batches = self._prepare_batches(pairs, batch_size, num_requests)
 
         start = time.perf_counter()
         completed = [0]
 
-        # Async semaphore to limit concurrency
         semaphore = asyncio.Semaphore(concurrency)
 
         async def run_batch(batch):
@@ -41,7 +76,6 @@ class BenchmarkRunner:
                 return None
 
             async with semaphore:
-                # Double check interruption
                 if self.state.interrupted:
                     return None
 
@@ -66,14 +100,60 @@ class BenchmarkRunner:
             "interrupted": self.state.interrupted,
         }
 
+    async def _run_duration(
+        self,
+        pairs: list,
+        batch_size: int,
+        duration_s: float,
+        concurrency: int,
+    ) -> dict:
+        logger.info(
+            f"Starting benchmark: duration={duration_s:.1f}s, "
+            f"concurrency={concurrency}, batch_size={batch_size}"
+        )
+
+        start = time.perf_counter()
+        end_time = start + duration_s
+        completed = [0]
+
+        async def worker(worker_id: int) -> None:
+            index = worker_id
+            while not self.state.interrupted and time.perf_counter() < end_time:
+                batch = self._create_batch(pairs, batch_size, index)
+                await self.client.infer(batch)
+                completed[0] += 1
+                index += concurrency
+
+        tasks = [asyncio.create_task(worker(i)) for i in range(concurrency)]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        elapsed = time.perf_counter() - start
+
+        if completed[0] == 0:
+            return {"error": "No requests completed", "interrupted": True}
+
+        return {
+            "batch_size": batch_size,
+            "concurrency": concurrency,
+            "num_requests": completed[0],
+            "total_pairs": completed[0] * batch_size,
+            "total_time_s": elapsed,
+            "status": "completed",
+            "interrupted": self.state.interrupted,
+            "benchmark_duration_s": duration_s,
+        }
+
+    def _create_batch(self, pairs: list, batch_size: int, index: int) -> list[tuple[str, str]]:
+        start_idx = (index * batch_size) % len(pairs)
+        batch = pairs[start_idx : start_idx + batch_size]
+        if len(batch) < batch_size:
+            batch = batch + pairs[: batch_size - len(batch)]
+        return batch
+
     def _prepare_batches(self, pairs: list, batch_size: int, num_requests: int) -> list:
         batches = []
         for i in range(num_requests):
-            start_idx = (i * batch_size) % len(pairs)
-            batch = pairs[start_idx : start_idx + batch_size]
-            if len(batch) < batch_size:
-                batch = batch + pairs[: batch_size - len(batch)]
-            batches.append(batch)
+            batches.append(self._create_batch(pairs, batch_size, i))
         return batches
 
     async def _execute_batches(

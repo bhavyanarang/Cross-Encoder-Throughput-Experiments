@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+  - override /pipeline: default
+
+name: "29b_inference_only_throughput"
+description: "Inference-only throughput with fixed duration"
+
+pipeline:
+  enabled: true
+  mode: "inference_only"
+
+batching:
+  enabled: false
+
+experiment:
+  batch_sizes: [64, 128]
+  concurrency_levels: [16]
+  benchmark_duration_s: 30
+  prefill_requests: 64
+  dataset_size: 20000

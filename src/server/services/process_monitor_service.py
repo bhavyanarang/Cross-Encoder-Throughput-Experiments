@@ -24,7 +24,10 @@ class ProcessMonitorService:
             import psutil
 
             self._process = psutil.Process(os.getpid())
-            self._process.cpu_percent()
+            try:
+                self._process.cpu_percent()
+            except Exception:
+                self._process = None
         except ImportError:
             self._process = None
         self._initialized = True

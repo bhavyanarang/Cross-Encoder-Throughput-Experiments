@@ -8,6 +8,7 @@ from src.server.dto.config import (
     BatchConfig,
     Config,
     ModelConfig,
+    PipelineConfig,
     PoolConfig,
     ServerConfig,
     TokenizerPoolConfig,
@@ -95,6 +96,18 @@ def _parse_tokenizer_pool_config(data: dict) -> TokenizerPoolConfig:
         enabled=tp.get("enabled", False),
         num_workers=tp.get("num_workers", 1),
         model_name=tp.get("model_name", ""),
+        tokenizers_parallelism=tp.get("tokenizers_parallelism", False),
+    )
+
+
+def _parse_pipeline_config(data: dict) -> PipelineConfig:
+    if "pipeline" not in data:
+        return PipelineConfig()
+
+    p = data["pipeline"]
+    return PipelineConfig(
+        enabled=p.get("enabled", False),
+        mode=p.get("mode", "full"),
     )
 
 
@@ -131,12 +144,14 @@ def load_config(config_path: str) -> Config:
     instances = _parse_model_instances(data)
     batching = _parse_batching_config(data)
     tokenizer_pool = _parse_tokenizer_pool_config(data)
+    pipeline = _parse_pipeline_config(data)
     server = _parse_server_config(data)
 
     return Config(
         model_pool=PoolConfig(instances=instances),
         tokenizer_pool=tokenizer_pool,
         batching=batching,
+        pipeline=pipeline,
         server=server,
         name=data.get("name", ""),
         description=data.get("description", ""),
@@ -168,6 +183,14 @@ def hydra_config_to_config(cfg: DictConfig) -> Config:
         enabled=cfg_dict.get("tokenizer_pool", {}).get("enabled", True),
         num_workers=cfg_dict.get("tokenizer_pool", {}).get("num_workers", 3),
         model_name=cfg_dict.get("tokenizer_pool", {}).get("model_name", ""),
+        tokenizers_parallelism=cfg_dict.get("tokenizer_pool", {}).get(
+            "tokenizers_parallelism", False
+        ),
+    )
+
+    pipeline = PipelineConfig(
+        enabled=cfg_dict.get("pipeline", {}).get("enabled", False),
+        mode=cfg_dict.get("pipeline", {}).get("mode", "full"),
     )
 
     batching = BatchConfig(
@@ -189,6 +212,7 @@ def hydra_config_to_config(cfg: DictConfig) -> Config:
         model_pool=PoolConfig(instances=instances),
         tokenizer_pool=tokenizer_pool,
         batching=batching,
+        pipeline=pipeline,
         server=server,
         name=cfg_dict.get("name", ""),
         description=cfg_dict.get("description", ""),

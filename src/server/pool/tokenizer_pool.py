@@ -22,12 +22,18 @@ def _tokenizer_worker_main(
     worker_id: int,
     model_name: str,
     max_length: int,
+    tokenizers_parallelism: bool,
     input_queue: mp.Queue,
     output_queue: mp.Queue,
     ready_event: mp.Event,
 ):
     try:
-        worker = TokenizerWorker(worker_id, model_name, max_length)
+        worker = TokenizerWorker(
+            worker_id,
+            model_name,
+            max_length,
+            tokenizers_parallelism,
+        )
         worker.initialize()
         ready_event.set()
 
@@ -61,17 +67,27 @@ def _tokenizer_worker_main(
 
 
 class TokenizerPool(BaseWorkerPool):
-    def __init__(self, model_name: str, num_workers: int = 1, max_length: int = 512):
+    def __init__(
+        self,
+        model_name: str,
+        num_workers: int = 1,
+        max_length: int = 512,
+        tokenizers_parallelism: bool = False,
+    ):
         super().__init__(num_workers)
         self.model_name = model_name
         self.max_length = max_length
+        self.tokenizers_parallelism = tokenizers_parallelism
+        self._use_multiprocessing = num_workers > 1
 
         self._processes: list[mp.Process] = []
-        self._input_queue: mp.Queue | None = None
-        self._output_queue = mp.Queue()
+        self._input_queue: mp.Queue | queue.Queue | None = None
+        self._output_queue: mp.Queue | queue.Queue | None = None
         self._ready_events: list[mp.Event] = []
 
         self._result_thread: threading.Thread | None = None
+        self._worker_thread: threading.Thread | None = None
+        self._local_worker: TokenizerWorker | None = None
 
         self._inference_queue: queue.Queue | None = None
         self._metrics: MetricsService | None = None
@@ -96,36 +112,54 @@ class TokenizerPool(BaseWorkerPool):
         self._total_queries = 0
         self._shutdown_event.clear()
 
-        self._input_queue = mp.Queue()
+        if self._use_multiprocessing:
+            self._input_queue = mp.Queue()
+            self._output_queue = mp.Queue()
+        else:
+            self._input_queue = queue.Queue()
+            self._output_queue = queue.Queue()
 
-        for i in range(self.num_workers):
-            ready_event = mp.Event()
-            self._ready_events.append(ready_event)
+        if self._use_multiprocessing:
+            for i in range(self.num_workers):
+                ready_event = mp.Event()
+                self._ready_events.append(ready_event)
 
-            p = mp.Process(
-                target=_tokenizer_worker_main,
-                args=(
-                    i,
-                    self.model_name,
-                    self.max_length,
-                    self._input_queue,
-                    self._output_queue,
-                    ready_event,
-                ),
-                daemon=True,
+                p = mp.Process(
+                    target=_tokenizer_worker_main,
+                    args=(
+                        i,
+                        self.model_name,
+                        self.max_length,
+                        self.tokenizers_parallelism,
+                        self._input_queue,
+                        self._output_queue,
+                        ready_event,
+                    ),
+                    daemon=True,
+                )
+                p.start()
+                self._processes.append(p)
+
+            for i, ev in enumerate(self._ready_events):
+                if not ev.wait(timeout=30.0):
+                    logger.warning(f"Tokenizer worker {i} failed to start within timeout")
+        else:
+            self._local_worker = TokenizerWorker(
+                0,
+                self.model_name,
+                self.max_length,
+                self.tokenizers_parallelism,
             )
-            p.start()
-            self._processes.append(p)
-
-        for i, ev in enumerate(self._ready_events):
-            if not ev.wait(timeout=30.0):
-                logger.warning(f"Tokenizer worker {i} failed to start within timeout")
+            self._local_worker.initialize()
+            self._worker_thread = threading.Thread(target=self._local_worker_loop, daemon=True)
+            self._worker_thread.start()
 
         self._result_thread = threading.Thread(target=self._result_loop, daemon=True)
         self._result_thread.start()
 
         self._is_started = True
-        logger.info(f"Tokenizer pool ready with {self.num_workers} workers (MP, Shared Queue)")
+        mode = "MP" if self._use_multiprocessing else "Local"
+        logger.info(f"Tokenizer pool ready with {self.num_workers} workers ({mode})")
 
     def stop(self, timeout_s: float = 30.0) -> None:
         if not self._is_started:
@@ -141,18 +175,26 @@ class TokenizerPool(BaseWorkerPool):
                     pass
 
         deadline = time.time() + timeout_s
-        for p in self._processes:
-            remaining = max(0, deadline - time.time())
-            p.join(timeout=remaining)
-            if p.is_alive():
-                p.terminate()
+        if self._use_multiprocessing:
+            for p in self._processes:
+                remaining = max(0, deadline - time.time())
+                p.join(timeout=remaining)
+                if p.is_alive():
+                    p.terminate()
+        else:
+            if self._worker_thread:
+                remaining = max(0, deadline - time.time())
+                self._worker_thread.join(timeout=remaining)
 
         if self._result_thread:
             self._result_thread.join(timeout=1.0)
 
         self._processes.clear()
         self._input_queue = None
+        self._output_queue = None
         self._ready_events.clear()
+        self._worker_thread = None
+        self._local_worker = None
 
         self._is_started = False
 
@@ -203,7 +245,9 @@ class TokenizerPool(BaseWorkerPool):
         while not self._shutdown_event.is_set():
             try:
                 try:
-                    result = self._output_queue.get(timeout=0.5)
+                    if not self._output_queue:
+                        continue
+                    result = self._output_queue.get(timeout=0.1)
                 except queue.Empty:
                     continue
 
@@ -235,6 +279,9 @@ class TokenizerPool(BaseWorkerPool):
                 request.tokenized_batch = tokenized_batch
                 request.tokenizer_worker_id = worker_id
 
+                if self._metrics:
+                    self._metrics.record_tokenizer_queue_out(1)
+
                 if self._inference_queue:
                     try:
                         inference_item = InferenceQueueItem(
@@ -243,19 +290,36 @@ class TokenizerPool(BaseWorkerPool):
                         )
                         self._inference_queue.put(inference_item, block=False)
                         if self._metrics:
-                            self._metrics.record_tokenizer_queue_out(1)
                             self._metrics.record_model_queue_in(1)
                     except queue.Full:
                         logger.warning("Inference queue full, dropping tokenized result")
                         request.error = RuntimeError("Inference queue full")
                         request.result_event.set()
                 else:
-                    logger.error("Inference queue not set in pipeline mode")
-                    request.error = RuntimeError("Inference queue not configured")
                     request.result_event.set()
 
             except Exception as e:
                 logger.error(f"Tokenizer pool result loop error: {e}", exc_info=True)
+
+    def _local_worker_loop(self) -> None:
+        if not self._input_queue or not self._output_queue or not self._local_worker:
+            return
+        while not self._shutdown_event.is_set():
+            try:
+                item = self._input_queue.get()
+                if item == _STOP:
+                    break
+                if item == _GET_METRICS:
+                    continue
+                req_id, pairs, enqueue_time = item
+                try:
+                    tokenized = self._local_worker.process(pairs)
+                    self._output_queue.put((req_id, tokenized, None, enqueue_time, 0))
+                except Exception as e:
+                    logger.error(f"Tokenizer worker 0 error processing request {req_id}: {e}")
+                    self._output_queue.put((req_id, None, e, enqueue_time, 0))
+            except Exception as e:
+                logger.error(f"Tokenizer worker 0 loop error: {e}")
 
     def get_info(self) -> dict:
         total_worker_queue_size = 0
@@ -279,6 +343,7 @@ class TokenizerPool(BaseWorkerPool):
             "model_name": self.model_name,
             "num_workers": self.num_workers,
             "is_loaded": self._is_started,
+            "tokenizers_parallelism": self.tokenizers_parallelism,
             "queue_sizes": queue_sizes,
             "total_queue_size": total_worker_queue_size,
             "inference_queue_size": inference_queue_size,

@@ -75,12 +75,15 @@ class ModelPool(BaseWorkerPool):
     def __init__(self, config: PoolConfig):
         super().__init__(len(config.instances))
         self.config = config
+        self._use_multiprocessing = self.num_workers > 1
         self._processes: list[mp.Process] = []
-        self._input_queues: list[mp.Queue] = []
-        self._output_queue = mp.Queue()
-        self._memory_queue = mp.Queue()
+        self._input_queues: list[mp.Queue | queue.Queue] = []
+        self._output_queue: mp.Queue | queue.Queue | None = None
+        self._memory_queue: mp.Queue | queue.Queue | None = None
         self._ready_events: list[mp.Event] = []
         self._result_thread: threading.Thread | None = None
+        self._worker_threads: list[threading.Thread] = []
+        self._local_workers: list[ModelWorker] = []
 
         self._request_counts: dict[int, int] = {}
 
@@ -102,39 +105,63 @@ class ModelPool(BaseWorkerPool):
 
         self._shutdown_event.clear()
 
-        for i, inst in enumerate(self.config.instances):
-            ready = mp.Event()
-            self._ready_events.append(ready)
-            input_queue = mp.Queue()
-            self._input_queues.append(input_queue)
+        if self._use_multiprocessing:
+            self._output_queue = mp.Queue()
+            self._memory_queue = mp.Queue()
+            for i, inst in enumerate(self.config.instances):
+                ready = mp.Event()
+                self._ready_events.append(ready)
+                input_queue = mp.Queue()
+                self._input_queues.append(input_queue)
 
-            p = mp.Process(
-                target=_worker_main,
-                args=(
-                    i,
-                    inst.model_dump(),
-                    input_queue,
-                    self._output_queue,
-                    ready,
-                    self._memory_queue,
-                ),
-                daemon=True,
-            )
-            p.start()
-            self._processes.append(p)
+                p = mp.Process(
+                    target=_worker_main,
+                    args=(
+                        i,
+                        inst.model_dump(),
+                        input_queue,
+                        self._output_queue,
+                        ready,
+                        self._memory_queue,
+                    ),
+                    daemon=True,
+                )
+                p.start()
+                self._processes.append(p)
 
-        per_worker_timeout = 60.0
-        for i, ev in enumerate(self._ready_events):
-            logger.info(f"Waiting for worker {i} to initialize (timeout: {per_worker_timeout}s)...")
-            if not ev.wait(per_worker_timeout):
-                logger.warning(f"Worker {i} failed to start within {per_worker_timeout}s timeout")
-                raise RuntimeError(f"Worker {i} failed to start within {per_worker_timeout}s")
+            per_worker_timeout = 60.0
+            for i, ev in enumerate(self._ready_events):
+                logger.info(
+                    f"Waiting for worker {i} to initialize (timeout: {per_worker_timeout}s)..."
+                )
+                if not ev.wait(per_worker_timeout):
+                    logger.warning(
+                        f"Worker {i} failed to start within {per_worker_timeout}s timeout"
+                    )
+                    raise RuntimeError(f"Worker {i} failed to start within {per_worker_timeout}s")
+        else:
+            self._output_queue = queue.Queue()
+            self._memory_queue = queue.Queue()
+            for i, inst in enumerate(self.config.instances):
+                worker = ModelWorker(i, inst)
+                worker.initialize()
+                self._local_workers.append(worker)
+                input_queue = queue.Queue()
+                self._input_queues.append(input_queue)
+                thread = threading.Thread(
+                    target=self._local_worker_loop,
+                    args=(worker, input_queue),
+                    daemon=True,
+                )
+                thread.start()
+                self._worker_threads.append(thread)
 
         self._result_thread = threading.Thread(target=self._result_loop, daemon=True)
         self._result_thread.start()
 
         self._is_started = True
-        logger.info(f"Pool ready with {self.num_workers} workers")
+        mode = "MP" if self._use_multiprocessing else "Local"
+        logger.info(f"Pool ready with {self.num_workers} workers ({mode})")
 
     def submit(self, work_item) -> None:
         if not self._is_started:
@@ -176,13 +203,18 @@ class ModelPool(BaseWorkerPool):
 
         deadline = time.time() + timeout_s
 
-        for p in self._processes:
-            remaining = max(0, deadline - time.time())
-            p.join(timeout=remaining)
-            if p.is_alive():
-                logger.warning("Worker process did not exit; terminating")
-                p.terminate()
-                p.join(timeout=1.0)
+        if self._use_multiprocessing:
+            for p in self._processes:
+                remaining = max(0, deadline - time.time())
+                p.join(timeout=remaining)
+                if p.is_alive():
+                    logger.warning("Worker process did not exit; terminating")
+                    p.terminate()
+                    p.join(timeout=1.0)
+        else:
+            for t in self._worker_threads:
+                remaining = max(0, deadline - time.time())
+                t.join(timeout=remaining)
 
         if self._result_thread:
             remaining = max(0, deadline - time.time())
@@ -208,27 +240,34 @@ class ModelPool(BaseWorkerPool):
                     f"sent to workers in {elapsed:.1f}s ({throughput:.1f} q/s)"
                 )
 
-        for input_queue in self._input_queues:
-            try:
-                input_queue.close()
-                input_queue.join_thread()
-            except Exception as e:
-                logger.debug(f"Error closing input queue: {e}")
+        if self._use_multiprocessing:
+            for input_queue in self._input_queues:
+                try:
+                    input_queue.close()
+                    input_queue.join_thread()
+                except Exception as e:
+                    logger.debug(f"Error closing input queue: {e}")
 
-        try:
-            self._output_queue.close()
-            self._output_queue.join_thread()
-        except Exception as e:
-            logger.debug(f"Error closing output queue: {e}")
+            if self._output_queue:
+                try:
+                    self._output_queue.close()
+                    self._output_queue.join_thread()
+                except Exception as e:
+                    logger.debug(f"Error closing output queue: {e}")
 
-        try:
-            self._memory_queue.close()
-            self._memory_queue.join_thread()
-        except Exception as e:
-            logger.debug(f"Error closing memory queue: {e}")
+            if self._memory_queue:
+                try:
+                    self._memory_queue.close()
+                    self._memory_queue.join_thread()
+                except Exception as e:
+                    logger.debug(f"Error closing memory queue: {e}")
 
         self._processes.clear()
         self._input_queues.clear()
+        self._worker_threads.clear()
+        self._local_workers.clear()
+        self._output_queue = None
+        self._memory_queue = None
         self._is_started = False
         logger.info("Pool stopped")
 
@@ -239,7 +278,9 @@ class ModelPool(BaseWorkerPool):
                     time.sleep(0.5)
                     continue
 
-                result = self._output_queue.get(timeout=0.5)
+                if not self._output_queue:
+                    continue
+                result = self._output_queue.get(timeout=0.1)
                 if result is not None:
                     logger.debug("Drained stale result from output queue")
             except (queue.Empty, EOFError):
@@ -257,66 +298,75 @@ class ModelPool(BaseWorkerPool):
 
         while not self._shutdown_event.is_set():
             try:
+                processed = False
+
+                if self._output_queue:
+                    while True:
+                        try:
+                            worker_result = self._output_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        if isinstance(worker_result, tuple) and len(worker_result) == 3:
+                            request_id, result, error = worker_result
+                            if request_id in pending_results:
+                                request, enqueue_time = pending_results.pop(request_id)
+                                if self._metrics:
+                                    self._metrics.record_model_queue_out(1)
+                                if error:
+                                    request.error = error
+                                else:
+                                    from src.server.dto import InferenceResult
+
+                                    if result:
+                                        t_tokenize_ms = 0.0
+                                        if request.tokenized_batch:
+                                            t_tokenize_ms = request.tokenized_batch.tokenize_time_ms
+
+                                        request.inference_result = InferenceResult(
+                                            scores=result.scores,
+                                            t_tokenize_ms=t_tokenize_ms,
+                                            t_model_inference_ms=result.t_model_inference_ms,
+                                            t_queue_wait_ms=result.t_queue_wait_ms
+                                            + getattr(request, "t_queue_tokenization_wait_ms", 0.0)
+                                            + getattr(request, "t_queue_inference_wait_ms", 0.0),
+                                            t_tokenizer_queue_wait_ms=getattr(
+                                                request, "t_queue_tokenization_wait_ms", 0.0
+                                            ),
+                                            t_model_queue_wait_ms=getattr(
+                                                request, "t_queue_inference_wait_ms", 0.0
+                                            ),
+                                            t_overhead_ms=getattr(result, "t_overhead_ms", 0.0),
+                                            t_mp_queue_send_ms=getattr(
+                                                result, "t_mp_queue_send_ms", 0.0
+                                            ),
+                                            t_mp_queue_receive_ms=getattr(
+                                                result, "t_mp_queue_receive_ms", 0.0
+                                            ),
+                                            total_ms=result.total_ms,
+                                            total_tokens=result.total_tokens,
+                                            real_tokens=result.real_tokens,
+                                            padded_tokens=result.padded_tokens,
+                                            padding_ratio=result.padding_ratio,
+                                            max_seq_length=result.max_seq_length,
+                                            avg_seq_length=result.avg_seq_length,
+                                            batch_size=result.batch_size,
+                                            worker_id=result.worker_id,
+                                            tokenizer_worker_id=request.tokenizer_worker_id,
+                                        )
+                                request.result_event.set()
+                                processed = True
+
                 try:
-                    worker_result = self._output_queue.get_nowait()
-                    if isinstance(worker_result, tuple) and len(worker_result) == 3:
-                        request_id, result, error = worker_result
-                        if request_id in pending_results:
-                            request, enqueue_time = pending_results.pop(request_id)
-                            if self._metrics:
-                                self._metrics.record_model_queue_out(1)
-                            if error:
-                                request.error = error
-                            else:
-                                from src.server.dto import InferenceResult
-
-                                if result:
-                                    t_tokenize_ms = 0.0
-                                    if request.tokenized_batch:
-                                        t_tokenize_ms = request.tokenized_batch.tokenize_time_ms
-
-                                    request.inference_result = InferenceResult(
-                                        scores=result.scores,
-                                        t_tokenize_ms=t_tokenize_ms,
-                                        t_model_inference_ms=result.t_model_inference_ms,
-                                        t_queue_wait_ms=result.t_queue_wait_ms
-                                        + getattr(request, "t_queue_tokenization_wait_ms", 0.0)
-                                        + getattr(request, "t_queue_inference_wait_ms", 0.0),
-                                        t_tokenizer_queue_wait_ms=getattr(
-                                            request, "t_queue_tokenization_wait_ms", 0.0
-                                        ),
-                                        t_model_queue_wait_ms=getattr(
-                                            request, "t_queue_inference_wait_ms", 0.0
-                                        ),
-                                        t_overhead_ms=getattr(result, "t_overhead_ms", 0.0),
-                                        t_mp_queue_send_ms=getattr(
-                                            result, "t_mp_queue_send_ms", 0.0
-                                        ),
-                                        t_mp_queue_receive_ms=getattr(
-                                            result, "t_mp_queue_receive_ms", 0.0
-                                        ),
-                                        total_ms=result.total_ms,
-                                        total_tokens=result.total_tokens,
-                                        real_tokens=result.real_tokens,
-                                        padded_tokens=result.padded_tokens,
-                                        padding_ratio=result.padding_ratio,
-                                        max_seq_length=result.max_seq_length,
-                                        avg_seq_length=result.avg_seq_length,
-                                        batch_size=result.batch_size,
-                                        worker_id=result.worker_id,
-                                        tokenizer_worker_id=request.tokenizer_worker_id,
-                                    )
-                            request.result_event.set()
+                    inference_item = self._inference_queue.get_nowait()
                 except queue.Empty:
-                    pass
-
-                try:
-                    inference_item = self._inference_queue.get(timeout=0.5)
-                except queue.Empty:
-                    continue
+                    inference_item = None
 
                 from src.server.dto.pipeline import InferenceQueueItem
 
+                if inference_item is None:
+                    if not processed:
+                        time.sleep(0.005)
+                    continue
                 if not isinstance(inference_item, InferenceQueueItem):
                     continue
 
@@ -346,6 +396,7 @@ class ModelPool(BaseWorkerPool):
                     logger.error(f"Pipeline routing error: {e}", exc_info=True)
                     request.error = e
                     request.result_event.set()
+                processed = True
 
             except Exception as e:
                 logger.error(f"Pipeline consumer loop error: {e}", exc_info=True)
@@ -354,7 +405,11 @@ class ModelPool(BaseWorkerPool):
     def get_gpu_memory_mb(self) -> float:
         if not self._is_started:
             return 0.0
-
+        if not self._use_multiprocessing and self._local_workers:
+            try:
+                return max(worker.get_memory_mb() for worker in self._local_workers)
+            except Exception:
+                return 0.0
         for input_queue in self._input_queues:
             try:
                 input_queue.put(_GET_MEMORY, block=False)
@@ -367,6 +422,8 @@ class ModelPool(BaseWorkerPool):
 
         while len(memory_values) < self.num_workers and time.time() < deadline:
             try:
+                if not self._memory_queue:
+                    break
                 worker_id, memory_mb = self._memory_queue.get(timeout=0.2)
                 memory_values.append(memory_mb)
                 logger.debug(f"Worker {worker_id} reported GPU memory: {memory_mb:.2f} MB")
@@ -393,6 +450,41 @@ class ModelPool(BaseWorkerPool):
 
         logger.warning("Could not get GPU memory from any worker or main process")
         return 0.0
+
+    def _local_worker_loop(self, worker: ModelWorker, input_queue: queue.Queue) -> None:
+        while not self._shutdown_event.is_set():
+            try:
+                item = input_queue.get()
+                if item == _STOP:
+                    break
+                if item == _GET_MEMORY:
+                    memory_mb = worker.get_memory_mb()
+                    try:
+                        if self._memory_queue:
+                            self._memory_queue.put((worker.worker_id, memory_mb), block=False)
+                    except Exception:
+                        pass
+                    continue
+                if item == _GET_METRICS:
+                    continue
+                if hasattr(item, "tokenized_batch") and hasattr(item, "req_id"):
+                    from src.server.dto import WorkItem
+
+                    work_item = WorkItem(req_id=item.req_id, tokenized_batch=item.tokenized_batch)
+                    try:
+                        result = worker.process(work_item)
+                        if self._output_queue:
+                            self._output_queue.put((item.req_id, result, None))
+                    except Exception as e:
+                        logger.error(f"Worker {worker.worker_id} inference error: {e}")
+                        if self._output_queue:
+                            self._output_queue.put((item.req_id, None, e))
+                else:
+                    result = worker.process(item)
+                    if self._output_queue:
+                        self._output_queue.put(result)
+            except Exception as e:
+                logger.error(f"Worker {worker.worker_id} error: {e}")
 
     def get_info(self) -> dict:
         queue_size = 0

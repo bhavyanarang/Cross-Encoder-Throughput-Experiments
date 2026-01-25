@@ -9,10 +9,12 @@ class TestTokenizerPool:
             model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
             num_workers=2,
             max_length=512,
+            tokenizers_parallelism=True,
         )
         assert pool.model_name == "cross-encoder/ms-marco-MiniLM-L-6-v2"
         assert pool.num_workers == 2
         assert pool.max_length == 512
+        assert pool.tokenizers_parallelism is True
         assert pool.is_loaded is False
 
     def test_tokenizer_pool_get_info(self):
@@ -20,11 +22,13 @@ class TestTokenizerPool:
             model_name="test-model",
             num_workers=3,
             max_length=256,
+            tokenizers_parallelism=False,
         )
         info = pool.get_info()
         assert info["model_name"] == "test-model"
         assert info["num_workers"] == 3
         assert info["is_loaded"] is False
+        assert info["tokenizers_parallelism"] is False
         assert len(info["queue_sizes"]) == 3
         assert info["total_queue_size"] == 0
 

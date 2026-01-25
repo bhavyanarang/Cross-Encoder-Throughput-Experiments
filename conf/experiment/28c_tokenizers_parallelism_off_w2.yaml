@@ -1,0 +1,32 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+
+name: "28c_tokenizers_parallelism_off_w2"
+description: "Tokenizer parallelism disabled with 2 worker pools"
+
+pipeline:
+  enabled: true
+  mode: "tokenization_only"
+
+tokenizer_pool:
+  enabled: true
+  num_workers: 2
+  tokenizers_parallelism: false
+
+batching:
+  enabled: false
+  max_batch_size: 64
+  timeout_ms: 50.0
+  length_aware: false
+
+experiment:
+  batch_sizes: [64]
+  concurrency_levels: [16]
+  benchmark_duration_s: 60
+  prefill_requests: 128
+  dataset_size: 20000

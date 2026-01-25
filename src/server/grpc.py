@@ -75,21 +75,23 @@ class InferenceServicer(inference_pb2_grpc.InferenceServiceServicer):
 
             worker_id = getattr(result, "worker_id", -1)
             t_model_inference_ms = getattr(result, "t_model_inference_ms", 0)
-            self._metrics.record_worker_stats(
-                worker_id=max(0, worker_id),
-                latency_ms=t_model_inference_ms if t_model_inference_ms > 0 else total_latency,
-                num_queries=len(pairs),
-            )
+            if worker_id >= 0:
+                self._metrics.record_worker_stats(
+                    worker_id=worker_id,
+                    latency_ms=t_model_inference_ms if t_model_inference_ms > 0 else total_latency,
+                    num_queries=len(pairs),
+                )
 
             tokenizer_worker_id = getattr(result, "tokenizer_worker_id", -1)
             t_tokenize_ms = getattr(result, "t_tokenize_ms", 0)
             total_tokens = getattr(result, "total_tokens", 0)
-            self._metrics.record_tokenizer_worker_stats(
-                worker_id=max(0, tokenizer_worker_id),
-                latency_ms=t_tokenize_ms if t_tokenize_ms > 0 else 1.0,
-                total_tokens=total_tokens,
-                num_queries=len(pairs),
-            )
+            if tokenizer_worker_id >= 0:
+                self._metrics.record_tokenizer_worker_stats(
+                    worker_id=tokenizer_worker_id,
+                    latency_ms=t_tokenize_ms if t_tokenize_ms > 0 else 1.0,
+                    total_tokens=total_tokens,
+                    num_queries=len(pairs),
+                )
 
         return response
 

@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+  - override /pipeline: default
+
+name: "29d_inference_only_batch_sweep"
+description: "Inference-only batch size sweep at fixed concurrency"
+
+pipeline:
+  enabled: true
+  mode: "inference_only"
+
+batching:
+  enabled: false
+
+experiment:
+  batch_sizes: [64, 96, 128, 160, 192, 224, 256]
+  concurrency_levels: [8]
+  benchmark_duration_s: 20
+  prefill_requests: 64
+  dataset_size: 20000

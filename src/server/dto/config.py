@@ -24,6 +24,7 @@ class TokenizerPoolConfig(BaseModel):
     enabled: bool = True
     num_workers: int = 3
     model_name: str = ""
+    tokenizers_parallelism: bool = False
 
 
 class BatchConfig(BaseModel):

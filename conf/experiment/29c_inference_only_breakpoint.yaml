@@ -1,0 +1,25 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+  - override /pipeline: default
+
+name: "29c_inference_only_breakpoint"
+description: "Inference-only breakpoint sweep (batch_size=128)"
+
+pipeline:
+  enabled: true
+  mode: "inference_only"
+
+batching:
+  enabled: false
+
+experiment:
+  batch_sizes: [128]
+  concurrency_levels: [8, 16, 24, 32, 48, 64]
+  benchmark_duration_s: 20
+  prefill_requests: 64
+  dataset_size: 20000

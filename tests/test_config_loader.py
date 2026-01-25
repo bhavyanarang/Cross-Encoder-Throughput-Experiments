@@ -101,6 +101,7 @@ class TestConfigLoader:
                     "enabled": True,
                     "num_workers": 3,
                     "model_name": "tokenizer-model",
+                    "tokenizers_parallelism": True,
                 }
             }
             with open(config_path, "w") as f:
@@ -110,6 +111,7 @@ class TestConfigLoader:
             assert config.tokenizer_pool.enabled is True
             assert config.tokenizer_pool.num_workers == 3
             assert config.tokenizer_pool.model_name == "tokenizer-model"
+            assert config.tokenizer_pool.tokenizers_parallelism is True
 
     def test_load_config_server(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -130,6 +132,17 @@ class TestConfigLoader:
             assert config.server.grpc_port == 60000
             assert config.server.http_port == 9000
             assert config.server.grpc_workers == 20
+
+    def test_load_config_pipeline(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            config_path = Path(tmpdir) / "test.yaml"
+            config_data = {"pipeline": {"enabled": True, "mode": "tokenization_only"}}
+            with open(config_path, "w") as f:
+                yaml.dump(config_data, f)
+
+            config = load_config(str(config_path))
+            assert config.pipeline.enabled is True
+            assert config.pipeline.mode == "tokenization_only"
 
     def test_load_config_not_found(self):
         with pytest.raises(FileNotFoundError):
@@ -161,3 +174,4 @@ class TestConfigLoader:
             assert len(config.model_pool.instances) == 1
             assert config.batching.enabled is False
             assert config.server.grpc_port == 50051
+            assert config.tokenizer_pool.tokenizers_parallelism is False

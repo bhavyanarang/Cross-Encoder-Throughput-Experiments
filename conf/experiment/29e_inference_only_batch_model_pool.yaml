@@ -1,0 +1,49 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+  - override /pipeline: default
+
+name: "29d_inference_only_batch_sweep"
+description: "Inference-only batch size sweep at fixed concurrency"
+
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      quantization: "fp16"
+      compile_model: false
+      max_length: 200
+      onnx_optimize: true
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      quantization: "fp16"
+      compile_model: false
+      max_length: 200
+      onnx_optimize: true
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      device: "mps"
+      backend: "mps"
+      quantization: "fp16"
+      compile_model: false
+      max_length: 200
+      onnx_optimize: true
+
+pipeline:
+  enabled: true
+  mode: "inference_only"
+
+batching:
+  enabled: false
+
+experiment:
+  batch_sizes: [128, 160, 192, 224, 256]
+  concurrency_levels: [8, 16]
+  benchmark_duration_s: 20
+  prefill_requests: 64
+  dataset_size: 20000

@@ -3,3 +3,4 @@
 enabled: true
 num_workers: 1
 model_name: ""  # If empty, uses same model as inference
+tokenizers_parallelism: false

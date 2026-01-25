@@ -26,10 +26,15 @@ class OrchestratorService:
         if not tokenizer_model and self.config.model_pool.instances:
             tokenizer_model = self.config.model_pool.instances[0].name
 
+        tokenizer_max_length = 512
+        if self.config.model_pool.instances:
+            tokenizer_max_length = min(inst.max_length for inst in self.config.model_pool.instances)
+
         self.tokenizer_pool = TokenizerPool(
             model_name=tokenizer_model,
             num_workers=self.config.tokenizer_pool.num_workers,
-            max_length=512,
+            max_length=tokenizer_max_length,
+            tokenizers_parallelism=self.config.tokenizer_pool.tokenizers_parallelism,
         )
         self.pool = ModelPool(self.config.model_pool)
         self.metrics = MetricsService(prometheus_port=self.config.server.prometheus_port)

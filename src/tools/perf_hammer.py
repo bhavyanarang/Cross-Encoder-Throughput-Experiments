@@ -6,6 +6,7 @@ import logging
 import math
 import signal
 import sys
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -286,8 +287,45 @@ class PerfHammer:
             f"{'=' * 80}\n"
         )
 
+    def stats_snapshot(self) -> dict | None:
+        if not self.start_time:
+            return None
+
+        now = self.end_time or time.perf_counter()
+        elapsed = max(now - self.start_time, 0.0)
+        total_requests = len(self.latencies)
+        total_pairs = total_requests * self.batch_size
+        total_errors = len(self.errors)
+
+        if elapsed > 0:
+            current_qps = total_requests / elapsed
+            current_throughput = total_pairs / elapsed
+        else:
+            current_qps = 0.0
+            current_throughput = 0.0
+
+        recent_lat = list(self.recent_latencies) if self.recent_latencies else self.latencies
+
+        return {
+            "elapsed_s": elapsed,
+            "total_requests": total_requests,
+            "total_pairs": total_pairs,
+            "errors": total_errors,
+            "qps": current_qps,
+            "throughput": current_throughput,
+            "lat_avg_ms": self._mean(recent_lat),
+            "lat_p50_ms": self._get_percentile(recent_lat, 50),
+            "lat_p95_ms": self._get_percentile(recent_lat, 95),
+            "lat_p99_ms": self._get_percentile(recent_lat, 99),
+            "running": self.running,
+        }
+
+    def stop(self) -> None:
+        self.running = False
+
     def run(self):
-        self.loop = asyncio.get_event_loop()
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
 
         def signal_handler():
             logger.info("\nInterrupt received, stopping...")
@@ -295,12 +333,16 @@ class PerfHammer:
             for task in asyncio.all_tasks(self.loop):
                 task.cancel()
 
-        try:
-            self.loop.add_signal_handler(signal.SIGINT, signal_handler)
-            self.loop.add_signal_handler(signal.SIGTERM, signal_handler)
-        except NotImplementedError:
-            signal.signal(signal.SIGINT, lambda s, f: signal_handler())
-            signal.signal(signal.SIGTERM, lambda s, f: signal_handler())
+        if threading.current_thread() is threading.main_thread():
+            try:
+                self.loop.add_signal_handler(signal.SIGINT, signal_handler)
+                self.loop.add_signal_handler(signal.SIGTERM, signal_handler)
+            except (NotImplementedError, RuntimeError, ValueError):
+                try:
+                    signal.signal(signal.SIGINT, lambda s, f: signal_handler())
+                    signal.signal(signal.SIGTERM, lambda s, f: signal_handler())
+                except ValueError:
+                    pass
 
         try:
             self.loop.run_until_complete(self.run_async())

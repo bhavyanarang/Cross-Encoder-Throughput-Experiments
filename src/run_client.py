@@ -93,8 +93,12 @@ def main():
     )
     parser.add_argument("--batch-size", type=int, default=32, help="Batch size")
     parser.add_argument("--num-requests", type=int, default=100, help="Number of requests")
+    parser.add_argument("--duration", type=float, default=None, help="Benchmark duration (s)")
     parser.add_argument("--concurrency", type=int, default=1, help="Concurrency level")
     parser.add_argument("--dataset-size", type=int, default=50000, help="Number of test pairs")
+    parser.add_argument(
+        "--prefill-requests", type=int, default=0, help="Warmup requests before measuring"
+    )
     args = parser.parse_args()
 
     state = BenchmarkState()

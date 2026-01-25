@@ -40,6 +40,8 @@ class ExperimentRunner:
                     batch_size=batch_size,
                     num_requests=config.benchmark_requests,
                     concurrency=concurrency,
+                    duration_s=config.benchmark_duration_s,
+                    prefill_requests=config.prefill_requests,
                 )
                 end_time = time.time()
                 result["start_time_s"] = start_time

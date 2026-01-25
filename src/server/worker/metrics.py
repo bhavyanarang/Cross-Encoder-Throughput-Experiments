@@ -1,25 +1,42 @@
-from prometheus_client import Counter, Histogram
+from prometheus_client import REGISTRY, Counter, Histogram
 
-WORKER_LATENCY = Histogram(
+
+def _get_counter(name: str, description: str, labels: list[str]) -> Counter:
+    existing = REGISTRY._names_to_collectors.get(name)
+    if existing:
+        return existing
+    return Counter(name, description, labelnames=labels)
+
+
+def _get_histogram(
+    name: str, description: str, labels: list[str], buckets: list[float]
+) -> Histogram:
+    existing = REGISTRY._names_to_collectors.get(name)
+    if existing:
+        return existing
+    return Histogram(name, description, labelnames=labels, buckets=buckets)
+
+
+WORKER_LATENCY = _get_histogram(
     "worker_latency_seconds",
     "Worker processing latency",
-    labelnames=["worker_id", "worker_type"],
-    buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
+    ["worker_id", "worker_type"],
+    [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0],
 )
-WORKER_REQUESTS = Counter(
+WORKER_REQUESTS = _get_counter(
     "worker_requests_total",
     "Total requests processed",
-    labelnames=["worker_id", "worker_type"],
+    ["worker_id", "worker_type"],
 )
-WORKER_QUERIES = Counter(
+WORKER_QUERIES = _get_counter(
     "worker_queries_total",
     "Total queries processed",
-    labelnames=["worker_id", "worker_type"],
+    ["worker_id", "worker_type"],
 )
-WORKER_TOKENS = Counter(
+WORKER_TOKENS = _get_counter(
     "worker_tokens_total",
     "Total tokens processed",
-    labelnames=["worker_id", "worker_type"],
+    ["worker_id", "worker_type"],
 )
 
 

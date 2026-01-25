@@ -9,8 +9,8 @@ T = TypeVar("T")
 R = TypeVar("R")
 
 
-def setup_worker_environment() -> None:
-    os.environ.setdefault("TOKENIZERS_PARALLELISM", "true")
+def setup_worker_environment(tokenizers_parallelism: bool = False) -> None:
+    os.environ["TOKENIZERS_PARALLELISM"] = "true" if tokenizers_parallelism else "false"
 
 
 def get_worker_gpu_memory() -> float:

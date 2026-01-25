@@ -9,14 +9,21 @@ logger = logging.getLogger(__name__)
 
 
 class TokenizerWorker(BaseWorker[list[tuple[str, str]], TokenizedBatch]):
-    def __init__(self, worker_id: int, model_name: str, max_length: int = 512):
+    def __init__(
+        self,
+        worker_id: int,
+        model_name: str,
+        max_length: int = 512,
+        tokenizers_parallelism: bool = False,
+    ):
         super().__init__(worker_id, worker_type="tokenizer")
         self.model_name = model_name
         self.max_length = max_length
+        self.tokenizers_parallelism = tokenizers_parallelism
         self._tokenizer: TokenizerService | None = None
 
     def initialize(self) -> None:
-        setup_worker_environment()
+        setup_worker_environment(self.tokenizers_parallelism)
         self._tokenizer = TokenizerService(self.model_name, self.max_length)
         logger.info(f"Tokenizer worker {self.worker_id} loaded: {self.model_name}")
         self.set_ready()

@@ -1,0 +1,29 @@
+# @package _global_
+
+defaults:
+  - override /model_pool: default
+  - override /batching: default
+  - override /tokenizer_pool: default
+  - override /server: default
+  - override /pipeline: default
+
+name: "29a_tokenization_only_throughput"
+description: "Tokenizer-only throughput with fixed duration"
+
+pipeline:
+  enabled: true
+  mode: "tokenization_only"
+
+tokenizer_pool:
+  enabled: true
+  num_workers: 1
+
+batching:
+  enabled: false
+
+experiment:
+  batch_sizes: [64]
+  concurrency_levels: [16]
+  benchmark_duration_s: 30
+  prefill_requests: 64
+  dataset_size: 20000
