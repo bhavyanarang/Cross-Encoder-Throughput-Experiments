@@ -6,8 +6,8 @@ defaults:
   - override /tokenizer_pool: default
   - override /server: default
 
-name: "28b_tokenizers_parallelism_on"
-description: "Tokenizer parallelism enabled with single worker pools"
+name: "28e_tokenizers_parallelism_on_w4"
+description: "Tokenizer parallelism enabled with 4 worker pool"
 
 pipeline:
   enabled: true
@@ -25,7 +25,7 @@ batching:
   length_aware: false
 
 experiment:
-  batch_sizes: [64]
+  batch_sizes: [128]
   concurrency_levels: [16]
   benchmark_duration_s: 60
   prefill_requests: 128

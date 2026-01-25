@@ -6,17 +6,25 @@ defaults:
   - override /tokenizer_pool: default
   - override /server: default
 
-name: "28a_tokenizers_parallelism_off"
-description: "Tokenizer parallelism disabled with single worker pools"
+name: "30c_tokeniser_w1_parallel"
+description: "Full pipeline (1 tokenizer + 1 model) with parallelism enabled"
 
 pipeline:
   enabled: true
-  mode: "tokenization_only"
 
 tokenizer_pool:
   enabled: true
   num_workers: 1
-  tokenizers_parallelism: false
+  tokenizers_parallelism: true
+
+model_pool:
+  instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: "mps"
+      device: "mps"
+      quantization: "fp16"
+      compile_model: false
+      max_length: 200
 
 batching:
   enabled: false

@@ -265,16 +265,26 @@ Pre-configured dashboard available at `http://localhost:3001`:
 
 ## Results and Analysis
 
-### Experiment Results Ranking (by Throughput)
+### Throughput Benchmarks (MiniLM-L-6-v2, MPS, FP16, batch=128, concurrency=16)
 
-| Rank | Experiment | Throughput (p/s) | Latency (ms) | Key Insight |
-|------|------------|------------------|--------------|-------------|
-| 1 | 11: 3x Replicas | 1200.8 | 211.6 | Best throughput |
-| 2 | 10: 2x Pool + Tokenizer Pool | 1192.4 | 131.8 | Parallel tokenization + model pool |
-| 3 | 10: 2x Pool (opt) | 1011.6 | 126.1 | Best balance |
-| 4 | 14: Production | 679.6 | 141.1 | Best stability |
-| 5 | 07b: Dynamic Batch | 686.0 | 186.4 | Best single |
-| 6 | 10a: Padding Base | 687.4 | 93.0 | Best latency |
+| Configuration | Tokeniser Workers | Model Workers | Parallelism | RPS | Throughput (QPS) | Mean | P50 | P95 | P99 |
+|---------------|-------------|---------------|-------------|-----|------------|------|-----|-----|-----|
+| Tokenizer Only | 1 | - | off | 156 | ~20k | 101ms | 94ms | 225ms | 245ms |
+| Tokenizer Only | 1 | - | on | 301 | ~38.5k | 52ms | 45ms | 78ms | 192ms |
+| Tokenizer Only | 4 | - | on | 489 | ~62.5k | 32ms | 32ms | 56ms | 91ms |
+| Inference Only | - | 1 | - | 64 | ~8.2k | 248ms | 201ms | 442ms | 489ms |
+| Inference Only | - | 4 | - | 147 | ~18.9k | 150ms | 137ms | 406ms | 490ms |
+| Full Pipeline | 1 | 1 | off | 57 | ~7.3k | 276ms | 360ms | 486ms | 497ms |
+| Full Pipeline | 1 | 1 | on | 58 | ~7.4k | 274ms | 353ms | 485ms | 497ms |
+| Full Pipeline | 2 | 4 | on | 111 | ~14.2k | 156ms | 91ms | 456ms | 501ms |
+
+**Key Insights:**
+- Tokenizer parallelism (`TOKENIZERS_PARALLELISM=true`) nearly doubles throughput (20k → 38.5k) and halves latency (94ms → 45ms p50)
+- Tokenizer pool scaling: 4 workers achieves ~62.5k samples/sec with best latency (32ms p50, 91ms p99)
+- Model inference is the bottleneck: single model worker has 201ms p50 vs 94ms for tokenizer
+- Model pool scaling (4 workers): 2.3x throughput improvement (8.2k → 18.9k) with better p50 (201ms → 137ms)
+- Full pipeline limited by model: parallelism alone has minimal impact on throughput or latency
+- Scaling both pools (2 tok + 4 model) achieves 2x throughput with significantly better p50 (360ms → 91ms)
 
 ## Development
 

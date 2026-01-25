@@ -5,24 +5,17 @@ defaults:
   - override /batching: default
   - override /tokenizer_pool: default
   - override /server: default
+  - override /pipeline: default
 
-name: "28a_tokenizers_parallelism_off"
-description: "Tokenizer parallelism disabled with single worker pools"
+name: "29f_inference_only"
+description: "Inference-only baseline (128 batch size, 16 concurrency)"
 
 pipeline:
   enabled: true
-  mode: "tokenization_only"
-
-tokenizer_pool:
-  enabled: true
-  num_workers: 1
-  tokenizers_parallelism: false
+  mode: "inference_only"
 
 batching:
   enabled: false
-  max_batch_size: 64
-  timeout_ms: 50.0
-  length_aware: false
 
 experiment:
   batch_sizes: [128]

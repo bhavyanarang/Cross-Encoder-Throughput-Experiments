@@ -6,19 +6,37 @@ defaults:
   - override /tokenizer_pool: default
   - override /server: default
 
-name: "30b_tokeniser_w4"
-description: "Tokenizer pool (4 workers)"
+name: "30b_tokeniser_w2_model_w4"
+description: "Full pipeline (2 tokenizer + 4 model workers)"
 
 pipeline:
   enabled: true
 
 tokenizer_pool:
   enabled: true
-  num_workers: 4
+  num_workers: 2
   tokenizers_parallelism: true
 
 model_pool:
   instances:
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: "mps"
+      device: "mps"
+      quantization: "fp16"
+      compile_model: false
+      max_length: 200
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: "mps"
+      device: "mps"
+      quantization: "fp16"
+      compile_model: false
+      max_length: 200
+    - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+      backend: "mps"
+      device: "mps"
+      quantization: "fp16"
+      compile_model: false
+      max_length: 200
     - name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
       backend: "mps"
       device: "mps"
@@ -33,7 +51,7 @@ batching:
   length_aware: false
 
 experiment:
-  batch_sizes: [64]
+  batch_sizes: [128]
   concurrency_levels: [16]
   benchmark_duration_s: 60
   prefill_requests: 128

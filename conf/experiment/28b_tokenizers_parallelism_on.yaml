@@ -25,7 +25,7 @@ batching:
   length_aware: false
 
 experiment:
-  batch_sizes: [64]
+  batch_sizes: [128]
   concurrency_levels: [16]
   benchmark_duration_s: 60
   prefill_requests: 128
