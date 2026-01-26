@@ -28,8 +28,6 @@ Thumbs.db
 .cache/
 outputs/*
 .gitignore
-images/*
-!images/*screenshot*.png
 bin/*
 data/*
 logs/*

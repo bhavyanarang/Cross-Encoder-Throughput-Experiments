@@ -4,6 +4,7 @@ A high-performance ML inference server for cross-encoder models with support for
 
 ![Dashboard Screenshot](images/dashboard_screenshot.png)
 
+
 ## Setup
 
 ### Prerequisites
@@ -277,6 +278,13 @@ Pre-configured dashboard available at `http://localhost:3001`:
 | Full Pipeline | 1 | 1 | off | 57 | ~7.3k | 276ms | 360ms | 486ms | 497ms |
 | Full Pipeline | 1 | 1 | on | 58 | ~7.4k | 274ms | 353ms | 485ms | 497ms |
 | Full Pipeline | 2 | 4 | on | 111 | ~14.2k | 156ms | 91ms | 456ms | 501ms |
+
+### Tokeniser Latency
+![Tokeniser Latency](images/tokeniser_latency.png)
+
+### Tokeniser Throughput
+![Tokeniser Throughput](images/tokeniser_throughput.png)
+
 
 **Key Insights:**
 - Tokenizer parallelism (`TOKENIZERS_PARALLELISM=true`) nearly doubles throughput (20k → 38.5k) and halves latency (94ms → 45ms p50)
